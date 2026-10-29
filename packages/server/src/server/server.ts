@@ -397,9 +397,9 @@ export class Server extends Protocol<ServerContext> {
             this._negotiatedProtocolVersion = revision;
             this._boundFromTransport = true;
         }
-        const scopeChallenge = this._scopeChallenge;
-        if (scopeChallenge !== undefined && supportsScopeChallengeResolver(transport)) {
-            transport.setScopeChallengeResolver(context => scopeChallenge(context));
+        // Read at request time, so a handler set after connect() still applies.
+        if (supportsScopeChallengeResolver(transport)) {
+            transport.setScopeChallengeResolver(context => this._scopeChallenge?.(context));
         }
         await super.connect(transport);
     }
@@ -407,7 +407,8 @@ export class Server extends Protocol<ServerContext> {
     /**
      * Sets the callback that decides, before a request is dispatched, whether it
      * needs an OAuth scope challenge (`403 insufficient_scope`). The HTTP entries
-     * consult it for every request this instance serves. This is the low-level
+     * consult it for every request this instance serves, including when it is
+     * set after `connect()`. This is the low-level
      * counterpart of the per-primitive `scopeChallenge` option of
      * {@linkcode server/mcp.McpServer | McpServer}, which sets it itself.
      */
@@ -418,9 +419,10 @@ export class Server extends Protocol<ServerContext> {
     /**
      * Sets the lookup `createMcpHandler` uses to validate SEP-2243 `Mcp-Param-*`
      * headers on a `tools/call` before dispatch: the named tool's JSON
-     * `inputSchema`, as this instance's `tools/list` emits it, or `undefined`
-     * for an unknown tool. {@linkcode server/mcp.McpServer | McpServer} sets it
-     * itself.
+     * `inputSchema`, or `undefined` for an unknown tool. It must return the
+     * same schema this instance's `tools/list` emits, since clients derive the
+     * headers from that one. {@linkcode server/mcp.McpServer | McpServer} sets
+     * it itself.
      */
     setToolInputSchemaResolver(resolver: ToolInputSchemaResolver): void {
         this._toolInputSchema = resolver;

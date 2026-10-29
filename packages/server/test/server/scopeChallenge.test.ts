@@ -291,26 +291,39 @@ describe('legacy Streamable HTTP scope preflight', () => {
         await harness.transport.close();
     });
 
-    it('challenges a low-level Server through its scope challenge handler', async () => {
+    async function lowLevelCall(handler: 'before connect' | 'after connect' | 'none') {
         const calls = vi.fn();
         const server = new Server({ name: 'scope-test', version: '1.0.0' }, { capabilities: { tools: {} } });
         server.setRequestHandler('tools/call', async () => {
             calls();
             return { content: [] };
         });
-        server.setScopeChallengeHandler(requireScopes('repo:write'));
         const transport = new WebStandardStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             enableJsonResponse: true
         });
+        if (handler === 'before connect') server.setScopeChallengeHandler(requireScopes('repo:write'));
         await server.connect(transport);
+        if (handler === 'after connect') server.setScopeChallengeHandler(requireScopes('repo:write'));
         const sessionId = await initializeLegacy(transport);
-
         const response = await transport.handleRequest(legacyRequest(toolCall('operate'), sessionId), { authInfo: auth(['repo:read']) });
-
-        expect(response.status).toBe(403);
-        expect(response.headers.get('WWW-Authenticate')).toContain('scope="repo:write"');
-        expect(calls).not.toHaveBeenCalled();
         await transport.close();
+        return { response, calls };
+    }
+
+    it.each(['before connect', 'after connect'] as const)(
+        'challenges a low-level Server whose scope challenge handler is set %s',
+        async handler => {
+            const { response, calls } = await lowLevelCall(handler);
+            expect(response.status).toBe(403);
+            expect(response.headers.get('WWW-Authenticate')).toContain('scope="repo:write"');
+            expect(calls).not.toHaveBeenCalled();
+        }
+    );
+
+    it('dispatches to a low-level Server without a scope challenge handler', async () => {
+        const { response, calls } = await lowLevelCall('none');
+        expect(response.status).toBe(200);
+        expect(calls).toHaveBeenCalledTimes(1);
     });
 });
