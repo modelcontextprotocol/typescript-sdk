@@ -110,6 +110,26 @@ Then:
 4. Run `pnpm test:all` to verify all tests pass
 5. Submit a pull request
 
+### Schema-twin checkout recovery
+
+These steps require your branch to contain the `.gitattributes` change. In an existing clone with `core.autocrlf=true`, Git may keep CRLF copies of the schema files after pulling that change.
+
+Move the two schema files listed below to a new backup directory outside the repository, then run this from the repository root:
+
+```sh
+git checkout-index --index -- packages/core-internal/test/corpus/schema-twins/2025-11-25.schema.json packages/core-internal/test/corpus/schema-twins/2026-07-28.schema.json
+```
+
+This recreates the files from the index without changing the staged contents. Keep the backups if they contain local edits. Fresh clones do not need this step. Do not update the manifest’s hashes or sizes to make the test pass.
+
+To check the working-tree line endings:
+
+```sh
+git ls-files --eol -- packages/core-internal/test/corpus/schema-twins/2025-11-25.schema.json packages/core-internal/test/corpus/schema-twins/2026-07-28.schema.json
+```
+
+For unchanged schema twins, both files should show `i/lf w/lf attr/-text`: `i/` describes the index, `w/` the working tree, and `attr/-text` means text conversion is disabled. This checks line endings, not the manifest’s sizes or hashes.
+
 ### Good to know
 
 Details about this repository that neither the code nor the tools will tell you.

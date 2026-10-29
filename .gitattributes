@@ -1,0 +1,2 @@
+# Preserve the upstream bytes pinned by the schema-twin provenance manifest.
+packages/core-internal/test/corpus/schema-twins/*.schema.json -text
