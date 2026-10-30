@@ -14,6 +14,7 @@
  */
 import { SdkError, SdkErrorCode } from '../errors/sdkErrors';
 import type { InputRequiredResult, JSONRPCRequest, RequestMeta, Result, ResultMetaObject } from '../types/types';
+import { isPlainObject } from '../util/isPlainObject';
 import type { StandardSchemaV1 } from '../util/standardSchema';
 import type { WireCodec } from '../wire/codec';
 import type {
@@ -25,10 +26,6 @@ import type {
 import { runInputRequiredDriver } from './inputRequiredDriver';
 import type { BaseContext, NonCompleteResultFlow, RequestOptions } from './protocol';
 import { requestStateAccessor } from './protocol';
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 /**
  * Splits a retried request's `inputResponses` map into the BARE response

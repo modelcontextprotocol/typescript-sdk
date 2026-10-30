@@ -20,6 +20,7 @@
  * This module never reaches into a per-revision wire module directly.
  */
 import { PROTOCOL_VERSION_META_KEY } from '../types/constants';
+import { isPlainObject } from '../util/isPlainObject';
 import type { EnvelopeIssue } from '../wire/codec';
 import { codecForVersion, MODERN_WIRE_REVISION } from '../wire/codec';
 
@@ -28,10 +29,6 @@ import { codecForVersion, MODERN_WIRE_REVISION } from '../wire/codec';
 // type, so the bare re-export form is used.
 // eslint-disable-next-line unicorn/prefer-export-from
 export type { EnvelopeIssue };
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
 
 /** The `_meta` object of a message's params, when present. */
 export function requestMetaOf(params: unknown): Record<string, unknown> | undefined {

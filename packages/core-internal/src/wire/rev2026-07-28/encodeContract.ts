@@ -37,6 +37,7 @@ import { SERVER_INFO_META_KEY } from '../../types/constants';
 import { ProtocolErrorCode } from '../../types/enums';
 import { ProtocolError } from '../../types/errors';
 import type { Implementation, Result } from '../../types/types';
+import { isPlainObject } from '../../util/isPlainObject';
 
 /** The default cache policy when neither the handler nor configuration provides one. */
 export const DEFAULT_CACHE_TTL_MS = 0;
@@ -115,10 +116,6 @@ export function fillCacheFields(method: string, result: Result): Result {
     const filled = { ...provided, ttlMs, cacheScope } as Record<string | symbol, unknown>;
     delete filled[RESULT_CACHE_HINT_FALLBACK];
     return filled as Result;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /**

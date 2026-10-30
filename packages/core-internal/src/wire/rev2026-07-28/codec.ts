@@ -30,6 +30,7 @@ import type * as z from 'zod/v4';
 import { SdkError, SdkErrorCode } from '../../errors/sdkErrors';
 import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, LOG_LEVEL_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../types/constants';
 import type { CallToolResult, Implementation, Result, ResultMetaObject } from '../../types/types';
+import { isPlainObject } from '../../util/isPlainObject';
 import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec';
 import { appendTextFallbackForNonObject } from '../textFallback';
 import { buildSchemas2026 } from './buildSchemas';
@@ -42,10 +43,6 @@ import {
     hasNotificationMethod2026,
     hasRequestMethod2026
 } from './registry';
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
 
 /** Tri-state wrap of an optional Zod schema lookup (the function-only contract). */
 function triState<T>(schema: z.ZodType<T> | undefined, raw: unknown): ValidateOutcome<T> {

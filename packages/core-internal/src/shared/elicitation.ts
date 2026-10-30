@@ -13,6 +13,7 @@ import {
     UntitledSingleSelectEnumSchemaSchema
 } from '../types/schemas';
 import type { ElicitRequestFormParams, StringSchema } from '../types/types';
+import { isPlainObject } from '../util/isPlainObject';
 import { parseSchema, shapeKeys } from '../util/schema';
 import type { StandardSchemaWithJSON } from '../util/standardSchema';
 import { isLibraryFormatPattern, isStandardSchema, standardSchemaToJsonSchema } from '../util/standardSchema';
@@ -21,10 +22,6 @@ import { isLibraryFormatPattern, isStandardSchema, standardSchemaToJsonSchema } 
 export type ElicitInputParams = Omit<ElicitRequestFormParams, 'requestedSchema'> & {
     requestedSchema: ElicitRequestFormParams['requestedSchema'] | StandardSchemaWithJSON;
 };
-
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function convertStandardElicitationSchema(schema: StandardSchemaWithJSON): Record<string, unknown> {
     try {
@@ -74,7 +71,7 @@ const SUPPORTED_STRING_FORMATS: ReadonlySet<string> = new Set(StringSchemaSchema
 
 /** Walks one property node: keeps grammar keys, drops the library format pattern, rejects unknown constraints. */
 function walkProperty(node: unknown, path: string, vendor: string, unsupported: string[]): unknown {
-    if (!isJsonObject(node)) {
+    if (!isPlainObject(node)) {
         return node;
     }
     // Object.hasOwn: a `type` like 'constructor' must not resolve through the prototype chain.
@@ -111,7 +108,7 @@ function walkRequestedSchema(converted: Record<string, unknown>, vendor: string)
     const pruned: Record<string, unknown> = {};
     const unsupported: string[] = [];
     for (const [key, value] of Object.entries(converted)) {
-        if (key === 'properties' && isJsonObject(value)) {
+        if (key === 'properties' && isPlainObject(value)) {
             pruned[key] = Object.fromEntries(
                 Object.entries(value).map(([name, node]) => [name, walkProperty(node, `properties.${name}`, vendor, unsupported)])
             );
@@ -132,7 +129,7 @@ function walkRequestedSchema(converted: Record<string, unknown>, vendor: string)
 
 /** Names the properties that fail value validation, instead of surfacing a raw union dump. */
 function describeUnsupportedProperties(pruned: Record<string, unknown>, fallback: string): string {
-    if (!isJsonObject(pruned.properties)) {
+    if (!isPlainObject(pruned.properties)) {
         return fallback;
     }
     const offenders = Object.entries(pruned.properties)
@@ -147,7 +144,7 @@ function findDroppedConstraintPaths(original: unknown, parsed: unknown, path = '
     if (Array.isArray(original) && Array.isArray(parsed)) {
         return original.flatMap((item, index) => findDroppedConstraintPaths(item, parsed[index], `${path}[${index}]`));
     }
-    if (!isJsonObject(original) || !isJsonObject(parsed)) {
+    if (!isPlainObject(original) || !isPlainObject(parsed)) {
         return [];
     }
     return Object.entries(original).flatMap(([key, value]) => {

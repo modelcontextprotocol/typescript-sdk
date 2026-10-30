@@ -29,15 +29,12 @@
 import type * as z from 'zod/v4';
 
 import type { CallToolResult, Result } from '../../types/types';
+import { isPlainObject } from '../../util/isPlainObject';
 import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec';
 import { appendTextFallbackForNonObject } from '../textFallback';
 import { buildSchemas2025 } from './buildSchemas';
 import { isNonObjectJsonSchemaRoot, wrapOutputSchemaForLegacy } from './legacyWrap';
 import { getNotificationSchema, getRequestSchema, getResultSchema, hasNotificationMethod2025, hasRequestMethod2025 } from './registry';
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
 
 /** Tri-state wrap of an optional Zod schema lookup (the function-only contract). */
 function triState<T>(schema: z.ZodType<T> | undefined, raw: unknown): ValidateOutcome<T> {

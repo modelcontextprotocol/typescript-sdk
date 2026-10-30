@@ -74,6 +74,7 @@ import { ProtocolErrorCode } from '../types/enums';
 import { ProtocolError, UnsupportedProtocolVersionError } from '../types/errors';
 import { isJSONRPCErrorResponse, isJSONRPCNotification, isJSONRPCRequest, isJSONRPCResultResponse } from '../types/guards';
 import type { JSONRPCNotification, JSONRPCRequest, MessageClassification } from '../types/types';
+import { isPlainObject } from '../util/isPlainObject';
 import { envelopeClaimVersion, hasEnvelopeClaim, requestMetaOf, validateEnvelopeMeta } from './envelope';
 // Value encoding is shared between the standard `Mcp-Name` header and the
 // custom `Mcp-Param-*` headers; the codec module already imports the
@@ -650,10 +651,6 @@ export function validateStandardRequestHeaders(request: InboundHttpRequest, rout
         );
     }
     return undefined;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function classificationForClaim(claimedVersion: string | undefined): MessageClassification {

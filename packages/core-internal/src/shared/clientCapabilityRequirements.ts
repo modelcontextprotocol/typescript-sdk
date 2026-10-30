@@ -26,6 +26,7 @@
  * requirement table below feeds call site 1 only.
  */
 import type { ClientCapabilities } from '../types/types';
+import { isPlainObject } from '../util/isPlainObject';
 
 /**
  * Inbound request methods whose processing structurally requires a client
@@ -47,10 +48,6 @@ export const REQUIRED_CLIENT_CAPABILITIES_BY_METHOD: Readonly<Record<string, Cli
  */
 export function requiredClientCapabilitiesForRequest(method: string): ClientCapabilities | undefined {
     return Object.hasOwn(REQUIRED_CLIENT_CAPABILITIES_BY_METHOD, method) ? REQUIRED_CLIENT_CAPABILITIES_BY_METHOD[method] : undefined;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /**
