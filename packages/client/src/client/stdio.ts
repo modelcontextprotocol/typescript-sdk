@@ -109,6 +109,12 @@ export class StdioClientTransport implements Transport {
     private _readBuffer: ReadBuffer;
     private _serverParams: StdioServerParameters;
     private _stderrStream: PassThrough | null = null;
+    private _stdoutDataHandler?: (chunk: Buffer) => void;
+    private _stdoutErrorHandler?: (error: Error) => void;
+    private _stdinErrorHandler?: (error: Error) => void;
+    private _pendingDrainWaiters: Array<() => void> = [];
+    private _drainHandler?: () => void;
+    private _drainStream?: Stream;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -124,6 +130,11 @@ export class StdioClientTransport implements Transport {
 
     /**
      * Starts the server process and prepares to communicate with it.
+     *
+     * Intended to be called once per instance — the `Client` creates a new transport on reconnect.
+     * Restarting the same transport in place is not supported: with `stderr: 'pipe'`/`'overlapped'`,
+     * `close()` ends the stderr `PassThrough`, so a second `start()` would hand back an already-ended
+     * stream and stderr output would be lost.
      */
     async start(): Promise<void> {
         if (this._process) {
@@ -154,16 +165,23 @@ export class StdioClientTransport implements Transport {
                 resolve();
             });
 
+            this._process.on('exit', () => {
+                // Settle at exit, not just close: 'close' can lag behind if a grandchild inherits the child's stdio.
+                this.settlePendingSends();
+            });
+
             this._process.on('close', _code => {
                 this._process = undefined;
                 this.onclose?.();
+                this.settlePendingSends();
             });
 
-            this._process.stdin?.on('error', error => {
+            this._stdinErrorHandler = error => {
                 this.onerror?.(error);
-            });
+            };
+            this._process.stdin?.on('error', this._stdinErrorHandler);
 
-            this._process.stdout?.on('data', chunk => {
+            this._stdoutDataHandler = chunk => {
                 try {
                     this._readBuffer.append(chunk);
                     this.processReadBuffer();
@@ -171,11 +189,13 @@ export class StdioClientTransport implements Transport {
                     this.onerror?.(error as Error);
                     this.close().catch(() => {});
                 }
-            });
+            };
+            this._process.stdout?.on('data', this._stdoutDataHandler);
 
-            this._process.stdout?.on('error', error => {
+            this._stdoutErrorHandler = error => {
                 this.onerror?.(error);
-            });
+            };
+            this._process.stdout?.on('error', this._stdoutErrorHandler);
 
             if (this._stderrStream && this._process.stderr) {
                 this._process.stderr.pipe(this._stderrStream);
@@ -233,6 +253,7 @@ export class StdioClientTransport implements Transport {
     private async _dispose(): Promise<void> {
         const proc = this._process;
         this._process = undefined;
+        this.settlePendingSends();
         if (proc && proc.exitCode === null && proc.signalCode === null) {
             const exited = new Promise<void>(resolve => proc.once('exit', () => resolve()));
             try {
@@ -282,6 +303,26 @@ export class StdioClientTransport implements Transport {
             const processToClose = this._process;
             this._process = undefined;
 
+            // Detach the listeners installed in start() so late stdout cannot reach the JSON-RPC
+            // parser. The stderr pass-through is deliberately left attached until the child has
+            // fully shut down below, so stderr the child emits while dying still reaches consumers.
+            if (this._stdoutDataHandler) {
+                processToClose.stdout?.removeListener('data', this._stdoutDataHandler);
+                this._stdoutDataHandler = undefined;
+            }
+            if (this._stdoutErrorHandler) {
+                processToClose.stdout?.removeListener('error', this._stdoutErrorHandler);
+                this._stdoutErrorHandler = undefined;
+            }
+            if (this._stdinErrorHandler) {
+                processToClose.stdin?.removeListener('error', this._stdinErrorHandler);
+                this._stdinErrorHandler = undefined;
+            }
+            // Keep no-op error handlers so late errors cannot throw uncaught.
+            processToClose.stdin?.on('error', () => {});
+            processToClose.stdout?.on('error', () => {});
+            processToClose.stderr?.on('error', () => {});
+
             const closePromise = new Promise<void>(resolve => {
                 processToClose.once('close', () => {
                     resolve();
@@ -313,23 +354,94 @@ export class StdioClientTransport implements Transport {
                     // ignore
                 }
             }
+
+            // The child is gone: tear down the stderr pass-through so a shared stream the caller piped
+            // it into deterministically drops its pipe/drain listeners, even when the child never
+            // exited cleanly (e.g. a grandchild kept the child's stderr write-end open).
+            if (this._stderrStream) {
+                try {
+                    processToClose.stderr?.unpipe(this._stderrStream);
+                } catch {
+                    // ignore
+                }
+                this._stderrStream.end();
+            }
+
+            // A pending send may still wait on a 'drain' the dead process will never emit.
+            this.settlePendingSends();
         }
 
         this._readBuffer.clear();
     }
 
+    /**
+     * Sends a JSON-RPC message to the server over stdin.
+     *
+     * Resolves once the message bytes are handed to the stdin stream (`stdin.write()` accepts
+     * them) — not when the child reads or processes them. That holds on the happy path and when
+     * the process dies while a back-pressured send is still pending, which then resolves rather
+     * than rejects: the bytes were accepted and delivery past exit is out of scope. Use
+     * `onclose` — which fires exactly once — to learn the connection is gone. Between `exit` and
+     * `close` (for example when a grandchild holds the stdio open) a resolved send does not mean a
+     * reply will arrive, so do not treat resolution as liveness. Rejects `NotConnected` if the
+     * process is not running or has already exited.
+     */
     send(message: JSONRPCMessage): Promise<void> {
         return new Promise(resolve => {
-            if (!this._process?.stdin) {
+            const proc = this._process;
+            if (!proc?.stdin) {
+                throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
+            }
+            // The process may have exited while its 'close' is still pending (e.g. a grandchild
+            // holds its stdio); a send then would register a drain waiter only 'close' could
+            // settle. Reject as not connected instead, matching the post-close() path. (!= null
+            // treats a missing exitCode/signalCode as "not yet exited", not a dead process.)
+            if (proc.exitCode != null || proc.signalCode != null) {
                 throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
             }
 
             const json = serializeMessage(message);
-            if (this._process.stdin.write(json)) {
+            if (proc.stdin.write(json)) {
                 resolve();
-            } else {
-                this._process.stdin.once('drain', resolve);
+                return;
+            } else if (this._pendingDrainWaiters.length === 0) {
+                // Share one 'drain' wait so back-pressure cannot accumulate listeners on stdin.
+                this._drainStream = proc.stdin;
+                this._drainHandler = () => {
+                    this._drainHandler = undefined;
+                    this._drainStream = undefined;
+                    const waiters = this._pendingDrainWaiters;
+                    this._pendingDrainWaiters = [];
+                    for (const wait of waiters) {
+                        wait();
+                    }
+                };
+                this._drainStream.once('drain', this._drainHandler);
             }
+            this._pendingDrainWaiters.push(resolve);
         });
+    }
+
+    /**
+     * Resolve the send() promises still waiting on a stdin 'drain' that the process
+     * will no longer emit once it is gone. They resolve rather than reject: the bytes
+     * were already handed to stdin.write(), so delivery past process exit is out of scope
+     * — use onclose to learn the connection is gone.
+     *
+     * @internal
+     */
+    private settlePendingSends() {
+        const waiters = this._pendingDrainWaiters;
+        this._pendingDrainWaiters = [];
+        for (const wait of waiters) {
+            wait();
+        }
+        // The shared 'drain' wait may still be attached to a stdin the process will never drain;
+        // drop it so it does not linger on a dead stream.
+        if (this._drainHandler && this._drainStream) {
+            this._drainStream.removeListener('drain', this._drainHandler);
+            this._drainHandler = undefined;
+            this._drainStream = undefined;
+        }
     }
 }
