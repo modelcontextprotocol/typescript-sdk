@@ -25,7 +25,7 @@ import type {
 } from './inputRequiredDriver';
 import { runInputRequiredDriver } from './inputRequiredDriver';
 import type { BaseContext, NonCompleteResultFlow, RequestOptions } from './protocol';
-import { requestStateAccessor } from './protocol';
+import { requestStateAccessor } from './requestState';
 
 /**
  * Splits a retried request's `inputResponses` map into the BARE response
