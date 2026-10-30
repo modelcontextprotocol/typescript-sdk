@@ -339,6 +339,23 @@ describe('legacy Streamable HTTP scope preflight', () => {
         await transport.close();
     });
 
+    it('keeps a resolver set directly on the transport when a low-level Server has no handler', async () => {
+        const server = new Server({ name: 'scope-test', version: '1.0.0' }, { capabilities: { tools: {} } });
+        server.setRequestHandler('tools/call', async () => ({ content: [] }));
+        const transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            enableJsonResponse: true
+        });
+        transport.setScopeChallengeResolver(requireScopes('repo:write'));
+        await server.connect(transport);
+        const sessionId = await initializeLegacy(transport);
+
+        const response = await transport.handleRequest(legacyRequest(toolCall('operate'), sessionId), { authInfo: auth(['repo:read']) });
+
+        expect(response.status).toBe(403);
+        await transport.close();
+    });
+
     it('dispatches to a low-level Server without a scope challenge handler', async () => {
         const { response, calls } = await lowLevelCall('none');
         expect(response.status).toBe(200);

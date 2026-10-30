@@ -397,10 +397,8 @@ export class Server extends Protocol<ServerContext> {
             this._negotiatedProtocolVersion = revision;
             this._boundFromTransport = true;
         }
-        // Read at request time, so a handler set after connect() still applies.
-        if (supportsScopeChallengeResolver(transport)) {
-            transport.setScopeChallengeResolver(context => this._scopeChallenge?.(context));
-        }
+        // Without a handler, a resolver set directly on the transport stays in charge.
+        if (this._scopeChallenge !== undefined) this._installScopeChallenge(transport);
         await super.connect(transport);
     }
 
@@ -408,13 +406,23 @@ export class Server extends Protocol<ServerContext> {
      * Sets the callback that decides, before a request is dispatched, whether it
      * needs an OAuth scope challenge (`403 insufficient_scope`). The HTTP entries
      * consult it for every request this instance serves, including when it is
-     * set after `connect()`. Note that this will replace any previous handler,
-     * from the next request on. This is the low-level counterpart of the
-     * per-primitive `scopeChallenge` option of
+     * set after `connect()`; on a Streamable HTTP transport it then takes the
+     * place of any resolver set on the transport directly. Each request is
+     * checked once, before dispatch, against the handler in place when its check
+     * runs. Note that this will replace any previous handler. This is the
+     * low-level counterpart of the per-primitive `scopeChallenge` option of
      * {@linkcode server/mcp.McpServer | McpServer}, which sets it itself.
      */
     setScopeChallengeHandler(handler: ScopeChallengeHandler): void {
         this._scopeChallenge = handler;
+        if (this.transport !== undefined) this._installScopeChallenge(this.transport);
+    }
+
+    private _installScopeChallenge(transport: Transport): void {
+        if (supportsScopeChallengeResolver(transport)) {
+            // Read per request, so a replaced handler applies from the next request.
+            transport.setScopeChallengeResolver(context => this._scopeChallenge?.(context));
+        }
     }
 
     /**
