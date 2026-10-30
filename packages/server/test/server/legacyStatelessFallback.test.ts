@@ -161,6 +161,39 @@ describe('legacyStatelessFallback', () => {
         });
     });
 
+    it('tears the per-request pair down without running the request when the client aborted before the handler subscribed', async () => {
+        let toolRan = false;
+        let productClosed = false;
+        const handler = legacyStatelessFallback(() => {
+            const mcpServer = new McpServer({ name: 'fallback-early-abort', version: '1.0.0' });
+            mcpServer.registerTool('echo', { inputSchema: z.object({}) }, async () => {
+                toolRan = true;
+                return { content: [{ type: 'text', text: 'ran' }] };
+            });
+            mcpServer.server.onclose = () => {
+                productClosed = true;
+            };
+            return mcpServer;
+        });
+
+        const request = new Request('http://localhost/mcp', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json, text/event-stream'
+            },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'echo', arguments: {} } }),
+            signal: AbortSignal.abort()
+        });
+
+        const response = await handler(request);
+        expect(response.status).toBe(499);
+        await vi.waitFor(() => {
+            expect(productClosed).toBe(true);
+        });
+        expect(toolRan).toBe(false);
+    });
+
     it('answers factory failures with a 500 internal error body', async () => {
         const handler = legacyStatelessFallback(() => {
             throw new Error('factory exploded');
