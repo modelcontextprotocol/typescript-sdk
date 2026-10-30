@@ -76,12 +76,7 @@ import { isJSONRPCErrorResponse, isJSONRPCNotification, isJSONRPCRequest, isJSON
 import type { JSONRPCNotification, JSONRPCRequest, MessageClassification } from '../types/types';
 import { isPlainObject } from '../util/isPlainObject';
 import { envelopeClaimVersion, hasEnvelopeClaim, requestMetaOf, validateEnvelopeMeta } from './envelope';
-// Value encoding is shared between the standard `Mcp-Name` header and the
-// custom `Mcp-Param-*` headers; the codec module already imports the
-// `HeaderMismatch` constant and rejection type from here, so this is a benign
-// two-module cycle (both sides only consume the other's exports inside
-// function bodies, never at module-evaluation time).
-import { decodeMcpParamValue } from './mcpParamHeaders';
+import { decodeMcpParamValue } from './mcpParamValue';
 import { isModernProtocolVersion } from './protocolEras';
 
 /* ------------------------------------------------------------------------ *
