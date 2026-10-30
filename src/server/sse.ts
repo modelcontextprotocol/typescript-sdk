@@ -215,7 +215,10 @@ export class SSEServerTransport implements Transport {
             throw new Error('Not connected');
         }
 
-        this._sseResponse.write(`event: message\ndata: ${JSON.stringify(message)}\n\n`);
+        const safeJson = JSON.stringify(message)
+            .replace(/\u2028/g, '\\u2028')
+            .replace(/\u2029/g, '\\u2029');
+        this._sseResponse.write(`event: message\ndata: ${safeJson}\n\n`);
     }
 
     /**
