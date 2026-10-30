@@ -70,6 +70,7 @@ import {
     requestMetaOf,
     setNegotiatedProtocolVersion,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS,
+    toError,
     UnsupportedProtocolVersionError,
     validateEnvelopeMeta
 } from '@modelcontextprotocol/core-internal';
@@ -834,8 +835,4 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
             await closeAll();
         }
     };
-}
-
-function toError(value: unknown): Error {
-    return value instanceof Error ? value : new Error(String(value));
 }

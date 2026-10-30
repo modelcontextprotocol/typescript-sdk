@@ -49,6 +49,7 @@ import {
 import { isPlainObject } from '../util/isPlainObject';
 import type { StandardSchemaV1 } from '../util/standardSchema';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema';
+import { toError } from '../util/toError';
 import { bootstrapOutboundCodec } from '../wire/bootstrap';
 import type { LiftedWireMaterial, WireCodec } from '../wire/codec';
 import {
@@ -1535,7 +1536,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 try {
                     decoded = codec.decodeResult(request.method, response.result);
                 } catch (error) {
-                    return reject(error instanceof Error ? error : new Error(String(error)));
+                    return reject(toError(error));
                 }
                 if (decoded.kind === 'invalid') {
                     return reject(decoded.error);

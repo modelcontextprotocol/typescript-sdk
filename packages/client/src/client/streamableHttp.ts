@@ -19,6 +19,7 @@ import {
     SdkError,
     SdkErrorCode,
     SdkHttpError,
+    toError,
     unfollowedRedirect
 } from '@modelcontextprotocol/core-internal';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
@@ -746,7 +747,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 try {
                     this._scheduleReconnection(options, attemptCount + 1);
                 } catch (scheduleError) {
-                    this.onerror?.(scheduleError instanceof Error ? scheduleError : new Error(String(scheduleError)));
+                    this.onerror?.(toError(scheduleError));
                 }
             });
         };

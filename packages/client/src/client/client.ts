@@ -77,7 +77,8 @@ import {
     SdkErrorCode,
     SERVER_INFO_META_KEY,
     SUBSCRIPTION_ID_META_KEY,
-    SUPPORTED_MODERN_PROTOCOL_VERSIONS
+    SUPPORTED_MODERN_PROTOCOL_VERSIONS,
+    toError
 } from '@modelcontextprotocol/core-internal';
 
 import type { PriorDiscovery } from './probeClassifier';
@@ -1237,7 +1238,7 @@ export class Client extends Protocol<ClientContext> {
                 this._setupListChangedHandlers(effective);
             } catch (error) {
                 handlersRegistered = false;
-                this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+                this.onerror?.(toError(error));
             }
             const filter: SubscriptionFilter = handlersRegistered
                 ? {
@@ -1286,7 +1287,7 @@ export class Client extends Protocol<ClientContext> {
                         await this.close().catch(() => {});
                         throw error;
                     }
-                    this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+                    this.onerror?.(toError(error));
                 } finally {
                     options?.signal?.removeEventListener('abort', onConnectAbort);
                 }
@@ -1336,7 +1337,7 @@ export class Client extends Protocol<ClientContext> {
             try {
                 this._setupListChangedHandlers(this._listChangedConfig);
             } catch (error) {
-                this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+                this.onerror?.(toError(error));
             }
         }
     }
@@ -1855,7 +1856,7 @@ export class Client extends Protocol<ClientContext> {
 
     /** Route a custom-store failure to `onerror` without aborting the surrounding dispatch. */
     private _reportStoreError(e: unknown): void {
-        this.onerror?.(e instanceof Error ? e : new Error(String(e)));
+        this.onerror?.(toError(e));
     }
 
     /**
@@ -2161,7 +2162,7 @@ export class Client extends Protocol<ClientContext> {
             // response headers — `streamableHttp._send` rethrows with onerror
             // suppressed). `settle()` is idempotent so a locally-aborted send
             // hitting this path after `close()` is a no-op.
-            settle({ cause: 'remote', error: error instanceof Error ? error : new Error(String(error)) });
+            settle({ cause: 'remote', error: toError(error) });
         };
         try {
             this.transport
@@ -2645,7 +2646,7 @@ export class Client extends Protocol<ClientContext> {
                 const items = await fetcher();
                 onChanged(null, items);
             } catch (error) {
-                const newError = error instanceof Error ? error : new Error(String(error));
+                const newError = toError(error);
                 onChanged(newError, null);
             }
         };

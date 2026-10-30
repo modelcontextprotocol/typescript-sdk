@@ -30,7 +30,13 @@ import type {
     ServerCapabilities,
     SubscriptionFilter
 } from '@modelcontextprotocol/core-internal';
-import { codecForVersion, MODERN_WIRE_REVISION, SERVER_INFO_META_KEY, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core-internal';
+import {
+    codecForVersion,
+    MODERN_WIRE_REVISION,
+    SERVER_INFO_META_KEY,
+    SUBSCRIPTION_ID_META_KEY,
+    toError
+} from '@modelcontextprotocol/core-internal';
 
 import type { ServerEventBus } from './serverEventBus';
 import { honoredSubset, listenFilterAccepts, serverEventToNotification } from './serverEventBus';
@@ -159,7 +165,7 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
             try {
                 controller.enqueue(encoder.encode(frame));
             } catch (error) {
-                onerror?.(error instanceof Error ? error : new Error(String(error)));
+                onerror?.(toError(error));
             }
         };
         const writeNotification = (method: string, params: { _meta?: Record<string, unknown>; [key: string]: unknown }) => {
@@ -189,7 +195,7 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
             try {
                 unsubscribe?.();
             } catch (error) {
-                onerror?.(error instanceof Error ? error : new Error(String(error)));
+                onerror?.(toError(error));
             }
             if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
             abortCleanup?.();

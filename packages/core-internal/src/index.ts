@@ -35,6 +35,7 @@ export * from './util/inMemory';
 // (and name the same vocabulary) as the 2025 wire seam.
 export * from './util/schema';
 export * from './util/standardSchema';
+export * from './util/toError';
 export * from './util/zodCompat';
 export { codecForVersion, MODERN_WIRE_REVISION } from './wire/codec';
 // Revision-neutral warm-up entry for the lazy wire-schema layers. Exposes no

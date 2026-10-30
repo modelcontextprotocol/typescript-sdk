@@ -1,4 +1,5 @@
 import type { JSONRPCNotification, ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core-internal';
+import { toError } from '@modelcontextprotocol/core-internal';
 
 /**
  * A change event a server publishes for delivery on open `subscriptions/listen`
@@ -71,7 +72,7 @@ export class InMemoryServerEventBus implements ServerEventBus {
             try {
                 listener(event);
             } catch (error) {
-                this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+                this.onerror?.(toError(error));
             }
         }
     }

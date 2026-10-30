@@ -11,6 +11,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createServer } from 'node:http';
 
+import { toError } from '@modelcontextprotocol/core-internal';
 import type { McpServer, Server } from '@modelcontextprotocol/server';
 import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 
@@ -18,10 +19,6 @@ const SSE_PATH = '/sse';
 const POST_PATH = '/messages';
 
 type AnyServer = McpServer | Server;
-
-function toError(value: unknown): Error {
-    return value instanceof Error ? value : new Error(String(value));
-}
 
 export interface LegacySseHost {
     /** URL of the SSE endpoint; GET it to open a stream. */

@@ -54,6 +54,7 @@ import {
     SdkErrorCode,
     setNegotiatedProtocolVersion,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS,
+    toError,
     UnsupportedProtocolVersionError,
     validateMcpParamHeaders,
     validateStandardRequestHeaders
@@ -288,10 +289,6 @@ function jsonRpcErrorResponse(httpStatus: number, code: number, message: string,
 
 function rejectionResponse(rejection: InboundLadderRejection, id: RequestId | null = null): Response {
     return jsonRpcErrorResponse(rejection.httpStatus, rejection.code, rejection.message, rejection.data, id);
-}
-
-function toError(value: unknown): Error {
-    return value instanceof Error ? value : new Error(String(value));
 }
 
 function internalServerErrorResponse(id: RequestId | null = null): Response {
