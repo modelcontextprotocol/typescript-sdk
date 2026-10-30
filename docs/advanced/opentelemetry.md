@@ -126,14 +126,14 @@ Spans don't record tool arguments, tool results or prompt arguments. They do rec
 With HTTP instrumentation active too, the MCP server span stays a child of the client's MCP span and links to the HTTP server span. `createMcpHandler` needs nothing extra.
 
 ::: tip
-Sentry's `McpServer` integration also traces MCP, so with Sentry you get two spans per message. Remove the integration with `integrations: defaults => defaults.filter(integration => integration.name !== 'McpServer')`. Don't filter the `@modelcontextprotocol/*` scopes in a span processor instead: handler spans and the peer's spans would point at parents that are never exported.
+Already tracing MCP yourself? Pass `openTelemetry: false` to that `Client`, `McpServer` or `Server` to turn its instrumentation off. Sentry's `McpServer` integration also traces MCP; remove it with `integrations: defaults => defaults.filter(integration => integration.name !== 'McpServer')` to keep the SDK's spans instead. Don't filter the `@modelcontextprotocol/*` scopes in a span processor: handler spans and the peer's spans would point at parents that are never exported.
 :::
 
 The `examples/opentelemetry` story runs a traced client and server in separate processes over stdio and Streamable HTTP, and checks the trace crosses the wire.
 
 ## Recap
 
-- Register an OpenTelemetry SDK; `Client`, `McpServer` and `Server` need no configuration.
+- Register an OpenTelemetry SDK; `Client`, `McpServer` and `Server` need no configuration. `openTelemetry: false` turns one instance off.
 - Without a registered SDK, nothing is recorded and `params._meta` is untouched.
 - Trace context travels in `params._meta`, so client and server spans join one trace and handler spans nest under the server span.
 - Each instance records `mcp.client.operation.duration` and `mcp.server.operation.duration` with low-cardinality attributes.

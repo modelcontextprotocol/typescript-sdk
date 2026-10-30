@@ -322,7 +322,7 @@ export class Server extends Protocol<ServerContext> {
         options?: ServerOptions
     ) {
         super(options);
-        setProtocolInstrumentation(this, defaultInstrumentation());
+        if (options?.openTelemetry !== false) setProtocolInstrumentation(this, defaultInstrumentation());
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();

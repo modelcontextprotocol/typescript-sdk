@@ -97,6 +97,13 @@ export type ProtocolOptions = {
      * e.g., `['notifications/tools/list_changed']`
      */
     debouncedNotificationMethods?: string[];
+
+    /**
+     * Set to `false` to turn off this instance's OpenTelemetry instrumentation: no MCP spans or metrics, and no trace
+     * context added to outgoing `params._meta`. By default the SDK uses the global OpenTelemetry API, which records
+     * nothing until the application registers an OpenTelemetry SDK.
+     */
+    openTelemetry?: false;
 };
 
 /**

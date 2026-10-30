@@ -658,7 +658,7 @@ export class Client extends Protocol<ClientContext> {
         options?: ClientOptions
     ) {
         super(options);
-        setProtocolInstrumentation(this, defaultInstrumentation());
+        if (options?.openTelemetry !== false) setProtocolInstrumentation(this, defaultInstrumentation());
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
