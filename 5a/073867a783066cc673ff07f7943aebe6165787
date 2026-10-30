@@ -1,0 +1,29 @@
+.changeset/protocol-instrumentation.md
+  s_a5414f34b12e5c::t_28e4c4d49c79cb 7,13
+docs/advanced/opentelemetry.md
+  s_a5414f34b12e5c::t_5b0f7fc3fe306d 129,136
+packages/client/src/client/client.ts
+  s_a5414f34b12e5c::t_c7c7987d9d288f 661
+packages/core-internal/src/shared/protocol.ts
+  s_a5414f34b12e5c::t_4f958de9e1bd1b 100-106
+packages/server/src/server/server.ts
+  s_a5414f34b12e5c::t_af1166091797b2 325
+test/integration/test/otel/offSwitch.test.ts
+  s_a5414f34b12e5c::t_83ed013fbf4880 1-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "5a073867a783066cc673ff07f7943aebe6165787",
+  "prompts": {},
+  "sessions": {
+    "s_a5414f34b12e5c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17e7f-faec-72ed-aea6-f27d0ee483e2",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
