@@ -137,6 +137,37 @@ describe('DemoInMemoryAuthProvider', () => {
         });
     });
 
+    describe('redirectUriForAuthorizationCode', () => {
+        const validClient: OAuthClientInformationFull = {
+            client_id: 'test-client',
+            client_secret: 'test-secret',
+            redirect_uris: ['https://example.com/callback'],
+            scope: 'test-scope'
+        };
+
+        const params: AuthorizationParams = {
+            redirectUri: 'https://example.com/callback',
+            state: 'test-state',
+            codeChallenge: 'test-challenge-value',
+            scopes: ['test-scope']
+        };
+
+        it('returns the redirect URI for a valid authorization code', async () => {
+            await provider.authorize(validClient, params, mockResponse);
+            const code = new URL(mockResponse.getRedirectUrl()).searchParams.get('code')!;
+
+            const redirectUri = await provider.redirectUriForAuthorizationCode(validClient, code);
+
+            expect(redirectUri).toBe('https://example.com/callback');
+        });
+
+        it('returns undefined for an invalid authorization code', async () => {
+            const redirectUri = await provider.redirectUriForAuthorizationCode(validClient, 'invalid-code');
+
+            expect(redirectUri).toBeUndefined();
+        });
+    });
+
     describe('exchangeAuthorizationCode', () => {
         const validClient: OAuthClientInformationFull = {
             client_id: 'test-client',
@@ -209,6 +240,28 @@ describe('DemoInMemoryAuthProvider', () => {
 
             // Second exchange should fail
             await expect(provider.exchangeAuthorizationCode(validClient, code)).rejects.toThrow('Invalid authorization code');
+        });
+
+        it('revokes tokens issued for an authorization code', async () => {
+            const params: AuthorizationParams = {
+                redirectUri: 'https://example.com/callback',
+                state: 'test-state',
+                codeChallenge: 'test-challenge',
+                scopes: ['test-scope']
+            };
+
+            await provider.authorize(validClient, params, mockResponse);
+            const code = new URL(mockResponse.getRedirectUrl()).searchParams.get('code')!;
+
+            const tokens = await provider.exchangeAuthorizationCode(validClient, code);
+            await expect(provider.verifyAccessToken(tokens.access_token)).resolves.toMatchObject({
+                token: tokens.access_token,
+                clientId: validClient.client_id
+            });
+
+            await provider.revokeTokensForAuthorizationCode(validClient, code);
+
+            await expect(provider.verifyAccessToken(tokens.access_token)).rejects.toThrow('Invalid or expired token');
         });
 
         it('should validate resource when validateResource is provided', async () => {
