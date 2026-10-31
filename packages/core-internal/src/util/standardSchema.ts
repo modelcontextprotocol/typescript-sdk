@@ -170,7 +170,23 @@ let warnedZodFallback = false;
 export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
 
 /**
+ * Whether `schema` is itself an already-converted JSON Schema document rather than a live
+ * Standard Schema. Zod's `toJSONSchema()` retains a `~standard` prop on its output whose
+ * converters re-run the conversion from the original schema, so such a document must be
+ * used directly instead of re-converted (#3132). Live schemas never carry these keywords
+ * (zod: `def`, valibot: `entries`, ArkType nodes are functions), so `$schema`/`properties`
+ * cannot misfire on one.
+ */
+function isJsonSchemaDocument(schema: StandardJSONSchemaV1): boolean {
+    const { $schema, properties } = schema as { $schema?: unknown; properties?: unknown };
+    if (typeof $schema === 'string') return true;
+    return properties !== null && typeof properties === 'object';
+}
+
+/**
  * Converts a StandardSchema to JSON Schema for use as an MCP tool/prompt schema.
+ * A schema that is itself a JSON Schema document (e.g. zod's `toJSONSchema()`
+ * output) is used directly rather than re-converted.
  *
  * MCP requires `type: "object"` at the root of tool `inputSchema` and prompt
  * argument schemas; `outputSchema` may have any JSON Schema root (SEP-2106).
@@ -183,7 +199,9 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
 export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'input' | 'output' = 'input'): Record<string, unknown> {
     const std = schema['~standard'];
     let result: Record<string, unknown>;
-    if (std.jsonSchema) {
+    if (isJsonSchemaDocument(schema)) {
+        result = schema as unknown as Record<string, unknown>;
+    } else if (std.jsonSchema) {
         result = std.jsonSchema[io]({ target: JSON_SCHEMA_CONVERSION_TARGET });
     } else if (std.vendor === 'zod') {
         // zod 4.0–4.1 implements StandardSchemaV1 but not StandardJSONSchemaV1 (`~standard.jsonSchema`).
