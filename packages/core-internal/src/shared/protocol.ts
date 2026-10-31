@@ -961,25 +961,17 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         const dispatch = () => (handler === undefined ? fallback!(notification) : handler(notification, codec));
 
-        let settled: Promise<void>;
-        if (notification.method === 'notifications/progress') {
-            // Progress is dispatched synchronously so a progress notification that
-            // shares a read with its request's response is not deferred past
-            // _onresponse, which deletes the matching progress handler (see #3018).
-            // Async handler rejections and synchronous throws still route to _onerror.
-            settled = runInScope(scope, () => {
-                try {
-                    return Promise.resolve(dispatch());
-                } catch (error) {
-                    return Promise.reject(error);
-                }
-            });
-        } else {
-            // Other notifications keep microtask dispatch so their handlers do
-            // not run inside the transport's onmessage stack.
-            // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
-            settled = runInScope(scope, () => Promise.resolve().then(dispatch));
-        }
+        // Progress is dispatched synchronously so a progress notification that
+        // shares a read with its request's response is not deferred past
+        // _onresponse, which deletes the matching progress handler (see #3018).
+        // Other notifications keep microtask dispatch so their handlers do not
+        // run inside the transport's onmessage stack. Either way, synchronous
+        // throws and async rejections both settle the promise below and route to _onerror.
+        const settled = runInScope(scope, () =>
+            notification.method === 'notifications/progress'
+                ? new Promise<void>(resolve => resolve(dispatch()))
+                : Promise.resolve().then(dispatch)
+        );
 
         settled.then(
             () => scope?.end({ type: 'delivered' }),
