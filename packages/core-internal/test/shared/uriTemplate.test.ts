@@ -51,6 +51,21 @@ describe('UriTemplate', () => {
             expect(template.expand({ var: '/test' })).toBe('X#/test');
             expect(template.variableNames).toEqual(['var']);
         });
+
+        it.each(['intro', '/chapter?view=full', ''])('should match fragment value %j without its delimiter', section => {
+            const template = new UriTemplate('file:///doc{#section}');
+            expect(template.match(template.expand({ section }))).toEqual({ section });
+        });
+
+        it('should reject a fragment value without the fragment delimiter', () => {
+            const template = new UriTemplate('file:///doc{#section}');
+            expect(template.match('file:///docintro')).toBeNull();
+        });
+
+        it('should preserve reserved expansion matching without a fragment delimiter', () => {
+            const template = new UriTemplate('file:///doc{+section}');
+            expect(template.match('file:///docintro')).toEqual({ section: 'intro' });
+        });
     });
 
     describe('label expansion', () => {
