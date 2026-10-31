@@ -71,6 +71,10 @@ ProtocolError -32603: query.toLowerCase is not a function
 
 `callTool` rejected with a protocol error instead of resolving to an `isError: true` tool result — [Errors](../servers/errors.md) covers the difference.
 
+::: info
+`request.params` is the request parsed with the spec schema, so a member the spec does not define — a `resource_type` next to `name` and `arguments`, say — is dropped before your handler runs.
+:::
+
 ## Validate arguments yourself
 
 From one Zod `inputSchema` the SDK derives the JSON Schema the model sees, validates arguments before your handler runs, and infers the handler's argument types. Here you wrote the JSON Schema by hand, the cast went unchecked, and nothing tied the two together.
@@ -119,6 +123,8 @@ createMcpHandler(buildServer);
 ```
 
 Every serving recipe — [stdio](../serving/stdio.md), [HTTP](../serving/http.md) — applies to this server unchanged.
+
+For a custom HTTP entry built from `classifyInboundRequest` and `PerRequestHTTPServerTransport`, list the modern revision in the server's `supportedProtocolVersions`: `server.connect(transport)` then binds the instance to the revision the transport was classified at, and a modern revision the server does not list, or the SDK does not implement, is answered with `-32022`. Read the client's identity from `ctx.mcpReq.envelope`; the deprecated `getClientVersion()` and `getClientCapabilities()` stay empty on such an instance. Use a fresh instance for each per-request exchange, as the built-in HTTP entry does.
 
 ## Reach the low level from `McpServer`
 

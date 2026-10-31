@@ -1,6 +1,7 @@
 export * from './auth/errors';
 export * from './errors/crossBundleBrand';
 export * from './errors/sdkErrors';
+// Skills internals live on the `./ext/skills` subpath, not here, so package roots never load them.
 export * from './shared/auth';
 export * from './shared/authUtils';
 export * from './shared/clientCapabilityRequirements';
@@ -9,9 +10,11 @@ export * from './shared/inboundClassification';
 export * from './shared/inputRequired';
 export * from './shared/inputRequiredDriver';
 export * from './shared/inputRequiredEngine';
+export * from './shared/instrumentation';
 export * from './shared/mcpParamHeaders';
 export * from './shared/mediaType';
 export * from './shared/metadataUtils';
+export * from './shared/openTelemetry';
 export * from './shared/protocol';
 export * from './shared/protocolEras';
 export * from './shared/resultCacheHints';

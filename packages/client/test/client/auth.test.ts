@@ -1846,6 +1846,18 @@ describe('OAuth Authorization', () => {
             expect(authorizationUrl.searchParams.has('state')).toBe(false);
         });
 
+        it("omits consent prompt parameter for 'offline_access' when skipOfflineAccessConsentPrompt is set", async () => {
+            const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                redirectUrl: 'http://localhost:3000/callback',
+                scope: 'read write profile offline_access',
+                skipOfflineAccessConsentPrompt: true
+            });
+
+            expect(authorizationUrl.searchParams.get('scope')).toBe('read write profile offline_access');
+            expect(authorizationUrl.searchParams.has('prompt')).toBe(false);
+        });
+
         // OpenID Connect requires that the user is prompted for consent if the scope includes 'offline_access'
         it("includes consent prompt parameter if scope includes 'offline_access'", async () => {
             const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
@@ -2276,6 +2288,59 @@ describe('OAuth Authorization', () => {
             });
 
             expect(tokens).toEqual({ refresh_token: refreshToken, ...validTokens });
+        });
+
+        it.each([undefined, ''])('sends no scope parameter when scope is %j', async scope => {
+            mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => validTokens });
+
+            const tokens = await refreshAuthorization('https://auth.example.com', {
+                clientInformation: { client_id: 'client123' },
+                refreshToken: 'refresh123',
+                scope,
+                resource: 'https://api.example.com/mcp-server'
+            });
+
+            expect(String(mockFetch.mock.calls[0]![1].body)).toBe(
+                'grant_type=refresh_token&refresh_token=refresh123&resource=https%3A%2F%2Fapi.example.com%2Fmcp-server&client_id=client123'
+            );
+            expect(tokens).toEqual({ refresh_token: 'refresh123', ...validTokens });
+        });
+
+        it('sends the given scope, and returns it when the response has none', async () => {
+            mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => validTokens });
+
+            const tokens = await refreshAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                refreshToken: 'refresh123',
+                scope: 'read write'
+            });
+
+            expect((mockFetch.mock.calls[0]![1].body as URLSearchParams).get('scope')).toBe('read write');
+            expect(tokens.scope).toBe('read write');
+        });
+
+        it('returns the scope from the response over the one sent', async () => {
+            mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ...validTokens, scope: 'read' }) });
+
+            const tokens = await refreshAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                refreshToken: 'refresh123',
+                scope: 'read write'
+            });
+
+            expect(tokens.scope).toBe('read');
+        });
+
+        it('returns the scope sent when the response scope is empty', async () => {
+            mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ...validTokens, scope: '' }) });
+
+            const tokens = await refreshAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                refreshToken: 'refresh123',
+                scope: 'read write'
+            });
+
+            expect(tokens.scope).toBe('read write');
         });
 
         it('validates token response schema', async () => {
@@ -3102,6 +3167,65 @@ describe('OAuth Authorization', () => {
             Response.json(new OAuthError(code, message).toResponseObject(), { status: 400 });
 
         const storedTokens = { access_token: 'old-access', refresh_token: 'refresh123', issuer: 'https://auth.example.com' };
+
+        const refreshedWithoutScope = () => ({
+            ok: true,
+            status: 200,
+            json: async () => ({ access_token: 'new-access', token_type: 'Bearer' })
+        });
+        const refreshRequestBody = () => String(mockFetch.mock.calls.find(call => call[0].toString().includes('/token'))![1].body);
+
+        it('sends no scope on refresh by default, even when the stored tokens record one', async () => {
+            mockDiscoveryWithTokenEndpoint(refreshedWithoutScope);
+            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client' });
+            (mockProvider.tokens as Mock).mockResolvedValue({ ...storedTokens, scope: 'read write' });
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            await expect(auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server', scope: 'read write' })).resolves.toBe(
+                'AUTHORIZED'
+            );
+
+            expect(refreshRequestBody()).toBe(
+                'grant_type=refresh_token&refresh_token=refresh123&resource=https%3A%2F%2Fapi.example.com%2Fmcp-server&client_id=test-client'
+            );
+            expect(mockProvider.saveTokens).toHaveBeenCalledWith(
+                { access_token: 'new-access', token_type: 'Bearer', refresh_token: 'refresh123', issuer: 'https://auth.example.com' },
+                expect.anything()
+            );
+        });
+
+        it('sends what scopeForRefresh() returns on refresh, and saves it when the response has no scope', async () => {
+            mockDiscoveryWithTokenEndpoint(refreshedWithoutScope);
+            const stored = { ...storedTokens, scope: 'read write' };
+            const scopeForRefresh = vi.fn(async (tokens: StoredOAuthTokens) => tokens.scope);
+            const provider: OAuthClientProvider = { ...mockProvider, scopeForRefresh };
+            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client' });
+            (mockProvider.tokens as Mock).mockResolvedValue(stored);
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('AUTHORIZED');
+
+            expect(scopeForRefresh).toHaveBeenCalledExactlyOnceWith(stored);
+            expect(new URLSearchParams(refreshRequestBody()).get('scope')).toBe('read write');
+            expect(mockProvider.saveTokens).toHaveBeenCalledWith(expect.objectContaining({ scope: 'read write' }), expect.anything());
+        });
+
+        it('rejects with the error scopeForRefresh() throws, and starts no new authorization', async () => {
+            mockDiscoveryWithTokenEndpoint(refreshedWithoutScope);
+            const provider: OAuthClientProvider = {
+                ...mockProvider,
+                scopeForRefresh: () => {
+                    throw new Error('boom');
+                }
+            };
+            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client' });
+            (mockProvider.tokens as Mock).mockResolvedValue(storedTokens);
+
+            await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).rejects.toThrow('boom');
+
+            expect(mockProvider.redirectToAuthorization).not.toHaveBeenCalled();
+            expect(mockProvider.saveTokens).not.toHaveBeenCalled();
+        });
 
         it('propagates saveTokens errors after a successful refresh (#2034)', async () => {
             // Regression test: previously the catch block that wraps
@@ -4989,6 +5113,55 @@ describe('OAuth Authorization', () => {
                 expect(result).toBe('REDIRECT');
                 const authorizationUrl = redirectToAuthorization.mock.calls[0]![0] as URL;
                 expect(authorizationUrl.searchParams.get('scope')).toBe('mcp:read');
+                expect(authorizationUrl.searchParams.has('prompt')).toBe(false);
+            });
+
+            it('auth() omits prompt=consent for offline_access when provider.skipOfflineAccessConsentPrompt is true', async () => {
+                mockFetch.mockImplementation(url => {
+                    const urlString = url.toString();
+                    if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                        return Promise.resolve({ ok: false, status: 404 });
+                    }
+                    if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://api.example.com',
+                                authorization_endpoint: 'https://api.example.com/authorize',
+                                token_endpoint: 'https://api.example.com/token',
+                                response_types_supported: ['code'],
+                                scopes_supported: ['mcp:read', 'offline_access']
+                            })
+                        });
+                    }
+                    return Promise.resolve({ ok: false, status: 404 });
+                });
+                const redirectToAuthorization = vi.fn();
+                const provider: OAuthClientProvider = {
+                    get redirectUrl() {
+                        return 'http://localhost:3000/callback';
+                    },
+                    get clientMetadata() {
+                        return {
+                            redirect_uris: ['http://localhost:3000/callback'],
+                            scope: 'mcp:read',
+                            grant_types: ['authorization_code', 'refresh_token']
+                        };
+                    },
+                    skipOfflineAccessConsentPrompt: true,
+                    clientInformation: () => ({ client_id: 'static' }),
+                    tokens: () => undefined,
+                    saveTokens: vi.fn(),
+                    redirectToAuthorization,
+                    saveCodeVerifier: vi.fn(),
+                    codeVerifier: () => 'v'
+                };
+
+                const result = await auth(provider, { serverUrl: 'https://api.example.com/mcp' });
+                expect(result).toBe('REDIRECT');
+                const authorizationUrl = redirectToAuthorization.mock.calls[0]![0] as URL;
+                expect(authorizationUrl.searchParams.get('scope')).toBe('mcp:read offline_access');
                 expect(authorizationUrl.searchParams.has('prompt')).toBe(false);
             });
         });
