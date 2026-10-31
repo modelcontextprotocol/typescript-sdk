@@ -162,7 +162,11 @@
         "@modelcontextprotocol/core": "workspace:*",
         "zod": "catalog:runtimeShared"
     },
+    "peerDependencies": {
+        "@opentelemetry/api": "catalog:otel"
+    },
     "devDependencies": {
+        "@opentelemetry/api": "catalog:otel",
         "@cfworker/json-schema": "catalog:runtimeShared",
         "ajv": "catalog:runtimeShared",
         "ajv-formats": "catalog:runtimeShared",

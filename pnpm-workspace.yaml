@@ -46,6 +46,12 @@ catalogs:
         fastify: ^5.2.0
         hono: ^4.11.4
         raw-body: ^3.0.0
+    otel:
+        '@opentelemetry/api': ^1.9.0
+        '@opentelemetry/context-async-hooks': ^3.0.0
+        '@opentelemetry/core': ^3.0.0
+        '@opentelemetry/sdk-metrics': ^3.0.0
+        '@opentelemetry/sdk-trace': ^3.0.0
     runtimeShared:
         '@cfworker/json-schema': ^4.1.1
         ajv: ^8.17.1
