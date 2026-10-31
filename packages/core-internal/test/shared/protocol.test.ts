@@ -661,6 +661,43 @@ describe('protocol tests', () => {
         });
     });
 
+    describe('Notification dispatch ordering', () => {
+        test('keeps non-progress notification handlers on microtask dispatch', async () => {
+            await protocol.connect(transport);
+            const order: string[] = [];
+            protocol.fallbackNotificationHandler = async () => {
+                order.push('handler');
+            };
+
+            transport.onmessage?.({ jsonrpc: '2.0', method: 'notifications/custom-extension', params: {} });
+            order.push('after-onmessage');
+
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(order).toEqual(['after-onmessage', 'handler']);
+        });
+
+        test('a non-progress handler that closes the connection does not run inside onmessage', async () => {
+            await protocol.connect(transport);
+            const onErrorMock = vi.fn();
+            protocol.onerror = onErrorMock;
+            let closedDuringOnmessage = false;
+            let inOnmessage = false;
+            protocol.fallbackNotificationHandler = async () => {
+                closedDuringOnmessage = inOnmessage;
+                await protocol.close();
+            };
+
+            inOnmessage = true;
+            transport.onmessage?.({ jsonrpc: '2.0', method: 'notifications/custom-extension', params: {} });
+            inOnmessage = false;
+
+            await vi.waitFor(() => expect(protocol.transport).toBeUndefined());
+            expect(closedDuringOnmessage).toBe(false);
+            expect(onErrorMock).not.toHaveBeenCalled();
+        });
+    });
+
     describe('Debounced Notifications', () => {
         // We need to flush the microtask queue to test the debouncing logic.
         // This helper function does that.
