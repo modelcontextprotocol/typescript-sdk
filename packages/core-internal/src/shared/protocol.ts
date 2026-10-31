@@ -930,13 +930,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
         }
 
         const dispatch = () => (handler === undefined ? fallback!(notification) : handler(notification, codec));
-        const reportError = (error: unknown) => this._onerror(new Error(`Uncaught error in notification handler: ${error}`));
 
         if (notification.method !== 'notifications/progress') {
             // Other notifications keep microtask dispatch so their handlers do
             // not run inside the transport's onmessage stack.
             // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
-            Promise.resolve().then(dispatch).catch(reportError);
+            Promise.resolve()
+                .then(dispatch)
+                .catch(error => this._reportNotificationHandlerError(error));
             return;
         }
 
@@ -947,11 +948,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
         try {
             const result = dispatch();
             if (result !== undefined && typeof (result as PromiseLike<void>).then === 'function') {
-                Promise.resolve(result).catch(reportError);
+                Promise.resolve(result).catch(error => this._reportNotificationHandlerError(error));
             }
         } catch (error) {
-            reportError(error);
+            this._reportNotificationHandlerError(error);
         }
+    }
+
+    private _reportNotificationHandlerError(error: unknown): void {
+        this._onerror(new Error(`Uncaught error in notification handler: ${error}`));
     }
 
     private _onrequest(rawRequest: JSONRPCRequest, extra?: MessageExtraInfo): void {
