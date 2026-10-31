@@ -97,8 +97,9 @@ export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
         const localhostHosts = ['127.0.0.1', 'localhost', '::1'];
         if (localhostHosts.includes(host)) {
             app.use('*', localhostHostValidation());
-        } else if (host === '0.0.0.0' || host === '::') {
-            // Warn when binding to all interfaces without DNS rebinding protection.
+        } else {
+            // Warn when binding to any non-loopback host (all interfaces, a LAN address or a
+            // hostname) without DNS rebinding protection.
             // eslint-disable-next-line no-console
             console.warn(
                 `Warning: Server is binding to ${host} without DNS rebinding protection. ` +
