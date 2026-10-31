@@ -232,7 +232,9 @@ describe('run() manifest integration', () => {
             "import { Client } from '@modelcontextprotocol/sdk/client/index.js';\nexport { Client };\n"
         );
         // A cycle: src/loop -> the project root.
-        symlinkSync(dir, path.join(dir, 'src', 'loop'), 'dir');
+        // Creating a 'dir' symlink on Windows requires admin rights or
+        // Developer Mode; a junction does not and still forms the cycle.
+        symlinkSync(dir, path.join(dir, 'src', 'loop'), process.platform === 'win32' ? 'junction' : 'dir');
 
         const result = run(v1ToV2Migration, { targetDir: dir, dryRun: false });
 
