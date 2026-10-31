@@ -138,7 +138,7 @@ export class UriTemplate {
         if (part.names.length > 1) {
             const values = part.names.map(name => variables[name]).filter(v => v !== undefined);
             if (values.length === 0) return '';
-            return values.map(v => (Array.isArray(v) ? v[0] : v)).join(',');
+            return values.map(v => this.encodeValue(Array.isArray(v) ? (v[0] ?? '') : v, part.operator)).join(',');
         }
 
         const value = variables[part.name];
