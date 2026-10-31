@@ -22,6 +22,7 @@ import { fromJsonSchema } from '../../src/fromJsonSchema';
 import { createMcpHandler } from '../../src/server/createMcpHandler';
 import { invoke } from '../../src/server/invoke';
 import { McpServer } from '../../src/server/mcp';
+import { Server } from '../../src/server/server';
 
 const MODERN = '2026-07-28';
 const ENVELOPE = {
@@ -140,6 +141,39 @@ describe('SEP-2243 Mcp-Param-* server validation (createMcpHandler, modern era)'
         expect(await outcome({ 'Mcp-Param-Score': '9.9', 'Mcp-Param-Region': 'us-west1' })).toEqual([400, -32_020, 'Mcp-Param-Score']);
         expect(await outcome({ 'Mcp-Param-Region': 'us-west1' })).toEqual([400, -32_020, 'Mcp-Param-Score']);
         expect(await outcome({})).toEqual([400, -32_020, 'Mcp-Param-Score']);
+    });
+});
+
+describe('SEP-2243 Mcp-Param-* server validation for a low-level Server', () => {
+    function lowLevelFactory(withResolver: boolean, onCall = vi.fn()): () => Server {
+        return () => {
+            const s = new Server({ name: 'param-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+            s.setRequestHandler('tools/call', async request => {
+                onCall(request.params.arguments);
+                return { content: [] };
+            });
+            if (withResolver) s.setToolInputSchemaResolver(name => (name === 'route' ? REGION_INPUT_SCHEMA : undefined));
+            return s;
+        };
+    }
+
+    it('validates headers against the schema its resolver returns', async () => {
+        const onCall = vi.fn();
+        const handler = createMcpHandler(lowLevelFactory(true, onCall));
+        const matching = await handler.fetch(call({ region: 'us-west1' }, { 'Mcp-Param-Region': 'us-west1' }));
+        expect(matching.status).toBe(200);
+        const mismatched = await handler.fetch(call({ region: 'us-west1' }, { 'Mcp-Param-Region': 'eu' }));
+        expect(mismatched.status).toBe(400);
+        const body = (await mismatched.json()) as { error: { code: number; data?: { mismatch?: { header?: string } } } };
+        expect(body.error.code).toBe(-32_020);
+        expect(body.error.data?.mismatch?.header).toBe('Mcp-Param-Region');
+        expect(onCall).toHaveBeenCalledTimes(1);
+    });
+
+    it('checks nothing without a resolver', async () => {
+        const handler = createMcpHandler(lowLevelFactory(false));
+        const response = await handler.fetch(call({ region: 'us-west1' }, { 'Mcp-Param-Region': 'eu' }));
+        expect(response.status).toBe(200);
     });
 });
 

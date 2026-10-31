@@ -124,6 +124,8 @@ createMcpHandler(buildServer);
 
 Every serving recipe — [stdio](../serving/stdio.md), [HTTP](../serving/http.md) — applies to this server unchanged.
 
+Two HTTP checks run before dispatch and need to know your primitives: `Mcp-Param-*` headers are compared with a tool's `x-mcp-header` declarations, and a request can be answered with a `403 insufficient_scope` [scope challenge](../serving/authorization.md). `McpServer` supplies both from its registry. On `Server`, call `setToolInputSchemaResolver(name => schema)` and return exactly the `inputSchema` your `tools/list` advertises for that tool: headers are validated against what it returns, so a different schema checks them against one clients never saw. Also call `setScopeChallengeHandler(callback)` with a callback shaped like a registration's `scopeChallenge`, consulted for every request. Without them, the HTTP entries skip these checks.
+
 For a custom HTTP entry built from `classifyInboundRequest` and `PerRequestHTTPServerTransport`, list the modern revision in the server's `supportedProtocolVersions`: `server.connect(transport)` then binds the instance to the revision the transport was classified at, and a modern revision the server does not list, or the SDK does not implement, is answered with `-32022`. Read the client's identity from `ctx.mcpReq.envelope`; the deprecated `getClientVersion()` and `getClientCapabilities()` stay empty on such an instance. Use a fresh instance for each per-request exchange, as the built-in HTTP entry does.
 
 ## Reach the low level from `McpServer`
