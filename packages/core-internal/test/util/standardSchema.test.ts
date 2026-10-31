@@ -2,6 +2,18 @@ import * as z from 'zod/v4';
 
 import { standardSchemaToJsonSchema } from '../../src/util/standardSchema';
 
+/** Patches `~standard.jsonSchema.input` with a counter (#3132: the prop is readonly in zod's types). */
+function countInputConversions(schema: { '~standard': unknown }): () => number {
+    let count = 0;
+    const jsonSchema = (schema['~standard'] as { jsonSchema: Record<'input', (options: never) => unknown> }).jsonSchema;
+    const original = jsonSchema.input;
+    jsonSchema.input = (options: never) => {
+        count++;
+        return original(options);
+    };
+    return () => count;
+}
+
 describe('standardSchemaToJsonSchema', () => {
     test('emits type:object for plain z.object schemas', () => {
         const schema = z.object({ name: z.string(), age: z.number() });
@@ -38,5 +50,26 @@ describe('standardSchemaToJsonSchema', () => {
         const keys = Object.keys(result);
         expect(keys.filter(k => k === 'type')).toHaveLength(1);
         expect(result.type).toBe('object');
+    });
+
+    test('uses an already-converted toJSONSchema() document directly instead of re-converting', () => {
+        const document = z.object({ a: z.string() }).toJSONSchema();
+        const conversions = countInputConversions(document);
+
+        const result = standardSchemaToJsonSchema(document, 'input');
+
+        expect(conversions()).toBe(0);
+        expect(result).toEqual({ type: 'object', ...document });
+    });
+
+    test('still converts a live zod schema carrying ~standard', () => {
+        const schema = z.object({ a: z.string() });
+        const conversions = countInputConversions(schema);
+
+        const result = standardSchemaToJsonSchema(schema, 'input');
+
+        expect(conversions()).toBe(1);
+        expect(result.type).toBe('object');
+        expect(result.properties).toEqual({ a: { type: 'string' } });
     });
 });
