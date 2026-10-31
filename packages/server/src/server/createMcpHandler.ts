@@ -358,6 +358,11 @@ function createLegacyStatelessFallback(
             // Tear the per-request pair down when the client goes away before
             // the exchange completes.
             request.signal?.addEventListener('abort', teardown, { once: true });
+            // An abort that fired during the awaits above has no event left to deliver.
+            if (request.signal?.aborted) {
+                teardown();
+                return new Response(null, { status: 499 });
+            }
 
             const response = await transport.handleRequest(request, {
                 ...(options?.authInfo !== undefined && { authInfo: options.authInfo }),
