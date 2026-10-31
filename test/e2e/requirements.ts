@@ -155,7 +155,9 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'A response that arrives after the sender issued notifications/cancelled is ignored; the request stays failed and no error is raised.',
         knownFailures: [
             {
-                note: 'late response after cancellation fires client.onerror; spec says silently ignore'
+                transport: 'entryModern',
+                specVersion: '2026-07-28',
+                note: 'the per-request entry cancels by closing the request stream (protocol:cancel:http-stream-close), so the body never observes notifications/cancelled'
             }
         ]
     },

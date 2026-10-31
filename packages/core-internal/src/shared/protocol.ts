@@ -111,6 +111,9 @@ export type ProtocolOptions = {
  */
 export const DEFAULT_REQUEST_TIMEOUT_MSEC = 60_000;
 
+// Bounds the ids kept for cancelled requests whose peer never answers (the spec's expected case).
+const MAX_CANCELLED_MESSAGE_IDS = 512;
+
 /**
  * Options that can be given per request.
  */
@@ -590,6 +593,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification, codec: WireCodec) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
+    private _cancelledMessageIds: Set<number> = new Set();
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
@@ -860,6 +864,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     protected _onclose(): void {
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
+        this._cancelledMessageIds.clear();
         this._progressHandlers.clear();
         this._pendingDebouncedNotifications.clear();
 
@@ -1270,6 +1275,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         const handler = this._responseHandlers.get(messageId);
         if (handler === undefined) {
+            if (this._cancelledMessageIds.has(messageId)) {
+                this._cancelledMessageIds.delete(messageId);
+                return;
+            }
             this._onerror(new Error(`Received a response for an unknown message ID: ${JSON.stringify(response)}`));
             return;
         }
@@ -1520,6 +1529,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
             const cancel = (reason: unknown, outcome: 'timeout' | 'cancelled') => {
                 if (responseReceived) {
                     return;
+                }
+                this._cancelledMessageIds.add(messageId);
+                if (this._cancelledMessageIds.size > MAX_CANCELLED_MESSAGE_IDS) {
+                    const oldest = this._cancelledMessageIds.values().next().value;
+                    if (oldest !== undefined) this._cancelledMessageIds.delete(oldest);
                 }
                 this._progressHandlers.delete(messageId);
                 scope?.end({ type: outcome });
