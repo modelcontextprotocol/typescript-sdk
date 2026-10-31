@@ -1643,7 +1643,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'hosting:auth:missing-401': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#error-handling',
         behavior:
-            "A request without an Authorization header is rejected with 401; the WWW-Authenticate header carries resource_metadata (one of the spec's two permitted discovery mechanisms).",
+            "A request without an Authorization header is rejected with 401; the WWW-Authenticate header carries resource_metadata (one of the spec's two permitted discovery mechanisms) and omits an error code, because that parameter is already present (RFC 6750 §3.1).",
         transports: ['streamableHttp'],
         note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },

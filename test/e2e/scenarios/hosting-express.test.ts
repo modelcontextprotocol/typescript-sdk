@@ -88,13 +88,9 @@ verifies('hosting:auth:missing-401', async (_args: TestArgs) => {
     expect(res.status).toBe(401);
 
     const wwwAuth = res.headers.get('www-authenticate');
-    expect(wwwAuth).toBeTruthy();
-    expect(wwwAuth).toMatch(/^Bearer\b/i);
-    expect(wwwAuth).toContain('error="invalid_token"');
-    expect(wwwAuth).toContain(`resource_metadata="${RESOURCE_METADATA_URL}"`);
+    expect(wwwAuth).toBe(`Bearer resource_metadata="${RESOURCE_METADATA_URL}"`);
 
-    const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe('invalid_token');
+    expect(await res.json()).toEqual({});
 });
 
 verifies('hosting:auth:invalid-401', async (_args: TestArgs) => {
@@ -374,12 +370,8 @@ verifies('hosting:auth:query-token-ignored', async (_args: TestArgs) => {
     });
 
     expect(queryRes.status).toBe(401);
-    const wwwAuth = queryRes.headers.get('www-authenticate');
-    expect(wwwAuth).toBeTruthy();
-    expect(wwwAuth).toMatch(/^Bearer\b/i);
-    expect(wwwAuth).toContain('error="invalid_token"');
-    const queryBody = (await queryRes.json()) as { error?: string };
-    expect(queryBody.error).toBe('invalid_token');
+    expect(queryRes.headers.get('www-authenticate')).toBe(`Bearer resource_metadata="${RESOURCE_METADATA_URL}"`);
+    expect(await queryRes.json()).toEqual({});
 
     // Control: the same token in the Authorization header authenticates, proving only the query-string placement was ignored.
     const headerRes = await fetch(new URL('/mcp', host.baseUrl), {

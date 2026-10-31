@@ -16,7 +16,9 @@ const unauth = await fetch(url, {
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping' })
 });
 check.equal(unauth.status, 401);
-check.equal(extractWWWAuthenticateParams(unauth).error, 'invalid_token');
+const challenge = extractWWWAuthenticateParams(unauth);
+check.equal(challenge.error, undefined);
+check.equal(challenge.scope, 'mcp');
 
 // Authenticated → 200 and the tool sees the authInfo. Bearer auth is
 // HTTP-layer and era-agnostic; the client honours `--legacy` via `era`.

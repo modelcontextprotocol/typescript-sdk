@@ -1,5 +1,5 @@
 import type { VerifyBearerTokenOptions } from '@modelcontextprotocol/server';
-import { bearerAuthChallengeResponse, OAuthError, OAuthErrorCode, verifyBearerToken } from '@modelcontextprotocol/server';
+import { bearerAuthChallengeResponse, verifyBearerToken } from '@modelcontextprotocol/server';
 import type { RequestHandler } from 'express';
 
 /**
@@ -19,9 +19,10 @@ export type BearerAuthMiddlewareOptions = VerifyBearerTokenOptions;
  * `req.auth`. The MCP Streamable HTTP transport reads `req.auth` and surfaces
  * it to handlers as `ctx.http.authInfo`.
  *
- * On failure the middleware sends a JSON OAuth error body and a
- * `WWW-Authenticate: Bearer …` challenge that includes the configured
- * `resource_metadata` URL so clients can discover the Authorization Server.
+ * On failure the middleware sends the status, JSON body, and
+ * `WWW-Authenticate` challenge produced by `bearerAuthChallengeResponse`,
+ * including `resource_metadata` when configured so clients can discover the
+ * Authorization Server.
  */
 export function requireBearerAuth(options: BearerAuthMiddlewareOptions): RequestHandler {
     // Destructure at creation so a plain-JS caller passing undefined or
@@ -33,15 +34,14 @@ export function requireBearerAuth(options: BearerAuthMiddlewareOptions): Request
             req.auth = await verifyBearerToken(req.headers.authorization, resolved);
             next();
         } catch (error) {
-            // The core Response supplies status and challenge; the body is
-            // derived directly rather than parsed back out of the Response.
+            // Status, challenge, and body all come from the core response so
+            // a challenge that omits its error code does not regain one here.
             const response = bearerAuthChallengeResponse(error, resolved);
             const challenge = response.headers.get('WWW-Authenticate');
             if (challenge !== null) {
                 res.set('WWW-Authenticate', challenge);
             }
-            const body = error instanceof OAuthError ? error : new OAuthError(OAuthErrorCode.ServerError, 'Internal Server Error');
-            res.status(response.status).json(body.toResponseObject());
+            res.status(response.status).json(await response.json());
         }
     };
 }

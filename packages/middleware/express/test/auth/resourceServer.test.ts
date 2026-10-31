@@ -63,11 +63,26 @@ describe('requireBearerAuth middleware', () => {
         expect(res.status).toHaveBeenCalledWith(401);
         expect(res.set).toHaveBeenCalledWith(
             'WWW-Authenticate',
-            expect.stringMatching(
-                /^Bearer error="invalid_token".*resource_metadata="https:\/\/api\.example\.com\/\.well-known\/oauth-protected-resource"$/
-            )
+            'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
         );
-        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'invalid_token' }));
+        expect(res.json).toHaveBeenCalledWith({});
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('keeps invalid_token when the Authorization header is missing and no other challenge parameter is set', async () => {
+        const { req, res, next } = createMockReqResNext(undefined);
+        const middleware = requireBearerAuth({ verifier: mockVerifier });
+        await middleware(req, res, next);
+
+        expect(res.status).toHaveBeenCalledWith(401);
+        expect(res.set).toHaveBeenCalledWith(
+            'WWW-Authenticate',
+            'Bearer error="invalid_token", error_description="Missing Authorization header"'
+        );
+        expect(res.json).toHaveBeenCalledWith({
+            error: 'invalid_token',
+            error_description: 'Missing Authorization header'
+        });
         expect(next).not.toHaveBeenCalled();
     });
 
