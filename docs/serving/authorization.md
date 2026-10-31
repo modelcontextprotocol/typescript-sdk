@@ -39,7 +39,7 @@ const node = toNodeHandler(createMcpHandler(buildServer));
 app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 ```
 
-A request with a missing, malformed, or expired token gets `401` with the OAuth error code `invalid_token`. A valid token missing one of `requiredScopes` gets `403` with `insufficient_scope`. Both responses carry a `WWW-Authenticate: Bearer …` challenge whose `resource_metadata` parameter is the URL you passed — that challenge is what starts a client's OAuth flow.
+A malformed or expired token gets `401` with the OAuth error code `invalid_token`. A request that sends no `Authorization` header also gets `401`. When that challenge already includes `scope` or `resource_metadata`, it leaves out `error` and `error_description` (RFC 6750 §3.1) and the JSON body is `{}`. When neither parameter is configured, the challenge still includes `invalid_token`. A valid token missing one of `requiredScopes` gets `403` with `insufficient_scope`. The 401 and 403 challenges carry `resource_metadata` when you passed a URL — that parameter is what starts a client's OAuth flow.
 
 ::: info Coming from v1?
 The Authorization Server helpers (`mcpAuthRouter`, `ProxyOAuthServerProvider`, …) are frozen in `@modelcontextprotocol/server-legacy/auth`. Use a dedicated identity provider for new servers; this page only covers the resource-server half.
@@ -174,7 +174,7 @@ The callback runs before the primitive's input schema is validated or transforme
 
 - `requireBearerAuth` from `@modelcontextprotocol/server` is the same gate for web-standard `fetch` hosts; the Express middleware adapts the same core.
 - `requireBearerAuth` plus a `verifyAccessToken` you write turn an Express-mounted MCP route into an OAuth resource server; the SDK never issues tokens.
-- Missing, invalid, or expired tokens get `401 invalid_token`; a token missing a `requiredScopes` entry gets `403 insufficient_scope`; both carry a `WWW-Authenticate: Bearer` challenge.
+- A malformed or expired token gets `401 invalid_token`. A request with no `Authorization` header gets `401`, and that challenge omits the error code when `scope` or `resource_metadata` is present. A token missing a `requiredScopes` entry gets `403 insufficient_scope`. These responses carry a `WWW-Authenticate: Bearer` challenge.
 - `mcpAuthMetadataRouter` publishes the RFC 9728 document that challenge points at, plus a mirror of the AS metadata.
 - Verified auth flows `req.auth` → `ctx.http.authInfo`; per-operation callbacks can trigger HTTP `403` scope step-up before invocation, advertising the metadata URL the gate stamped onto `AuthInfo`.
 - The v1 Authorization Server helpers are frozen in `@modelcontextprotocol/server-legacy/auth`.

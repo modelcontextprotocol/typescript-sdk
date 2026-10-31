@@ -116,16 +116,29 @@ export function buildWwwAuthenticateHeader(
     errorCode: string,
     description: string,
     requiredScopes: readonly string[],
-    resourceMetadataUrl: string | undefined
+    resourceMetadataUrl: string | undefined,
+    omitError = false
 ): string {
-    let header = `Bearer error="${headerQuotedValue(errorCode)}", error_description="${headerQuotedValue(description)}"`;
+    // RFC 6750 §3.1: omit the error pair only when another auth-param remains.
+    const parts: string[] = [];
+    const hasOtherParam = requiredScopes.length > 0 || Boolean(resourceMetadataUrl);
+    if (!omitError || !hasOtherParam) {
+        parts.push(`error="${headerQuotedValue(errorCode)}"`, `error_description="${headerQuotedValue(description)}"`);
+    }
     if (requiredScopes.length > 0) {
-        header += `, scope="${headerQuotedValue(requiredScopes.join(' '))}"`;
+        parts.push(`scope="${headerQuotedValue(requiredScopes.join(' '))}"`);
     }
     if (resourceMetadataUrl) {
-        header += `, resource_metadata="${headerQuotedValue(resourceMetadataUrl)}"`;
+        parts.push(`resource_metadata="${headerQuotedValue(resourceMetadataUrl)}"`);
     }
-    return header;
+    return `Bearer ${parts.join(', ')}`;
+}
+
+/** No `Authorization` credentials were sent. Distinct from a token the server rejected. */
+class MissingAuthorizationError extends OAuthError {
+    constructor() {
+        super(OAuthErrorCode.InvalidToken, 'Missing Authorization header');
+    }
 }
 
 /**
@@ -149,7 +162,7 @@ export async function verifyBearerToken(
     const { verifier, requiredScopes = [], expectedResource } = options;
 
     if (!authorizationHeader) {
-        throw new OAuthError(OAuthErrorCode.InvalidToken, 'Missing Authorization header');
+        throw new MissingAuthorizationError();
     }
 
     const [type, token] = authorizationHeader.split(' ');
@@ -198,7 +211,10 @@ export async function verifyBearerToken(
  * challenge, with `resource_metadata` when configured so clients can discover
  * the Authorization Server), `500` for `server_error`, `400` for anything
  * else. A non-`OAuthError` value answers `500 server_error`. The body is the
- * OAuth error JSON.
+ * OAuth error JSON. A `401` for a request that sent no credentials omits
+ * `error` and `error_description` from the challenge and the body when
+ * `scope` or `resource_metadata` is present (RFC 6750 §3.1); with neither,
+ * the challenge keeps `invalid_token`.
  */
 export function bearerAuthChallengeResponse(
     error: unknown,
@@ -213,8 +229,12 @@ export function bearerAuthChallengeResponse(
 
     switch (error.code) {
         case OAuthErrorCode.InvalidToken: {
-            const challenge = buildWwwAuthenticateHeader(error.code, error.message, requiredScopes, resourceMetadataUrl);
-            return Response.json(error.toResponseObject(), { status: 401, headers: { 'WWW-Authenticate': challenge } });
+            const omitError = error instanceof MissingAuthorizationError && (requiredScopes.length > 0 || Boolean(resourceMetadataUrl));
+            const challenge = buildWwwAuthenticateHeader(error.code, error.message, requiredScopes, resourceMetadataUrl, omitError);
+            return Response.json(omitError ? {} : error.toResponseObject(), {
+                status: 401,
+                headers: { 'WWW-Authenticate': challenge }
+            });
         }
         case OAuthErrorCode.InsufficientScope: {
             const challenge = buildWwwAuthenticateHeader(error.code, error.message, requiredScopes, resourceMetadataUrl);
