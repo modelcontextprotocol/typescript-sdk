@@ -315,6 +315,7 @@ export class SSEClientTransport implements Transport {
                     this._last401Response = undefined;
                     reject(error);
                     this.onerror?.(error);
+                    this._closeIfStreamEnded();
                     return;
                 }
 
@@ -323,6 +324,7 @@ export class SSEClientTransport implements Transport {
                 const error = new SseError(event.code, redirect ?? event.message, event);
                 reject(error);
                 this.onerror?.(error);
+                this._closeIfStreamEnded();
             };
 
             this._eventSource.onopen = () => {
@@ -362,6 +364,13 @@ export class SSEClientTransport implements Transport {
                 this.onmessage?.(message);
             };
         });
+    }
+
+    // After start(), an EventSource that stopped reconnecting (readyState CLOSED) ends the connection.
+    private _closeIfStreamEnded(): void {
+        if (this._endpoint !== undefined && this._eventSource?.readyState === EventSource.CLOSED) {
+            void this.close();
+        }
     }
 
     async start() {
