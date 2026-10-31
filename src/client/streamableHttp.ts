@@ -541,7 +541,8 @@ export class StreamableHTTPClientTransport implements Transport {
 
                     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                     this._resourceMetadataUrl = resourceMetadataUrl;
-                    this._scope = scope;
+                    // Keep the scopes added by a step-up, so that a later 401 doesn't narrow them back to its challenge.
+                    this._scope = computeScopeUnion(this._scope, scope);
 
                     const result = await auth(this._authProvider, {
                         serverUrl: this._url,

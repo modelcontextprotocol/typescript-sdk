@@ -652,6 +652,7 @@ async function authInternal(
             metadata,
             resource,
             authorizationCode,
+            scope: resolvedScope,
             fetchFn
         });
 
@@ -1528,12 +1529,15 @@ export async function fetchToken(
         metadata,
         resource,
         authorizationCode,
+        scope,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
         resource?: string | URL;
         /** Authorization code for the default authorization_code grant flow */
         authorizationCode?: string;
+        /** Optional scope parameter from auth() options */
+        scope?: string;
         fetchFn?: FetchLike;
     } = {}
 ): Promise<OAuthTokens> {
@@ -1548,12 +1552,13 @@ export async function fetchToken(
     };
     let clientInformation = await readClientInformation();
 
-    const scope = provider.clientMetadata.scope;
+    // Prefer scope from options, fallback to provider.clientMetadata.scope
+    const effectiveScope = scope ?? provider.clientMetadata.scope;
 
     // Use provider's prepareTokenRequest if available, otherwise fall back to authorization_code
     let tokenRequestParams: URLSearchParams | undefined;
     if (provider.prepareTokenRequest) {
-        tokenRequestParams = await provider.prepareTokenRequest(scope);
+        tokenRequestParams = await provider.prepareTokenRequest(effectiveScope);
     }
 
     // Default to authorization_code grant if no custom prepareTokenRequest
