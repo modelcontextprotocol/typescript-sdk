@@ -661,14 +661,111 @@ describe('StreamableHTTPClientTransport', () => {
         // Verify fetch was called twice
         expect(fetchMock).toHaveBeenCalledTimes(2);
 
-        // Verify auth was called with the new scope
+        // Verify auth was called with the new scope, and without a token to refresh
         expect(authSpy).toHaveBeenCalledWith(
             mockAuthProvider,
             expect.objectContaining({
                 scope: 'new_scope',
+                forceReauthorization: true,
                 resourceMetadataUrl: new URL('http://example.com/resource')
             })
         );
+
+        authSpy.mockRestore();
+    });
+
+    it.each([
+        { granted: 'openid', challenged: 'tools:write', scope: 'openid tools:write', forceReauthorization: true },
+        { granted: 'openid tools:write', challenged: 'tools:write', scope: 'openid tools:write', forceReauthorization: false }
+    ])(
+        'upscopes from $granted to $challenged with scope "$scope" and forceReauthorization $forceReauthorization',
+        async ({ granted, challenged, scope, forceReauthorization }) => {
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'test',
+                params: {},
+                id: 'test-id'
+            };
+
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'access-token',
+                token_type: 'Bearer',
+                refresh_token: 'refresh-token',
+                scope: granted
+            });
+
+            const fetchMock = global.fetch as Mock;
+            fetchMock
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 403,
+                    statusText: 'Forbidden',
+                    headers: new Headers({ 'WWW-Authenticate': `Bearer error="insufficient_scope", scope="${challenged}"` }),
+                    text: () => Promise.resolve('Insufficient scope')
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 202,
+                    headers: new Headers()
+                });
+
+            const authModule = await import('../../src/client/auth.js');
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+
+            await transport.send(message);
+
+            // a refresh cannot add scopes (RFC 6749 section 6), and the scopes granted before are kept
+            expect(authSpy).toHaveBeenCalledWith(mockAuthProvider, expect.objectContaining({ scope, forceReauthorization }));
+
+            authSpy.mockRestore();
+        }
+    );
+
+    it('keeps the scopes of a step-up when a later 401 challenges a narrower scope', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        mockAuthProvider.tokens.mockResolvedValue({
+            access_token: 'access-token',
+            token_type: 'Bearer',
+            scope: 'openid'
+        });
+
+        const fetchMock = global.fetch as Mock;
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({ 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="tools:write"' }),
+                text: () => Promise.resolve('Insufficient scope')
+            })
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers({ 'WWW-Authenticate': 'Bearer scope="openid"' }),
+                text: () => Promise.resolve('Unauthorized')
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers()
+            });
+
+        const authModule = await import('../../src/client/auth.js');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        authSpy.mockResolvedValue('AUTHORIZED');
+
+        await transport.send(message);
+
+        expect(authSpy).toHaveBeenCalledTimes(2);
+        expect(authSpy).toHaveBeenLastCalledWith(mockAuthProvider, expect.objectContaining({ scope: 'openid tools:write' }));
 
         authSpy.mockRestore();
     });

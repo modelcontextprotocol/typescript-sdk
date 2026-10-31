@@ -459,6 +459,12 @@ export async function auth(
         scope?: string;
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
+        /**
+         * Starts a new authorization even when a refresh token is available. A refresh
+         * cannot add scopes (RFC 6749 §6), so the step-up of a `403 insufficient_scope`
+         * sets this when the requested scope is not covered by the granted one.
+         */
+        forceReauthorization?: boolean;
     }
 ): Promise<AuthResult> {
     try {
@@ -485,13 +491,15 @@ async function authInternal(
         authorizationCode,
         scope,
         resourceMetadataUrl,
-        fetchFn
+        fetchFn,
+        forceReauthorization
     }: {
         serverUrl: string | URL;
         authorizationCode?: string;
         scope?: string;
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
+        forceReauthorization?: boolean;
     }
 ): Promise<AuthResult> {
     // Check if the provider has cached discovery state to skip discovery
@@ -644,6 +652,7 @@ async function authInternal(
             metadata,
             resource,
             authorizationCode,
+            scope: resolvedScope,
             fetchFn
         });
 
@@ -665,7 +674,7 @@ async function authInternal(
     }
 
     // Handle token refresh or new authorization
-    if (tokens?.refresh_token) {
+    if (tokens?.refresh_token && !forceReauthorization) {
         try {
             // Attempt to refresh the token
             const newTokens = await refreshAuthorization(authorizationServerUrl, {
@@ -756,6 +765,33 @@ export async function selectResourceURL(
     }
     // Prefer the resource from metadata since it's what the server is telling us to request
     return new URL(resourceMetadata.resource);
+}
+
+/**
+ * Returns the union of space-delimited scope strings (RFC 6749 §3.3), each scope once, in first-seen order.
+ *
+ * The step-up of a `403 insufficient_scope` requests this union of the granted and the challenged scopes,
+ * so that the new token keeps the permissions granted before.
+ */
+export function computeScopeUnion(...scopes: ReadonlyArray<string | undefined>): string | undefined {
+    const seen = new Set<string>();
+    for (const scope of scopes) {
+        for (const token of scope?.split(/\s+/) ?? []) {
+            if (token) seen.add(token);
+        }
+    }
+    return seen.size > 0 ? [...seen].join(' ') : undefined;
+}
+
+/**
+ * Whether `union` contains a scope that `current` doesn't, both being space-delimited scope strings.
+ *
+ * An absent `current` is the empty set: an authorization server may omit the `scope` of a token
+ * when it equals the requested one (RFC 6749 §5.1), and refreshing would then risk dropping the new scope.
+ */
+export function isStrictScopeSuperset(union: string | undefined, current: string | undefined): boolean {
+    const currentSet = new Set((current ?? '').split(/\s+/).filter(Boolean));
+    return (union ?? '').split(/\s+/).some(token => token !== '' && !currentSet.has(token));
 }
 
 /**
@@ -1493,12 +1529,15 @@ export async function fetchToken(
         metadata,
         resource,
         authorizationCode,
+        scope,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
         resource?: string | URL;
         /** Authorization code for the default authorization_code grant flow */
         authorizationCode?: string;
+        /** Optional scope parameter from auth() options */
+        scope?: string;
         fetchFn?: FetchLike;
     } = {}
 ): Promise<OAuthTokens> {
@@ -1513,12 +1552,13 @@ export async function fetchToken(
     };
     let clientInformation = await readClientInformation();
 
-    const scope = provider.clientMetadata.scope;
+    // Prefer scope from options, fallback to provider.clientMetadata.scope
+    const effectiveScope = scope ?? provider.clientMetadata.scope;
 
     // Use provider's prepareTokenRequest if available, otherwise fall back to authorization_code
     let tokenRequestParams: URLSearchParams | undefined;
     if (provider.prepareTokenRequest) {
-        tokenRequestParams = await provider.prepareTokenRequest(scope);
+        tokenRequestParams = await provider.prepareTokenRequest(effectiveScope);
     }
 
     // Default to authorization_code grant if no custom prepareTokenRequest

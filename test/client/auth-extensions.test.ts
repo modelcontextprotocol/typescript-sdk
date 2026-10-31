@@ -80,6 +80,35 @@ describe('auth-extensions providers (end-to-end with auth())', () => {
         expect(result).toBe('AUTHORIZED');
     });
 
+    it('sends the scope requested from auth() in the token request of a ClientCredentialsProvider', async () => {
+        const provider = new ClientCredentialsProvider({
+            expectedIssuer: AUTH_SERVER_URL,
+            clientId: 'my-client',
+            clientSecret: 'my-secret',
+            clientName: 'test-client',
+            scope: 'read'
+        });
+
+        const requestedScopes: Array<string | null> = [];
+        const fetchMock = createMockOAuthFetch({
+            resourceServerUrl: RESOURCE_SERVER_URL,
+            authServerUrl: AUTH_SERVER_URL,
+            onTokenRequest: async (_url, init) => {
+                requestedScopes.push((init?.body as URLSearchParams).get('scope'));
+            }
+        });
+
+        // the step-up of a 403 insufficient_scope requests the union of the granted and the challenged scopes
+        const result = await auth(provider, {
+            serverUrl: RESOURCE_SERVER_URL,
+            scope: 'read write',
+            fetchFn: fetchMock
+        });
+
+        expect(result).toBe('AUTHORIZED');
+        expect(requestedScopes).toEqual(['read write']);
+    });
+
     it('authenticates using PrivateKeyJwtProvider with private_key_jwt', async () => {
         const provider = new PrivateKeyJwtProvider({
             expectedIssuer: AUTH_SERVER_URL,

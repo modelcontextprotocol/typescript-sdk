@@ -2066,6 +2066,20 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
+    'client-auth:stepup:scope-union': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#step-up-authorization-flow',
+        behavior:
+            'On 403 insufficient_scope the transport re-authorizes with the union of its previously-requested scope and the challenged scope (computeScopeUnion); the union is a plain string-set dedup with no hierarchical collapse.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:stepup:refresh-bypass-on-superset': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#step-up-authorization-flow',
+        behavior:
+            "On 403 insufficient_scope step-up: when the union scope is a strict superset of the current token's granted scope, auth() bypasses the refresh-token branch (forceReauthorization) and forces a fresh authorization request so the widened scope reaches the AS; when the token already covers the union, refresh is used.",
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
     'client-auth:as-metadata-discovery:priority-order': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#authorization-server-metadata-discovery',
         behavior:
