@@ -1849,14 +1849,10 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'hosting:auth:as:redirect-uri-scheme': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#communication-security',
-        behavior: 'The bundled registration endpoint accepts only redirect URIs that use HTTPS or target a loopback host.',
+        behavior:
+            'The bundled registration endpoint accepts only redirect URIs that use HTTPS or target a loopback host, and rejects redirect URIs that include a fragment.',
         transports: ['streamableHttp'],
-        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.',
-        knownFailures: [
-            {
-                note: 'The bundled registration endpoint validates redirect_uris only with SafeUrlSchema, so a non-HTTPS, non-loopback URI like http://attacker.example.com/callback is registered with 201 instead of being rejected with 400 invalid_client_metadata.'
-            }
-        ]
+        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'hosting:auth:as:redirect-uri-binding': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#open-redirection',

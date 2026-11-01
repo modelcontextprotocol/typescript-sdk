@@ -626,6 +626,10 @@ verifies('hosting:auth:as:redirect-uri-scheme', async (_args: TestArgs) => {
     expect(nonLoopbackHttp.status).toBe(400);
     const body = (await nonLoopbackHttp.json()) as { error?: string };
     expect(body.error).toBe('invalid_client_metadata');
+
+    const withFragment = await postRegistration(host.baseUrl, ['https://client.example.com/callback#fragment']);
+    expect(withFragment.status).toBe(400);
+    expect(((await withFragment.json()) as { error?: string }).error).toBe('invalid_client_metadata');
 });
 
 verifies('hosting:auth:as:redirect-uri-binding', async (_args: TestArgs) => {

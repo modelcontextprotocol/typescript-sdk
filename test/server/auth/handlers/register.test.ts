@@ -106,6 +106,50 @@ describe('Client Registration Handler', () => {
             expect(spyRegisterClient).not.toHaveBeenCalled();
         });
 
+        it('rejects plain-HTTP redirect URIs on non-loopback hosts', async () => {
+            const response = await supertest(app)
+                .post('/register')
+                .send({
+                    redirect_uris: ['https://client.example.com/callback', 'http://attacker.example.com/callback']
+                });
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('invalid_client_metadata');
+            expect(response.body.error_description).toContain('http://attacker.example.com/callback');
+            expect(spyRegisterClient).not.toHaveBeenCalled();
+        });
+
+        it('accepts plain-HTTP redirect URIs on loopback hosts', async () => {
+            const redirectUris = ['http://localhost:3000/callback', 'http://127.0.0.1:49152/callback', 'http://[::1]/callback'];
+
+            const response = await supertest(app).post('/register').send({ redirect_uris: redirectUris });
+
+            expect(response.status).toBe(201);
+            expect(response.body.redirect_uris).toEqual(redirectUris);
+        });
+
+        it('rejects redirect URIs with a fragment', async () => {
+            const response = await supertest(app)
+                .post('/register')
+                .send({
+                    redirect_uris: ['https://client.example.com/callback#fragment']
+                });
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('invalid_client_metadata');
+            expect(spyRegisterClient).not.toHaveBeenCalled();
+        });
+
+        it('accepts private-use URI scheme redirect URIs', async () => {
+            const response = await supertest(app)
+                .post('/register')
+                .send({
+                    redirect_uris: ['com.example.app:/oauth/callback']
+                });
+
+            expect(response.status).toBe(201);
+        });
+
         it('successfully registers client with minimal metadata', async () => {
             const clientMetadata: OAuthClientMetadata = {
                 redirect_uris: ['https://example.com/callback']
