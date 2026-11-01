@@ -40,8 +40,8 @@ describe('resource and template metadata title synchronization (#3103)', () => {
         );
 
         // 1. Initial list advertises title
-        let listResult = (await initializeAndRequest(server, { method: 'resources/list' })) as { resources: Array<{ uri: string; title?: string; mimeType?: string }> };
-        expect(listResult.resources[0].title).toBe('Original Title');
+        const listResult = (await initializeAndRequest(server, { method: 'resources/list' })) as { resources: Array<{ uri: string; title?: string; mimeType?: string }> };
+        expect(listResult.resources[0]?.title).toBe('Original Title');
         expect(resource.title).toBe('Original Title');
 
         // 2. Metadata update without title preserves existing title
@@ -71,8 +71,8 @@ describe('resource and template metadata title synchronization (#3103)', () => {
         );
 
         // 1. Initial templates list advertises title
-        let listResult = (await initializeAndRequest(server, { method: 'resources/templates/list' })) as { resourceTemplates: Array<{ name: string; title?: string }> };
-        expect(listResult.resourceTemplates[0].title).toBe('Template Original');
+        const listResult = (await initializeAndRequest(server, { method: 'resources/templates/list' })) as { resourceTemplates: Array<{ name: string; title?: string }> };
+        expect(listResult.resourceTemplates[0]?.title).toBe('Template Original');
         expect(template.title).toBe('Template Original');
 
         // 2. Metadata update without title preserves existing title
