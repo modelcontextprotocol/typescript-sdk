@@ -21,6 +21,9 @@ packages/core-internal/test/corpus/fixtures/
 # manifest.json by sha256 in schemaTwinConformance - reformatting breaks the lock.
 packages/core-internal/test/corpus/schema-twins/
 
+# Public REA catalog snapshot; its exact bytes are pinned in the transport test.
+packages/client/test/client/fixtures/rea-170-tools.json
+
 # Batch test cloned repos and results
 packages/codemod/batch-test/repos
 packages/codemod/batch-test/results
