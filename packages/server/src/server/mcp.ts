@@ -359,7 +359,7 @@ export class McpServer {
         ) {
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,
-                `Invalid arguments for tool ${toolName}: arguments contain more than the maximum of ${this._maxToolInputElements} elements`
+                `Input validation error: Invalid arguments for tool ${toolName}: arguments contain more than the maximum of ${this._maxToolInputElements} elements`
             );
         }
 
