@@ -30,12 +30,15 @@ export function mediaTypeEssence(header: string | null | undefined): string | un
     try {
         return contentType.parse(header).type;
     } catch {
-        const essence = (header.split(';', 1)[0] ?? '').trim().toLowerCase();
-        // A comma in the parameter tail of an unparseable value indicates
-        // joined duplicate headers — ambiguous, so no essence at all (keeps
-        // duplicate-header handling uniform whether or not the first copy
-        // carries parameters).
-        if (essence === '' || header.slice(essence.length).includes(',')) {
+        const segment = header.split(';', 1)[0] ?? '';
+        const essence = segment.trim().toLowerCase();
+        // A comma anywhere in an unparseable value — in the media-type
+        // segment or the parameter tail — indicates joined duplicate
+        // headers: ambiguous, so no essence at all (keeps duplicate-header
+        // handling uniform whether or not the first copy carries
+        // parameters). The tail check slices from the untrimmed segment so
+        // it stays aligned with the raw header.
+        if (essence === '' || segment.includes(',') || header.slice(segment.length).includes(',')) {
             return undefined;
         }
         return essence;
