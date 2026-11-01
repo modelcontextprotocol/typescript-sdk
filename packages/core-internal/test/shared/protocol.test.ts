@@ -135,6 +135,30 @@ describe('protocol tests', () => {
         expect((abortReason as SdkError).code).toBe(SdkErrorCode.ConnectionClosed);
     });
 
+    test('sends an error response when a request handler rejects with a nullish reason', async () => {
+        await protocol.connect(transport);
+
+        // A handler that rejects with `undefined` (a bare `reject()` or
+        // `throw null` in library code) must still yield a JSON-RPC error
+        // response; otherwise the error-response encode itself throws while
+        // indexing the nullish reason and the requester hangs until timeout.
+        protocol.setRequestHandler('ping', async () => Promise.reject(undefined));
+
+        transport.onmessage?.({ jsonrpc: '2.0', id: 1, method: 'ping', params: {} });
+
+        await vi.waitFor(() => {
+            const errorSend = sendSpy.mock.calls.find(
+                ([msg]) => (msg as JSONRPCErrorResponse)?.id === 1 && (msg as JSONRPCErrorResponse)?.error !== undefined
+            );
+            expect(errorSend).toBeDefined();
+        });
+
+        const errorSend = sendSpy.mock.calls.find(
+            ([msg]) => (msg as JSONRPCErrorResponse)?.id === 1 && (msg as JSONRPCErrorResponse)?.error !== undefined
+        )!;
+        expect((errorSend[0] as JSONRPCErrorResponse).error.message).toBeTruthy();
+    });
+
     test('should remove abort listener from caller signal when request settles', async () => {
         await protocol.connect(transport);
 
