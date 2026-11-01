@@ -662,12 +662,18 @@ verifies('protocol:timeout:basic', async ({ transport }: TestArgs) => {
 verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
     vi.useFakeTimers();
     try {
+        let onCall: () => void = () => {};
+        const callReceived = new Promise<void>(resolve => {
+            onCall = resolve;
+        });
+
         const makeServer = () => {
             const s = new McpServer({ name: 's', version: '0' });
             s.registerTool(
                 'slow-progress',
                 { inputSchema: z.object({ delayMs: z.number(), steps: z.number() }) },
                 async ({ delayMs, steps }, ctx) => {
+                    onCall();
                     const token = ctx.mcpReq._meta?.progressToken;
                     if (token !== undefined) {
                         for (let i = 1; i <= steps; i++) {
@@ -691,6 +697,11 @@ verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
         const delayMs = 200;
 
         const ticks: number[] = [];
+        let onTick: (() => void) | undefined;
+        const nextTick = () =>
+            new Promise<void>(resolve => {
+                onTick = resolve;
+            });
 
         const call = client.callTool(
             { name: 'slow-progress', arguments: { delayMs, steps: 100 } },
@@ -698,13 +709,27 @@ verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
                 timeout: perChunk,
                 resetTimeoutOnProgress: true,
                 maxTotalTimeout: maxTotal,
-                onprogress: p => ticks.push(p.progress)
+                onprogress: p => {
+                    ticks.push(p.progress);
+                    onTick?.();
+                    onTick = undefined;
+                }
             }
         );
-        call.catch(() => {});
+        const callSettled = call.then(
+            () => {},
+            () => {}
+        );
+
+        // An SSE round trip is real I/O: the POST must land before the fake clock moves, or the request timeout fires first.
+        await callReceived;
 
         for (let elapsed = 0; elapsed < maxTotal + perChunk; elapsed += delayMs) {
+            const tick = nextTick();
             await vi.advanceTimersByTimeAsync(delayMs);
+            // Wait for the notification to arrive before advancing again, so the clock cannot outrun the SSE stream.
+            const next = await Promise.race([tick.then(() => 'progress' as const), callSettled.then(() => 'settled' as const)]);
+            if (next === 'settled') break;
         }
 
         await expect(call).rejects.toBeInstanceOf(SdkError);
