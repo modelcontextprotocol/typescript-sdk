@@ -20,6 +20,16 @@ export function normalizeHeaders(headers: RequestInit['headers'] | undefined): R
     return { ...(headers as Record<string, string>) };
 }
 
+function mergeHeaders(base: RequestInit['headers'], override: RequestInit['headers']): Record<string, string> {
+    const overrideHeaders = normalizeHeaders(override);
+    const overrideNames = new Set(Object.keys(overrideHeaders).map(name => name.toLowerCase()));
+
+    return {
+        ...Object.fromEntries(Object.entries(normalizeHeaders(base)).filter(([name]) => !overrideNames.has(name.toLowerCase()))),
+        ...overrideHeaders
+    };
+}
+
 /**
  * Creates a fetch function that includes base `RequestInit` options.
  * This ensures requests inherit settings like credentials, mode, headers, etc. from the base init.
@@ -39,7 +49,7 @@ export function createFetchWithInit(baseFetch: FetchLike = fetch, baseInit?: Req
             ...baseInit,
             ...init,
             // Headers need special handling - merge instead of replace
-            headers: init?.headers ? { ...normalizeHeaders(baseInit.headers), ...normalizeHeaders(init.headers) } : baseInit.headers
+            headers: init?.headers ? mergeHeaders(baseInit.headers, init.headers) : baseInit.headers
         };
         return baseFetch(url, mergedInit);
     };
