@@ -862,6 +862,14 @@ export function applyClientAuthentication(
     }
 }
 
+/** RFC 3986 percent-encoding matching the Python SDK's `quote(value, safe="")`, which leaves `~` alone. */
+function percentEncode(value: string): string {
+    return encodeURIComponent(value).replaceAll(/[!'()*]/g, c => {
+        const codePoint = c.codePointAt(0) ?? 0;
+        return `%${codePoint.toString(16).toUpperCase()}`;
+    });
+}
+
 /**
  * Applies HTTP Basic authentication (RFC 6749 Section 2.3.1)
  */
@@ -870,7 +878,8 @@ export function applyBasicAuth(clientId: string, clientSecret: string | undefine
         throw new Error('client_secret_basic authentication requires a client_secret');
     }
 
-    const credentials = btoa(`${clientId}:${clientSecret}`);
+    // RFC 6749 §2.3.1: both halves are encoded before being joined with ":".
+    const credentials = btoa(`${percentEncode(clientId)}:${percentEncode(clientSecret)}`);
     headers.set('Authorization', `Basic ${credentials}`);
 }
 
