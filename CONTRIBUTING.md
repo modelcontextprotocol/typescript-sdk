@@ -112,6 +112,8 @@ Then:
 
 ### Schema-twin checkout recovery
 
+The one-off Windows validation used `core.autocrlf=true`; `core.autocrlf=input` was not covered by that run. With `input`, Git does not convert line endings on checkout, and `-text` disables conversion for these two files.
+
 These steps require your branch to contain the `.gitattributes` change. In an existing clone with `core.autocrlf=true`, Git may keep CRLF copies of the schema files after pulling that change.
 
 Move the two schema files listed below to a new backup directory outside the repository, then run this from the repository root:
