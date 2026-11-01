@@ -261,37 +261,34 @@ export class McpServer {
         // Note: tools are listed in registration (insertion) order, which keeps the ordering
         // deterministic across requests when the underlying tool set has not changed, as
         // recommended by the spec.
-        this.server.setRequestHandler(
-            'tools/list',
-            (): ListToolsResult => ({
-                tools: Object.entries(this._registeredTools)
-                    .filter(([, tool]) => tool.enabled)
-                    .map(([name, tool]): Tool => {
-                        const toolDefinition: Tool = {
-                            name,
-                            title: tool.title,
-                            description: tool.description,
-                            inputSchema: tool.inputSchema
-                                ? (convertListedInputSchema(name, tool.inputSchema) as Tool['inputSchema'])
-                                : EMPTY_OBJECT_JSON_SCHEMA,
-                            annotations: tool.annotations,
-                            icons: tool.icons,
-                            execution: tool.execution,
-                            _meta: tool._meta
-                        };
+        this.server.setRequestHandler('tools/list', (): ListToolsResult => ({
+            tools: Object.entries(this._registeredTools)
+                .filter(([, tool]) => tool.enabled)
+                .map(([name, tool]): Tool => {
+                    const toolDefinition: Tool = {
+                        name,
+                        title: tool.title,
+                        description: tool.description,
+                        inputSchema: tool.inputSchema
+                            ? (convertListedInputSchema(name, tool.inputSchema) as Tool['inputSchema'])
+                            : EMPTY_OBJECT_JSON_SCHEMA,
+                        annotations: tool.annotations,
+                        icons: tool.icons,
+                        execution: tool.execution,
+                        _meta: tool._meta
+                    };
 
-                        if (tool.outputSchema) {
-                            // SEP-2106 legacy interop (non-object outputSchema roots wrapped in
-                            // `{type:'object',properties:{result:<natural>},required:['result']}` toward
-                            // 2025-era clients) lives in the 2025 wire codec's `encodeResult('tools/list', …)`
-                            // — this handler is era-blind and emits the natural converted schema.
-                            toolDefinition.outputSchema = standardSchemaToJsonSchema(tool.outputSchema, 'output') as Tool['outputSchema'];
-                        }
+                    if (tool.outputSchema) {
+                        // SEP-2106 legacy interop (non-object outputSchema roots wrapped in
+                        // `{type:'object',properties:{result:<natural>},required:['result']}` toward
+                        // 2025-era clients) lives in the 2025 wire codec's `encodeResult('tools/list', …)`
+                        // — this handler is era-blind and emits the natural converted schema.
+                        toolDefinition.outputSchema = standardSchemaToJsonSchema(tool.outputSchema, 'output') as Tool['outputSchema'];
+                    }
 
-                        return toolDefinition;
-                    })
-            })
-        );
+                    return toolDefinition;
+                })
+        }));
 
         this.server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult | InputRequiredResult> => {
             const tool = this._registeredTools[request.params.name];
@@ -347,11 +344,11 @@ export class McpServer {
      */
     private async validateToolInput<
         ToolType extends RegisteredTool,
-        Args extends ToolType['inputSchema'] extends infer InputSchema
+        Args extends (ToolType['inputSchema'] extends infer InputSchema
             ? InputSchema extends StandardSchemaWithJSON
                 ? StandardSchemaWithJSON.InferOutput<InputSchema>
                 : undefined
-            : undefined
+            : undefined)
     >(tool: ToolType, args: Args, toolName: string): Promise<Args> {
         if (
             this._maxToolInputElements !== undefined &&
@@ -633,23 +630,20 @@ export class McpServer {
             }
         });
 
-        this.server.setRequestHandler(
-            'prompts/list',
-            (): ListPromptsResult => ({
-                prompts: Object.entries(this._registeredPrompts)
-                    .filter(([, prompt]) => prompt.enabled)
-                    .map(([name, prompt]): Prompt => {
-                        return {
-                            name,
-                            title: prompt.title,
-                            description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined,
-                            icons: prompt.icons,
-                            _meta: prompt._meta
-                        };
-                    })
-            })
-        );
+        this.server.setRequestHandler('prompts/list', (): ListPromptsResult => ({
+            prompts: Object.entries(this._registeredPrompts)
+                .filter(([, prompt]) => prompt.enabled)
+                .map(([name, prompt]): Prompt => {
+                    return {
+                        name,
+                        title: prompt.title,
+                        description: prompt.description,
+                        arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined,
+                        icons: prompt.icons,
+                        _meta: prompt._meta
+                    };
+                })
+        }));
 
         this.server.setRequestHandler('prompts/get', async (request, ctx): Promise<GetPromptResult | InputRequiredResult> => {
             const prompt = this._registeredPrompts[request.params.name];
@@ -833,7 +827,10 @@ export class McpServer {
                     if (updates.metadata.title !== undefined) {
                         registeredResourceTemplate.title = updates.metadata.title;
                     } else if (registeredResourceTemplate.title !== undefined) {
-                        registeredResourceTemplate.metadata = { ...registeredResourceTemplate.metadata, title: registeredResourceTemplate.title };
+                        registeredResourceTemplate.metadata = {
+                            ...registeredResourceTemplate.metadata,
+                            title: registeredResourceTemplate.title
+                        };
                     }
                 }
                 if (updates.title !== undefined) {
