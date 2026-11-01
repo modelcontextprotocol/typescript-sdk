@@ -13,6 +13,28 @@ import { isDpopNonceChallenge } from './dpop';
  */
 export type Middleware = (next: FetchLike) => FetchLike;
 
+function parseRequestUrl(input: unknown, base?: string | URL): URL | undefined {
+    try {
+        if (typeof input === 'string') {
+            return new URL(input, base ? base.toString() : 'http://localhost');
+        }
+        if (input instanceof URL) {
+            return input;
+        }
+        if (typeof input === 'object' && input !== null) {
+            if ('url' in input && typeof (input as Request).url === 'string') {
+                return new URL((input as Request).url, base ? base.toString() : 'http://localhost');
+            }
+            if ('origin' in input && typeof (input as { origin: unknown }).origin === 'string') {
+                return new URL((input as { origin: string }).origin);
+            }
+        }
+    } catch {
+        return undefined;
+    }
+    return undefined;
+}
+
 /**
  * Creates a fetch wrapper that handles OAuth authentication automatically.
  *
@@ -31,7 +53,7 @@ export type Middleware = (next: FetchLike) => FetchLike;
  * - Making requests to multiple subdomains (e.g., api.example.com, cdn.example.com)
  * - Using API paths that differ from OAuth discovery paths (e.g., requesting /api/v1/data but OAuth is at /)
  * - The OAuth server is on a different domain than your API requests
- * - You want to ensure consistent OAuth behavior regardless of request URLs
+ * - You want to ensure tokens are never leaked to cross-origin request targets
  *
  * For MCP transports, set `baseUrl` to the same URL you pass to the transport constructor.
  *
@@ -50,15 +72,25 @@ export const withOAuth =
         // sees the final method/URL of every attempt and every response. `auth()` keeps the
         // unwrapped fetch: token-endpoint DPoP is handled inside executeTokenRequest.
         const next = provider.dpop ? withDpopFromProvider(provider)(baseNext) : baseNext;
+        const expectedOrigin = baseUrl ? parseRequestUrl(baseUrl)?.origin : undefined;
 
         return async (input, init) => {
+            const requestUrl = parseRequestUrl(input, baseUrl);
+            const requestOrigin = requestUrl?.origin;
+
+            // Only attach Authorization token if the request origin matches the expected baseUrl origin
+            // (or if baseUrl was not explicitly provided).
+            const isTargetOrigin = !expectedOrigin || (requestOrigin !== undefined && requestOrigin === expectedOrigin);
+
             const makeRequest = async (): Promise<Response> => {
                 const headers = new Headers(init?.headers);
 
-                // Add authorization header if tokens are available
-                const tokens = await provider.tokens();
-                if (tokens) {
-                    headers.set('Authorization', `Bearer ${tokens.access_token}`);
+                // Add authorization header if tokens are available and target origin matches
+                if (isTargetOrigin) {
+                    const tokens = await provider.tokens();
+                    if (tokens) {
+                        headers.set('Authorization', `Bearer ${tokens.access_token}`);
+                    }
                 }
 
                 return await next(input, { ...init, headers });
@@ -66,13 +98,14 @@ export const withOAuth =
 
             let response = await makeRequest();
 
-            // Handle 401 responses by attempting re-authentication
-            if (response.status === 401) {
+            // Handle 401 responses by attempting re-authentication only for matching target origin
+            if (response.status === 401 && isTargetOrigin) {
                 try {
                     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
 
                     // Use provided baseUrl or extract from request URL
-                    const serverUrl = baseUrl || (typeof input === 'string' ? new URL(input).origin : input.origin);
+                    const serverUrl =
+                        baseUrl || (requestOrigin ?? (typeof input === 'string' ? new URL(input).origin : 'http://localhost'));
 
                     const result = await auth(provider, {
                         serverUrl,
@@ -100,8 +133,8 @@ export const withOAuth =
             }
 
             // If we still have a 401 after re-auth attempt, throw an error
-            if (response.status === 401) {
-                const url = typeof input === 'string' ? input : input.toString();
+            if (response.status === 401 && isTargetOrigin) {
+                const url = requestUrl ? requestUrl.toString() : String(input);
                 throw new UnauthorizedError(`Authentication failed for ${url}`);
             }
 
