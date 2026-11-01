@@ -6,6 +6,7 @@ import { OAuthRegisteredClientsStore } from '../clients.js';
 import { rateLimit, Options as RateLimitOptions } from 'express-rate-limit';
 import { allowedMethods } from '../middleware/allowedMethods.js';
 import { InvalidClientMetadataError, ServerError, TooManyRequestsError, OAuthError } from '../errors.js';
+import { LOOPBACK_HOSTS } from './authorize.js';
 
 export type ClientRegistrationHandlerOptions = {
     /**
@@ -36,6 +37,12 @@ export type ClientRegistrationHandlerOptions = {
 };
 
 const DEFAULT_CLIENT_SECRET_EXPIRY_SECONDS = 30 * 24 * 60 * 60; // 30 days
+
+// MCP requires HTTPS or a loopback host for redirect URIs, and RFC 6749 §3.1.2 forbids a fragment.
+function isAllowedRedirectUri(uri: string): boolean {
+    const url = new URL(uri);
+    return !uri.includes('#') && (url.protocol !== 'http:' || LOOPBACK_HOSTS.has(url.hostname));
+}
 
 export function clientRegistrationHandler({
     clientsStore,
@@ -80,6 +87,12 @@ export function clientRegistrationHandler({
             }
 
             const clientMetadata = parseResult.data;
+            const invalidRedirectUri = clientMetadata.redirect_uris.find(uri => !isAllowedRedirectUri(uri));
+            if (invalidRedirectUri !== undefined) {
+                throw new InvalidClientMetadataError(
+                    `Invalid redirect_uris: ${invalidRedirectUri} must use HTTPS or a loopback host and must not include a fragment`
+                );
+            }
             const isPublicClient = clientMetadata.token_endpoint_auth_method === 'none';
 
             // Generate client credentials
