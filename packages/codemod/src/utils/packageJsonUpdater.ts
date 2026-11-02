@@ -25,16 +25,16 @@ function classifyZodSegment(segment: string): ZodSegmentVerdict {
         .trim();
     if (seg === '' || seg === '*' || seg === 'x' || seg === 'latest') return 'ok';
 
-    const classifyUpper = (major: number, minor: number | undefined, inclusive: boolean): ZodSegmentVerdict => {
+    const classifyUpper = (major: number, minor: number | undefined, inclusive: boolean, patch = 0): ZodSegmentVerdict => {
         if (major > 4) return 'ok';
         if (major < 4) return 'v3';
         // major === 4: an upper bound below 4.2 caps resolution at 4.0/4.1; `<4` and
         // `<4.0` cap it in 3.x. A bare inclusive major (`<=4`, `… - 4`) is an
         // X-range upper bound — it admits every 4.x release and satisfies the floor.
         if (minor === undefined) return inclusive ? 'ok' : 'v3';
-        if (minor === 0 && inclusive === false) return 'v3';
+        if (minor === 0 && patch === 0 && inclusive === false) return 'v3';
         if (minor < 2) return 'v4pre42';
-        if (minor === 2 && inclusive === false) return 'v4pre42';
+        if (minor === 2 && patch === 0 && inclusive === false) return 'v4pre42';
         return 'ok';
     };
 
@@ -46,9 +46,14 @@ function classifyZodSegment(segment: string): ZodSegmentVerdict {
 
     // Comparator sets: an upper `<`/`<=` bound caps resolution; a floor with no upper
     // bound resolves to the latest release.
-    const upper = seg.match(/<(=?)\s*v?(\d+)(?:\.(\d+))?/);
+    const upper = seg.match(/<(=?)\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
     if (upper) {
-        return classifyUpper(Number(upper[2]), upper[3] === undefined ? undefined : Number(upper[3]), upper[1] === '=');
+        return classifyUpper(
+            Number(upper[2]),
+            upper[3] === undefined ? undefined : Number(upper[3]),
+            upper[1] === '=',
+            Number(upper[4] ?? 0)
+        );
     }
     if (seg.startsWith('>')) return 'ok';
 
