@@ -103,6 +103,9 @@ export function detectFormatter(startDir: string, homeDir: string = os.homedir()
     const found = { biome: false, prettier: false, eslint: false };
 
     while (true) {
+        const relativeHome = path.relative(dir, home);
+        if (relativeHome === '' || (!relativeHome.startsWith(`..${path.sep}`) && relativeHome !== '..' && !path.isAbsolute(relativeHome)))
+            break;
         if (hasAnyFile(dir, BIOME_CONFIG_FILES)) found.biome = true;
         if (hasAnyFile(dir, PRETTIER_CONFIG_FILES)) found.prettier = true;
         if (hasAnyFile(dir, ESLINT_CONFIG_FILES)) found.eslint = true;
