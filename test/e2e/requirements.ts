@@ -1390,6 +1390,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#_meta',
         behavior: "_meta sent in a request's params by the client is delivered intact to the server-side request handler."
     },
+    'protocol:meta:trace-context-otel': {
+        source: 'https://modelcontextprotocol.io/community/seps/414-request-meta',
+        behavior:
+            "With an OpenTelemetry SDK registered and no other configuration, a client's tools/call span carries its W3C trace context to the server in params._meta, the server's span for the call is its child, and the tool handler runs with the server span active."
+    },
     'protocol:meta:result-to-client': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#_meta',
         behavior:

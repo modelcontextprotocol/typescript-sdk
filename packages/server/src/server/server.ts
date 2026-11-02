@@ -60,12 +60,14 @@ import {
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode,
+    setProtocolInstrumentation,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS,
     withRequestStateValue
 } from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
 import { coerceEmbeddedInputRequest, LegacyInputRequiredShim, resolveLegacyShimOptions } from './legacyInputRequiredShim';
+import { defaultInstrumentation } from './openTelemetry';
 import { perRequestClassificationOf } from './perRequestTransport';
 
 /**
@@ -320,6 +322,7 @@ export class Server extends Protocol<ServerContext> {
         options?: ServerOptions
     ) {
         super(options);
+        if (options?.openTelemetry !== false) setProtocolInstrumentation(this, defaultInstrumentation());
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();

@@ -154,7 +154,11 @@
         "pkce-challenge": "catalog:runtimeShared",
         "zod": "catalog:runtimeShared"
     },
+    "peerDependencies": {
+        "@opentelemetry/api": "catalog:otel"
+    },
     "devDependencies": {
+        "@opentelemetry/api": "catalog:otel",
         "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
