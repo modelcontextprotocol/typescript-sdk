@@ -49,6 +49,7 @@ export { getDisplayName } from '../../shared/metadataUtils';
 export type {
     BaseContext,
     ClientContext,
+    CloseOptions,
     NotificationOptions,
     ProgressCallback,
     ProtocolOptions,
