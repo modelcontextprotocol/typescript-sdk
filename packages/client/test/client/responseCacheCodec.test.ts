@@ -248,6 +248,50 @@ describe('response cache document codec', () => {
         }
     });
 
+    test('a corrupt own-partition entry deletes only the probed partition, not the shared sibling', async () => {
+        const reported: unknown[] = [];
+        const gets: string[] = [];
+        const deletes: string[] = [];
+        const store: ResponseCacheStore = {
+            // Own probe (first get) hits a corrupt entry; the shared partition is never touched.
+            get: key => {
+                gets.push(key.partition ?? '');
+                return { value: '{ not json', stamp: 1, expiresAt: Date.now() + 60_000, scope: 'private' as const };
+            },
+            set: () => 1,
+            delete: key => {
+                deletes.push(key.partition ?? '');
+            },
+            evict: () => {},
+            clear: () => {}
+        };
+        // Non-empty cachePartition: own !== shared, so a two-partition delete
+        // (the pre-fix behavior) would be observable as a second delete.
+        const cache = new ClientResponseCache(store, true, error => reported.push(error), 'alice');
+        expect(await cache.read('tools/list')).toBeUndefined();
+        expect(reported).toHaveLength(1);
+        expect(gets).toHaveLength(1);
+        expect(deletes).toEqual([gets[0]]);
+        expect(gets[0]).toContain('alice');
+    });
+
+    test('a failing store delete during corrupt-entry cleanup is reported, not thrown to the caller', async () => {
+        const reported: unknown[] = [];
+        const store: ResponseCacheStore = {
+            get: () => ({ value: '{ not json', stamp: 1, expiresAt: Date.now() + 60_000, scope: 'private' as const }),
+            set: () => 1,
+            delete: () => {
+                throw new Error('store connection lost');
+            },
+            evict: () => {},
+            clear: () => {}
+        };
+        const cache = new ClientResponseCache(store, true, error => reported.push(error));
+        await expect(cache.read('tools/list')).resolves.toBeUndefined();
+        expect(reported).toHaveLength(2);
+        expect(String(reported[1])).toMatch(/connection lost/);
+    });
+
     test('a tools/list document with non-object elements is reported once per stamp, not thrown per lookup', async () => {
         const reported: unknown[] = [];
         const store: ResponseCacheStore = {
