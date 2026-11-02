@@ -132,6 +132,7 @@ export class StdioClientTransport implements Transport {
             );
         }
 
+        this._readBuffer.clear();
         return new Promise((resolve, reject) => {
             this._process = spawn(this._serverParams.command, this._serverParams.args ?? [], {
                 // merge default env with server env because mcp server needs some env vars
