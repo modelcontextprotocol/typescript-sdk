@@ -78,12 +78,27 @@ describe('auth-utils', () => {
             ).toBe(true);
         });
 
-        it('should handle trailing slashes vs no trailing slashes', () => {
+        it('should treat a single trailing slash as the same resource in both directions', () => {
             expect(
                 checkResourceAllowed({ requestedResource: 'https://example.com/mcp/', configuredResource: 'https://example.com/mcp' })
             ).toBe(true);
             expect(
-                checkResourceAllowed({ requestedResource: 'https://example.com/folder', configuredResource: 'https://example.com/folder/' })
+                checkResourceAllowed({ requestedResource: 'https://example.com/mcp', configuredResource: 'https://example.com/mcp/' })
+            ).toBe(true);
+        });
+
+        it('should still reject a shorter path that is not the configured one', () => {
+            expect(
+                checkResourceAllowed({
+                    requestedResource: 'https://example.com/folder',
+                    configuredResource: 'https://example.com/folder/sub/'
+                })
+            ).toBe(false);
+            expect(
+                checkResourceAllowed({ requestedResource: 'https://example.com/', configuredResource: 'https://example.com/mcp/' })
+            ).toBe(false);
+            expect(
+                checkResourceAllowed({ requestedResource: 'https://example.com/mc', configuredResource: 'https://example.com/mcp/' })
             ).toBe(false);
         });
     });
