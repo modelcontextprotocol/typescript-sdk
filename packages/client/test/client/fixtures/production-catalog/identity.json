@@ -1,0 +1,33 @@
+{
+    "label": "catalogue-derived fixture, not the REA product",
+    "rea": {
+        "repository": "morluto/rea",
+        "commit": "21650455a9c90a26e725c3505a3c17054cc4516c",
+        "license": "MIT",
+        "licenseFile": "LICENSE.MIT.txt"
+    },
+    "generation": {
+        "recipe": "Public morluto/rea scripts/generate-mcp-tool-catalog.mjs registers TOOL_CONTRACTS on McpServer and reads listTools. The frozen tools array is the canonical wire list from that path at the pinned commit, captured by the 211238 extractor without installing the REA app. Normal tests gunzip this file and do not fetch or regenerate it.",
+        "extractor": "overview/research/phase-20261011/mcp-production-catalog-211238/src/extract-catalog.mjs",
+        "generatorScriptSha256": "fa2fb019c85871e0fc34cf7de155d0af1d68192b2bc810a7fe74851b742c9f62",
+        "predecessorCommit": "a9ca707da97e4613c8c40bbd3d158b59ddf86cde"
+    },
+    "toolsFile": {
+        "encoding": "gzip",
+        "member": "tools.json",
+        "rawBytes": 1954684,
+        "rawSha256": "b1e3057747a323647e2bf690acb877bd50a109dd0604fa5ae62e0c42d15a1192",
+        "documentBytes": 1954693,
+        "documentSha256": "1b182124636ab9236e3224b8c4b6279306cf43be569461943dabf63331878eea",
+        "gzipBytes": 172128,
+        "gzipSha256": "821f5357669285e6a2a7eb98831300af060854719bc36b0b37ef240596d31464"
+    },
+    "tools": 170,
+    "schemas": 340,
+    "invokedTool": "binary_session",
+    "input": {},
+    "inputFileSha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+    "structuredContentSha256": "d8f0800ad49a9797ecff6cbdbbc99940205e20c58d661f4eef15195793e2e27e",
+    "structuredContentFileSha256": "d8ccfe0fc422ad78afac4a7ee8a5a3f8cfaf7a3518d522676b2c6c4200ba8cf6",
+    "syntheticFact": "Tool and schema bytes are the unmodified public catalog. The binary_session structured content is a benign closed session (open false) generated for receiving. No binary was analyzed."
+}
