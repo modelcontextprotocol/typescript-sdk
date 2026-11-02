@@ -289,3 +289,12 @@ describe('resolveTypesPackage', () => {
         expect(resolveTypesPackage({ projectType: 'unknown' }, false, true)).toBe('@modelcontextprotocol/server');
     });
 });
+
+describe('declaration module inference', () => {
+    it.each(['ambient.d.mts', 'ambient.d.cts'])('ignores %s when inferring project type', filename => {
+        const dir = createTempDir();
+        mkdirSync(path.join(dir, '.git'));
+        writeFileSync(path.join(dir, filename), "import { Client } from '@modelcontextprotocol/sdk/client/index.js';");
+        expect(analyzeProject(dir).projectType).toBe('unknown');
+    });
+});
