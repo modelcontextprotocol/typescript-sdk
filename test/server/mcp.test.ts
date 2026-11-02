@@ -103,6 +103,49 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(client.getServerCapabilities()?.tools?.listChanged).toBe(true);
         });
 
+        test('should suppress sendToolListChanged notifications when tools.listChanged is explicitly false', async () => {
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: { listChanged: false }
+                    }
+                }
+            );
+            const notifications: Notification[] = [];
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+            client.fallbackNotificationHandler = async notification => {
+                notifications.push(notification);
+            };
+
+            const tool = mcpServer.registerTool('test', {}, async () => ({
+                content: [{ type: 'text', text: 'Test response' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            expect(client.getServerCapabilities()?.tools?.listChanged).toBe(false);
+
+            mcpServer.sendToolListChanged();
+            mcpServer.registerTool('test2', {}, async () => ({
+                content: [{ type: 'text', text: 'Test response' }]
+            }));
+            tool.update({ description: 'Updated' });
+            tool.remove();
+
+            // Yield event loop to let any notification fly
+            await new Promise(process.nextTick);
+
+            expect(notifications).toHaveLength(0);
+        });
+
         /***
          * Test: Notification Sending via Server
          */

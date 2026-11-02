@@ -2,4 +2,4 @@
 '@modelcontextprotocol/sdk': patch
 ---
 
-Preserve an explicitly configured `tools.listChanged` capability when registering tools with `McpServer`.
+Preserve an explicitly configured `tools.listChanged` capability when registering tools with `McpServer`. When it is `false`, `McpServer` no longer sends `notifications/tools/list_changed`.
