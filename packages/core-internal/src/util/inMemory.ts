@@ -45,6 +45,7 @@ export class InMemoryTransport implements Transport {
     async close(): Promise<void> {
         if (this._closed) return;
         this._closed = true;
+        this._messageQueue = [];
 
         const other = this._otherTransport;
         this._otherTransport = undefined;
