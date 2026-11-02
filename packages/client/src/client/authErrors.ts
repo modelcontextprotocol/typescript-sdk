@@ -157,26 +157,6 @@ export class InsecureTokenEndpointError extends OAuthClientFlowError {
 }
 
 /**
- * Thrown by the HTTP client transport when the server responds with
- * `403 Forbidden` and `WWW-Authenticate: Bearer error="insufficient_scope"`,
- * and either (a) the transport's `onInsufficientScope` option is `'throw'`, or
- * (b) `onInsufficientScope` is the default `'reauthorize'` but the transport
- * has no {@linkcode index.OAuthClientProvider | OAuthClientProvider} to drive
- * step-up (e.g. a minimal `AuthProvider`, `requestInit`-only headers, or no
- * `authProvider`).
- *
- * Carries the challenge parameters so the host can decide whether to initiate
- * step-up authorization itself (e.g., behind a UX gate) or surface the error.
- *
- * Does **not** extend `OAuthError`: that class represents OAuth protocol errors
- * from the authorization server; this is a resource-server challenge surfaced
- * at the transport layer.
- *
- * All fields originate from the resource server's `WWW-Authenticate` header;
- * treat them as untrusted input when displaying or logging (this includes
- * `requiredScope`, which appears in the error message).
- */
-/**
  * Thrown by `auth()` and `fetchToken()` when the authorization server in use differs
  * from the one a credential is bound to and the flow cannot simply start over:
  *
@@ -208,6 +188,26 @@ export class AuthorizationServerMismatchError extends OAuthClientFlowError {
     }
 }
 
+/**
+ * Thrown by the HTTP client transport when the server responds with
+ * `403 Forbidden` and `WWW-Authenticate: Bearer error="insufficient_scope"`,
+ * and either (a) the transport's `onInsufficientScope` option is `'throw'`, or
+ * (b) `onInsufficientScope` is the default `'reauthorize'` but the transport
+ * has no {@linkcode index.OAuthClientProvider | OAuthClientProvider} to drive
+ * step-up (e.g. a minimal `AuthProvider`, `requestInit`-only headers, or no
+ * `authProvider`).
+ *
+ * Carries the challenge parameters so the host can decide whether to initiate
+ * step-up authorization itself (e.g., behind a UX gate) or surface the error.
+ *
+ * Does **not** extend `OAuthError`: that class represents OAuth protocol errors
+ * from the authorization server; this is a resource-server challenge surfaced
+ * at the transport layer.
+ *
+ * All fields originate from the resource server's `WWW-Authenticate` header;
+ * treat them as untrusted input when displaying or logging (this includes
+ * `requiredScope`, which appears in the error message).
+ */
 export class InsufficientScopeError extends OAuthClientFlowError {
     static {
         Object.defineProperty(this, 'mcpBrand', { value: 'mcp.InsufficientScopeError' });
