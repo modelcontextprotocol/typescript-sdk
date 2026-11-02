@@ -50,6 +50,17 @@ describe('OAuthMetadataSchema', () => {
         expect(() => OAuthMetadataSchema.parse(metadata)).not.toThrow();
     });
 
+    it('accepts client credentials metadata without an authorization endpoint', () => {
+        const metadata = {
+            issuer: 'https://auth.example.com',
+            token_endpoint: 'https://auth.example.com/oauth/token',
+            grant_types_supported: ['client_credentials'],
+            response_types_supported: []
+        };
+
+        expect(OAuthMetadataSchema.parse(metadata)).toMatchObject(metadata);
+    });
+
     it('rejects metadata with javascript: URLs', () => {
         const metadata = {
             issuer: 'https://auth.example.com',
@@ -83,6 +94,19 @@ describe('OpenIdProviderMetadataSchema', () => {
         };
 
         expect(() => OpenIdProviderMetadataSchema.parse(metadata)).not.toThrow();
+    });
+
+    it('continues to require an authorization endpoint for OpenID providers', () => {
+        const metadata = {
+            issuer: 'https://auth.example.com',
+            token_endpoint: 'https://auth.example.com/oauth/token',
+            jwks_uri: 'https://auth.example.com/.well-known/jwks.json',
+            response_types_supported: ['code'],
+            subject_types_supported: ['public'],
+            id_token_signing_alg_values_supported: ['RS256']
+        };
+
+        expect(() => OpenIdProviderMetadataSchema.parse(metadata)).toThrow();
     });
 
     it('rejects metadata with javascript: in jwks_uri', () => {

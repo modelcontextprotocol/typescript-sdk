@@ -60,8 +60,6 @@ export function createClientCredentialsAuthServer(options: ClientCredentialsAuth
     const metadata: OAuthMetadata = {
         issuer,
         token_endpoint: `${issuer}/token`,
-        // Required by the RFC 8414 schema even though this AS doesn't implement the endpoint.
-        authorization_endpoint: `${issuer}/authorize`,
         response_types_supported: [],
         grant_types_supported: ['client_credentials'],
         token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post'],
