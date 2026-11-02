@@ -101,6 +101,24 @@ export class UriTemplate {
             .filter(name => name.length > 0);
     }
 
+    /**
+     * The character a prefix operator puts in front of its expansion, exactly once
+     * (RFC 6570 §3.2.4-§3.2.9). Simple and reserved expansions have no prefix.
+     */
+    private prefixOf(operator: string): string {
+        return operator === '.' || operator === '/' || operator === '#' ? operator : '';
+    }
+
+    /**
+     * The character RFC 6570 separates the values of one expression with. A prefix
+     * operator separates the variables of a multi-variable expression with its own
+     * separator, but joins the values of a NON-exploded list variable with `,`
+     * (§3.2.1, §3.2.8, §3.2.9); only the exploded form uses the operator separator.
+     */
+    private separatorOf(operator: string): string {
+        return operator === '.' || operator === '/' ? operator : ',';
+    }
+
     private encodeValue(value: string, operator: string): string {
         UriTemplate.validateLength(value, MAX_VARIABLE_LENGTH, 'Variable value');
         if (operator === '+' || operator === '#') {
@@ -138,7 +156,12 @@ export class UriTemplate {
         if (part.names.length > 1) {
             const values = part.names.map(name => variables[name]).filter(v => v !== undefined);
             if (values.length === 0) return '';
-            return values.map(v => (Array.isArray(v) ? v[0] : v)).join(',');
+            const encoded = values
+                .map(v => (Array.isArray(v) ? v[0] : v.toString()))
+                .filter((v): v is string => v !== undefined)
+                .map(v => this.encodeValue(v, part.operator));
+            if (encoded.length === 0) return '';
+            return this.prefixOf(part.operator) + encoded.join(this.separatorOf(part.operator));
         }
 
         const value = variables[part.name];
@@ -158,10 +181,10 @@ export class UriTemplate {
                 return '#' + encoded.join(',');
             }
             case '.': {
-                return '.' + encoded.join('.');
+                return '.' + encoded.join(part.exploded ? '.' : ',');
             }
             case '/': {
-                return '/' + encoded.join('/');
+                return '/' + encoded.join(part.exploded ? '/' : ',');
             }
             default: {
                 return encoded.join(',');
