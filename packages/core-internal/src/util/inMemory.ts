@@ -64,7 +64,7 @@ export class InMemoryTransport implements Transport {
             throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
 
-        if (this._otherTransport.onmessage) {
+        if (this._otherTransport.onmessage && this._otherTransport._messageQueue.length === 0) {
             this._otherTransport.onmessage(message, { authInfo: options?.authInfo });
         } else {
             this._otherTransport._messageQueue.push({ message, extra: { authInfo: options?.authInfo } });
