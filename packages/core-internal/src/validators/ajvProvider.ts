@@ -14,6 +14,7 @@ import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSche
 interface AjvLike {
     compile: (schema: unknown) => AjvValidateFunction;
     getSchema: (keyRef: string) => AjvValidateFunction | undefined;
+    removeSchema?: (keyRef: string) => void;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     errorsText: (errors?: any) => string;
 }
@@ -85,6 +86,15 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
     private readonly _userAjv: boolean;
 
     /**
+     * Compiled validators keyed by the serialized schema body. Keying by content
+     * (rather than by `$id`) means two schemas that happen to share an `$id` but
+     * describe different shapes are never cross-wired: `$id` is metadata, not a
+     * cache key, and JSON Schema treats it as a canonical identifier only when
+     * the bodies agree.
+     */
+    private readonly _validatorCache = new Map<string, AjvValidateFunction>();
+
+    /**
      * @param ajv - Optional pre-configured AJV-compatible instance. When supplied, this instance is
      * used for **every** schema regardless of its declared `$schema` (the caller owns dialect
      * choice). When omitted, the provider constructs per-dialect engines (`Ajv2020`, `Ajv2019`,
@@ -130,10 +140,26 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
 
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
         const engine = this._engineFor(schema);
-        const ajvValidator =
-            '$id' in schema && typeof schema.$id === 'string'
-                ? (engine.getSchema(schema.$id) ?? engine.compile(schema))
-                : engine.compile(schema);
+
+        // Cache by schema body, not by $id: JSON Schema defines $id as a
+        // canonical identifier for a schema, so a validator compiled for one
+        // body must never be reused for a different body that happens to carry
+        // the same $id (e.g. schemas copied from a shared template).
+        const cacheKey = JSON.stringify(schema);
+        let ajvValidator = this._validatorCache.get(cacheKey);
+        if (ajvValidator === undefined) {
+            // ajv registers compiled schemas by $id and refuses to compile a
+            // second schema with the same $id. Drop any previous registration
+            // first so a same-$id different-body schema compiles against its
+            // own body; the cache above still reuses validators for identical
+            // bodies.
+            const schemaId = '$id' in schema && typeof schema.$id === 'string' ? schema.$id : undefined;
+            if (schemaId !== undefined) {
+                engine.removeSchema?.(schemaId);
+            }
+            ajvValidator = engine.compile(schema);
+            this._validatorCache.set(cacheKey, ajvValidator);
+        }
 
         return (input: unknown): JsonSchemaValidatorResult<T> => {
             const valid = ajvValidator(input);
