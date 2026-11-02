@@ -66,7 +66,7 @@ export interface NodeIncomingMessageLike extends AsyncIterable<unknown> {
 
 /** Minimal duck-typed shape of a Node.js `ServerResponse` accepted by {@linkcode toNodeHandler}. */
 export interface NodeServerResponseLike {
-    writeHead(statusCode: number, headers?: Record<string, string>): unknown;
+    writeHead(statusCode: number, headers?: Record<string, string | string[]>): unknown;
     write(chunk: string | Uint8Array): unknown;
     end(chunk?: string | Uint8Array): unknown;
     on(event: string, listener: (...args: unknown[]) => void): unknown;
@@ -172,10 +172,12 @@ export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandler
             }
         }
 
-        const headers: Record<string, string> = {};
+        const headers: Record<string, string | string[]> = {};
         for (const [name, value] of response.headers) {
             headers[name] = value;
         }
+        const cookies = response.headers.getSetCookie();
+        if (cookies.length > 0) headers['set-cookie'] = cookies;
         res.writeHead(response.status, headers);
         if (response.body === null) {
             finished = true;
