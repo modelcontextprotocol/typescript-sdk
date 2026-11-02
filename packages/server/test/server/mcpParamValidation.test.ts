@@ -122,6 +122,13 @@ describe('SEP-2243 Mcp-Param-* server validation (createMcpHandler, modern era)'
         expect(((await response.json()) as { error: { code: number } }).error.code).toBe(-32_020);
     });
 
+    it('a plain header carrying a raw non-ASCII value is rejected 400/-32020 even when it equals the body', async () => {
+        const handler = createMcpHandler(makeFactory());
+        const response = await handler.fetch(call({ region: 'café' }, { 'Mcp-Param-Region': 'café' }));
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as { error: { code: number } }).error.code).toBe(-32_020);
+    });
+
     it('a number-typed declaration does not switch the check off: its header and a valid sibling header are still compared', async () => {
         const handler = createMcpHandler(() => {
             const s = new McpServer({ name: 'param-server', version: '1.0.0' });

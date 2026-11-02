@@ -297,7 +297,43 @@ describe('validateMcpParamHeaders — server-behavior table', () => {
             kind: 'reject',
             httpStatus: 400,
             code: HEADER_MISMATCH_ERROR_CODE,
-            cell: 'param-header-invalid-encoding'
+            cell: 'param-header-invalid-encoding',
+            message: expect.stringContaining('carries an invalid Base64 sentinel value')
+        });
+    });
+
+    test('a plain header with a character outside 0x20-0x7E / 0x09 → reject 400/-32020, even when it equals the body', () => {
+        // Node's HTTP parser hands a raw 0xE9 byte through as 'é'; a conforming client Base64-wraps it.
+        expect(decodeMcpParamValue('café')).toBeUndefined();
+        // DEL and a C0 control are outside the range too, not only non-ASCII.
+        expect(decodeMcpParamValue('a\x7fb')).toBeUndefined();
+        expect(decodeMcpParamValue('a\x01b')).toBeUndefined();
+        const r = validateMcpParamHeaders(DECLS, { region: 'café' }, new Headers({ [`${MCP_PARAM_HEADER_PREFIX}Region`]: 'café' }));
+        expect(r).toMatchObject({
+            kind: 'reject',
+            httpStatus: 400,
+            code: HEADER_MISMATCH_ERROR_CODE,
+            cell: 'param-header-invalid-encoding',
+            message: expect.stringContaining('has to be sent Base64-wrapped')
+        });
+        expect(
+            validateMcpParamHeaders(DECLS, { region: 'a\tb' }, new Headers({ [`${MCP_PARAM_HEADER_PREFIX}Region`]: 'a\tb' }))
+        ).toBeUndefined();
+    });
+
+    test('an unterminated sentinel is a plain value: accepted as a literal, or rejected as one', () => {
+        // The sentinel needs both the prefix and the `?=` suffix, so without the suffix the value takes the plain path.
+        expect(decodeMcpParamValue('=?base64?SGVsbG8=')).toBe('=?base64?SGVsbG8=');
+        expect(decodeMcpParamValue('=?base64?café')).toBeUndefined();
+        const r = validateMcpParamHeaders(
+            DECLS,
+            { region: '=?base64?café' },
+            new Headers({ [`${MCP_PARAM_HEADER_PREFIX}Region`]: '=?base64?café' })
+        );
+        expect(r).toMatchObject({
+            kind: 'reject',
+            cell: 'param-header-invalid-encoding',
+            message: expect.stringContaining('has to be sent Base64-wrapped')
         });
     });
 
