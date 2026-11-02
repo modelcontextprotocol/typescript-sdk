@@ -27,6 +27,13 @@ interface AjvValidateFunction {
 /** `ajv-formats` default export, normalised through the CJS/ESM interop wrapper. */
 const addFormats = _addFormats as unknown as typeof _addFormats.default;
 
+/**
+ * Validate the `google-duration` format used by Google Cloud APIs (e.g. Firebase MCP).
+ * Accepts strings like "3600s", "1.5s", "100ms", "2m", "1h", "1d" — a number followed
+ * by a time unit suffix. See https://cloud.google.com/ruby/docs/reference/google-cloud-env/latest/Google/Protobuf/Duration
+ */
+const GOOGLE_DURATION_RE = /^\d+(\.\d+)?(s|ms|us|ns|m|h|d)$/;
+
 function createDefaultAjvInstance(engineClass: typeof Ajv2020 | typeof Ajv2019 | typeof Draft7Ajv): AjvLike {
     const ajv = new engineClass({
         strict: false,
@@ -35,6 +42,11 @@ function createDefaultAjvInstance(engineClass: typeof Ajv2020 | typeof Ajv2019 |
         allErrors: true
     });
     addFormats(ajv);
+    // Register Google Cloud duration format to silence "unknown format" warnings
+    // from MCP servers that use Google API schemas (e.g. Firebase MCP).
+    if ('addFormat' in ajv && typeof ajv.addFormat === 'function') {
+        (ajv as { addFormat: (name: string, format: unknown) => void }).addFormat('google-duration', GOOGLE_DURATION_RE);
+    }
     return ajv;
 }
 
