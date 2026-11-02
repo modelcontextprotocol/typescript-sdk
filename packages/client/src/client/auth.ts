@@ -1736,6 +1736,11 @@ function buildWellKnownPath(
     pathname: string = '',
     options: { prependPathname?: boolean } = {}
 ): string {
+    if (wellKnownPrefix === 'oauth-protected-resource' && !options.prependPathname) {
+        const resourcePath = pathname === '/' ? '' : pathname;
+        return `/.well-known/${wellKnownPrefix}${resourcePath}`;
+    }
+
     // Strip trailing slash from pathname to avoid double slashes
     if (pathname.endsWith('/')) {
         pathname = pathname.slice(0, -1);
