@@ -14,7 +14,7 @@ export function normalizeHeaders(headers: RequestInit['headers'] | undefined): R
     }
 
     if (Array.isArray(headers)) {
-        return Object.fromEntries(headers);
+        return Object.fromEntries(new Headers(headers).entries());
     }
 
     return { ...(headers as Record<string, string>) };
