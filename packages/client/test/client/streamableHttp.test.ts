@@ -62,6 +62,62 @@ describe('StreamableHTTPClientTransport', () => {
         );
     });
 
+    it('does not cancel in-flight POST requests when close() is called (issue #1231)', async () => {
+        // POST requests must not share the transport-wide AbortController, otherwise calling
+        // close() while a request is being processed (or just after a successful 200) makes
+        // Undici-based instrumentation (e.g. OpenTelemetry) report the request as aborted
+        // even though the server responded successfully.
+        let capturedSignal: AbortSignal | undefined;
+        let resolveResponse!: (value: { ok: boolean; status: number; headers: Headers }) => void;
+        const responsePromise = new Promise<{ ok: boolean; status: number; headers: Headers }>(resolve => {
+            resolveResponse = resolve;
+        });
+
+        (globalThis.fetch as Mock).mockImplementationOnce((_url: unknown, init?: RequestInit) => {
+            capturedSignal = init?.signal ?? undefined;
+            return responsePromise;
+        });
+
+        const message: JSONRPCMessage = { jsonrpc: '2.0', method: 'test', params: {}, id: 'inflight-id' };
+        const sendPromise = transport.send(message);
+
+        // While the POST is in-flight, close the transport.
+        const closePromise = transport.close();
+
+        // The POST should not have been issued with the transport's abort signal.
+        expect(capturedSignal).toBeUndefined();
+
+        // Server completes the request after close().
+        resolveResponse({ ok: true, status: 202, headers: new Headers() });
+
+        await sendPromise;
+        await closePromise;
+    });
+
+    it('does not cancel in-flight DELETE (terminateSession) when close() is called', async () => {
+        // First, get a session ID so terminateSession actually issues a DELETE.
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'session-x' })
+        });
+        await transport.send({
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: { clientInfo: { name: 'c', version: '1.0' }, protocolVersion: '2025-03-26' },
+            id: 'init-id'
+        });
+
+        let capturedSignal: AbortSignal | undefined;
+        (globalThis.fetch as Mock).mockImplementationOnce((_url: unknown, init?: RequestInit) => {
+            capturedSignal = init?.signal ?? undefined;
+            return Promise.resolve({ ok: true, status: 200, headers: new Headers() });
+        });
+
+        await transport.terminateSession();
+        expect(capturedSignal).toBeUndefined();
+    });
+
     it('should send batch messages', async () => {
         const messages: JSONRPCMessage[] = [
             { jsonrpc: '2.0', method: 'test1', params: {}, id: 'id1' },
