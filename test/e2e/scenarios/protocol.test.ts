@@ -662,12 +662,15 @@ verifies('protocol:timeout:basic', async ({ transport }: TestArgs) => {
 verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
     vi.useFakeTimers();
     try {
+        let markCallReceived!: () => void;
+        const callReceived = new Promise<void>(resolve => (markCallReceived = resolve));
         const makeServer = () => {
             const s = new McpServer({ name: 's', version: '0' });
             s.registerTool(
                 'slow-progress',
                 { inputSchema: z.object({ delayMs: z.number(), steps: z.number() }) },
                 async ({ delayMs, steps }, ctx) => {
+                    markCallReceived();
                     const token = ctx.mcpReq._meta?.progressToken;
                     if (token !== undefined) {
                         for (let i = 1; i <= steps; i++) {
@@ -702,6 +705,12 @@ verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
             }
         );
         call.catch(() => {});
+
+        // Over SSE the tools/call POST is real I/O that fake timers do not wait for.
+        // Advancing before it lands lets the per-request timeout fire before any
+        // progress is sent, so maxTotalTimeout is never exercised (#3045). Awaiting a
+        // promise, unlike vi.waitFor, does not move the fake clock.
+        await callReceived;
 
         for (let elapsed = 0; elapsed < maxTotal + perChunk; elapsed += delayMs) {
             await vi.advanceTimersByTimeAsync(delayMs);
