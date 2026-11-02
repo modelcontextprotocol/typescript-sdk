@@ -151,3 +151,12 @@ describe('detectFormatter', () => {
         expect(detectFormatter(src, home)?.name).toBe('Biome');
     });
 });
+
+describe('TypeScript module formatter configs', () => {
+    it.each(['.prettierrc.mts', '.prettierrc.cts', 'prettier.config.mts', 'prettier.config.cts'])('detects %s', filename => {
+        const dir = createTempDir();
+        mkdirSync(path.join(dir, '.git'));
+        writeFileSync(path.join(dir, filename), 'export default {};');
+        expect(detectFormatter(dir)?.name).toBe('Prettier');
+    });
+});
