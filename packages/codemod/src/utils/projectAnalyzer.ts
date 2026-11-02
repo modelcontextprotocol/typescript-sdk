@@ -58,7 +58,9 @@ export function analyzeProject(targetDir: string): TransformContext {
             const pkgJson = JSON.parse(readFileSync(pkgJsonPath, 'utf8'));
             const allDeps = {
                 ...pkgJson.dependencies,
-                ...pkgJson.devDependencies
+                ...pkgJson.devDependencies,
+                ...pkgJson.peerDependencies,
+                ...pkgJson.optionalDependencies
             };
 
             const hasClient = '@modelcontextprotocol/client' in allDeps;
