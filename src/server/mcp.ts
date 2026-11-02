@@ -189,7 +189,7 @@ export class McpServer {
 
         this.server.registerCapabilities({
             tools: {
-                listChanged: true
+                listChanged: this.server.getCapabilities().tools?.listChanged ?? true
             }
         });
 
@@ -1261,10 +1261,10 @@ export class McpServer {
     }
 
     /**
-     * Sends a tool list changed event to the client, if connected.
+     * Sends a tool list changed event to the client, if connected and `tools.listChanged` is not `false`.
      */
     sendToolListChanged() {
-        if (this.isConnected()) {
+        if (this.isConnected() && this.server.getCapabilities().tools?.listChanged !== false) {
             this.server.sendToolListChanged();
         }
     }
