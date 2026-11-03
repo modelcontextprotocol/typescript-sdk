@@ -4,3 +4,5 @@
 ---
 
 Add local inbound-processing completion metadata for transport adapters. Completion follows request handlers, response transmission and internal request cleanup; cancellation alone does not complete a request. The stdio entry preserves this metadata through opening and error paths and holds listen requests until subscription teardown. Export a stdio capability marker so reusable bounded admission can reject SDK versions without this contract. Completion remains independent of OpenTelemetry span outcomes and permits request-ID reuse from the callback after controller cleanup.
+
+Queue subscription acknowledgements before routed changes and retain pending writes without blocking unrelated cancellation. Client completion also waits for asynchronous cache invalidation while notification handlers dispatch immediately.

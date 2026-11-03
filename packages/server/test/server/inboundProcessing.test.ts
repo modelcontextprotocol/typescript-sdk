@@ -1,4 +1,5 @@
 import { Readable, Writable } from 'node:stream';
+import { setImmediate as nextTurn } from 'node:timers/promises';
 
 import type { JSONRPCMessage, MessageExtraInfo, Transport } from '@modelcontextprotocol/core-internal';
 import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
@@ -347,4 +348,133 @@ test('cancelled listeners retain already-started routed notification writes', as
     await new Promise(resolve => setTimeout(resolve, 10));
     expect(written).toEqual([2, 3]);
     await f.handle.close();
+});
+
+test('listen acknowledgement precedes changes from an already-running handler', async () => {
+    const entered = deferred();
+    const held = deferred();
+    const complete = vi.fn();
+    const f = fixture(() => {
+        const server = new McpServer({ name: 'test', version: '1' });
+        server.registerTool('notify', { inputSchema: z.object({}) }, async () => {
+            entered.resolve();
+            await held.promise;
+            await server.server.sendToolListChanged();
+            return { content: [] };
+        });
+        return server;
+    });
+    try {
+        const opened = vi.fn();
+        f.receive({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: envelope } }, { onMessageProcessed: opened });
+        await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
+        f.receive(
+            { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'notify', arguments: {}, _meta: envelope } },
+            { onMessageProcessed: complete }
+        );
+        await entered.promise;
+        await nextTurn();
+        held.resolve();
+        f.receive({
+            jsonrpc: '2.0',
+            id: 3,
+            method: 'subscriptions/listen',
+            params: { _meta: envelope, notifications: { toolsListChanged: true } }
+        });
+        await vi.waitFor(() => expect(complete).toHaveBeenCalledOnce());
+        expect(f.sent.filter(m => 'method' in m).map(m => m.method)).toEqual([
+            'notifications/subscriptions/acknowledged',
+            'notifications/tools/list_changed'
+        ]);
+    } finally {
+        held.resolve();
+        await f.handle.close();
+    }
+});
+
+test('listen completion waits for an acknowledgement whose send closes the wire synchronously', async () => {
+    const write = deferred();
+    const complete = vi.fn();
+    const f = fixture(() => new McpServer({ name: 'test', version: '1' }));
+    try {
+        f.wire.send = vi.fn(() => {
+            f.wire.onclose!();
+            return write.promise;
+        });
+        f.receive(
+            {
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'subscriptions/listen',
+                params: { _meta: envelope, notifications: {} }
+            },
+            { onMessageProcessed: complete }
+        );
+        await nextTurn();
+        expect(f.wire.send).toHaveBeenCalledOnce();
+        expect(complete).not.toHaveBeenCalled();
+        write.resolve();
+        await vi.waitFor(() => expect(complete).toHaveBeenCalledOnce());
+    } finally {
+        write.resolve();
+        await f.handle.close();
+    }
+});
+
+test.each([false, true])('listen teardown does not block unrelated cancellation (completion observer: %s)', async observe => {
+    const entered = deferred();
+    const held = deferred();
+    const write = deferred();
+    const writing = deferred();
+    const complete = vi.fn();
+    let signal!: AbortSignal;
+    let server!: McpServer;
+    const f = fixture(() => {
+        server = new McpServer({ name: 'test', version: '1' });
+        server.registerTool('work', { inputSchema: z.object({}) }, async (_args, ctx) => {
+            signal = ctx.mcpReq.signal;
+            entered.resolve();
+            await held.promise;
+            return { content: [] };
+        });
+        return server;
+    });
+    try {
+        f.receive(
+            {
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'subscriptions/listen',
+                params: { _meta: envelope, notifications: { toolsListChanged: true } }
+            },
+            observe ? { onMessageProcessed: complete } : undefined
+        );
+        await vi.waitFor(() =>
+            expect(f.sent.some(m => 'method' in m && m.method === 'notifications/subscriptions/acknowledged')).toBe(true)
+        );
+        f.receive({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'work', arguments: {}, _meta: envelope } });
+        await entered.promise;
+        await nextTurn();
+        const send = f.wire.send;
+        f.wire.send = vi.fn(message => {
+            if ('method' in message && message.method === 'notifications/tools/list_changed') {
+                writing.resolve();
+                return write.promise;
+            }
+            return send(message);
+        });
+        const notification = server.server.sendToolListChanged();
+        await writing.promise;
+        f.receive({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 1 } });
+        f.receive({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 2 } });
+        await vi.waitFor(() => expect(signal.aborted).toBe(true));
+        expect(complete).not.toHaveBeenCalled();
+        write.resolve();
+        await notification;
+        if (observe) await vi.waitFor(() => expect(complete).toHaveBeenCalledOnce());
+    } finally {
+        write.resolve();
+        held.resolve();
+        await f.handle.close();
+    }
 });

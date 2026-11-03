@@ -501,13 +501,22 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
             } else {
                 reply = listenRouter.serve(message);
             }
-            const acknowledgement = Promise.resolve()
-                .then(() => wire.send('error' in reply ? reply : { jsonrpc: '2.0', method: reply.method, params: reply.params }))
-                .catch(error => reportError(toError(error)));
+            let acknowledge!: () => void;
+            const acknowledgement = new Promise<void>(resolve => {
+                acknowledge = resolve;
+            });
+            // Register completion before send, which may synchronously close the wire.
             if (!('error' in reply)) {
                 listenCompletions.set(message.id, { complete: extra?.onMessageProcessed, acknowledgement, deliveries: new Set() });
             }
-            await acknowledgement;
+            // Queue the acknowledgement before a running handler can emit a routed change.
+            try {
+                await wire.send('error' in reply ? reply : { jsonrpc: '2.0', method: reply.method, params: reply.params });
+            } catch (error) {
+                reportError(toError(error));
+            } finally {
+                acknowledge();
+            }
             return true;
         }
         if (isJSONRPCNotification(message) && message.method === 'notifications/cancelled') {
@@ -517,7 +526,8 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
             // request). After this point nothing further is delivered for
             // that subscription id (post-cancel hardening).
             if (cancelledId !== undefined && listenRouter.cancel(cancelledId)) {
-                await completeListen(cancelledId);
+                // Retain the listen's admission without blocking unrelated inbound cancellation.
+                void completeListen(cancelledId);
                 return true;
             }
         }
