@@ -1,0 +1,11 @@
+# Local inbound-processing completion
+
+Transport adapters may attach `MessageExtraInfo.onMessageProcessed` when forwarding an inbound message to a connected protocol instance or the `serveStdio` entry. The callback runs once after SDK-owned processing, including asynchronous handlers, response `send()` settlement and request-controller cleanup. Failed handlers, failed writes and entry-level rejection paths also complete after their owned work. The official stdio transport joins the callback for each Node Writable chunk, including failed callbacks. Backpressure or stream error events alone do not complete that write. A cancellation notification or transport close does not settle an unfinished handler or write.
+
+For `subscriptions/listen`, the opening acknowledgement is queued before routed change notifications and is not completion. The stdio entry waits for cancellation or teardown, including a pending acknowledgement and any graceful terminal write it owns. Pending subscription writes retain admission without blocking unrelated inbound cancellation. `supportsInboundMessageCompletion` is exported from `@modelcontextprotocol/server/stdio` for adapters that require this contract before accepting input.
+
+Client change notifications include asynchronous cache eviction in completion. Notification handlers start immediately while the cache store is pending; completion waits for both the handler and eviction from all affected cache partitions.
+
+The metadata is local and is never serialized. It is suitable for returning a local admission credit or reusing an inbound request identifier. It does not prove delivery to the remote peer, remote effects, resource cleanup started outside the handler's returned promise, or application-owned physical settlement. Applications must join their own work before their handlers finish. Observers should not throw; observer errors are reported through the existing error callback.
+
+Completion is independent of OpenTelemetry span outcomes: a span may end before a response write settles or when cancellation starts, while the message remains admitted until its owned work finishes. Completion is not FIFO across messages. An adapter may synchronously reuse a completed request ID from its callback; the previous request controller has already been removed.
