@@ -196,6 +196,21 @@ describe('UriTemplate', () => {
             expect(template.match('/users/123/extra')).toBeNull();
             expect(template.match('/users')).toBeNull();
         });
+
+        it('matches a URI produced from a partial variable set', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            expect(template.match(template.expand({ q: 'test' }))).toEqual({ q: 'test' });
+        });
+
+        it('matches when the trailing query parameter is omitted', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            expect(template.match('/search?q=test')).toEqual({ q: 'test' });
+        });
+
+        it('keeps matching the full query string', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            expect(template.match('/search?q=test&page=1')).toEqual({ q: 'test', page: '1' });
+        });
     });
 
     describe('security and edge cases', () => {
