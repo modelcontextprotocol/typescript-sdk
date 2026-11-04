@@ -1,0 +1,25 @@
+{
+    "name": "@mcp-examples/opentelemetry",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@hono/node-server": "catalog:runtimeServerOnly",
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/hono": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "@opentelemetry/api": "catalog:otel",
+        "@opentelemetry/context-async-hooks": "catalog:otel",
+        "@opentelemetry/core": "catalog:otel",
+        "@opentelemetry/sdk-metrics": "catalog:otel",
+        "@opentelemetry/sdk-trace": "catalog:otel",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    }
+}
