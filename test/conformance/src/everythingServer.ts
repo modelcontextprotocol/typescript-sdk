@@ -745,6 +745,32 @@ function createMcpServer() {
         }
     );
 
+    // Structured content (tools-call-structured-content scenario). The handlers
+    // omit `content`: McpServer sends the serialized JSON of structuredContent
+    // as a text block, which is what the scenario's text-mirror check verifies.
+    mcpServer.registerTool(
+        'test_structured_content',
+        {
+            description: 'Tests structured content against an object outputSchema',
+            outputSchema: z.object({ temperature: z.number(), conditions: z.string() })
+        },
+        async () => ({ structuredContent: { temperature: 22.5, conditions: 'Partly cloudy' } })
+    );
+    // SEP-2106: array outputSchema and structuredContent.
+    mcpServer.registerTool(
+        'test_structured_content_array',
+        {
+            description: 'Tests array structured content (SEP-2106)',
+            outputSchema: z.array(z.object({ hour: z.string(), temp: z.number() }))
+        },
+        async () => ({
+            structuredContent: [
+                { hour: '09:00', temp: 68 },
+                { hour: '10:00', temp: 72 }
+            ]
+        })
+    );
+
     // SEP-1613 / SEP-2106: JSON Schema 2020-12 conformance test tool.
     // The scenario verifies that $schema/$defs/additionalProperties (SEP-1613)
     // and the broader 2020-12 vocabulary — $anchor, allOf/anyOf, if/then/else —
