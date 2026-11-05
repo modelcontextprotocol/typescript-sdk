@@ -39,7 +39,13 @@ import {
 import type { ServerExtension, ServerExtensionContext } from '../../server/extension';
 import type { CreateTaskParams, TaskStore } from './store';
 
-/** Options for {@link TasksExtension}. */
+/**
+ * Options for {@link TasksExtension}.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export interface TasksExtensionOptions {
     /** Default retention for `create` when the caller gives none, ms; `null` = unlimited. Default 86_400_000 (24h). */
     defaultTtlMs?: number | null;
@@ -58,19 +64,35 @@ export interface TasksExtensionOptions {
     principal?: (ctx: ServerContext) => string | undefined;
 }
 
-/** What a tool handler passes to {@link TasksExtension.create}; every field optional. */
+/**
+ * What a tool handler passes to {@link TasksExtension.create}; every field optional.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export type CreateTaskOptions = Partial<Omit<CreateTaskParams, 'principal'>>;
 
 /**
  * The task handle a tool handler returns in place of a `CallToolResult`.
  * The 2026-07-28 result encoder forwards `resultType: "task"` for `tools/call`
  * verbatim, so the flat handle is the wire result.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
  */
 export type TaskToolResult = CallToolResult & CreateTaskResult;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/** Whether this request's `_meta` envelope declared the tasks extension. */
+/**
+ * Whether this request's `_meta` envelope declared the tasks extension.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const declaresTasksExtension = (ctx: ServerContext): boolean => {
     const envelope = ctx.mcpReq.envelope as Record<string, unknown> | undefined;
     const capabilities = envelope?.[CLIENT_CAPABILITIES_META_KEY];
@@ -121,6 +143,11 @@ const notFound = (): never => {
  */
 const updateTaskHandlerParamsSchema = getTaskParamsSchema.extend({ inputResponses: inputResponsesSchema.optional() });
 
+/**
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export class TasksExtension implements ServerExtension {
     readonly id = TASKS_EXTENSION_ID;
     readonly store: TaskStore;
@@ -158,7 +185,7 @@ export class TasksExtension implements ServerExtension {
      * Registers the extension's methods and its `tools/call` middleware. The
      * server calls this for each entry in `extensions`.
      *
-     * Experimental: the extension shape may change in a minor release.
+     * Experimental: may change in a minor release while the extensions SEPs settle.
      *
      * @experimental
      */

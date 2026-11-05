@@ -43,6 +43,10 @@ const MAX_TIMEOUT_MS = 2_147_483_647;
  * The writer side of a task, for the code that does the work. Obtained from
  * {@link InMemoryTaskStore.handle}; a persistent store exposes its own
  * equivalent (or none, when the work reports through the store directly).
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
  */
 export interface TaskHandle {
     readonly taskId: string;
@@ -61,7 +65,13 @@ export interface TaskHandle {
     fail(error: { code: number; message: string; data?: unknown }): Promise<void>;
 }
 
-/** Options for {@link InMemoryTaskStore}. */
+/**
+ * Options for {@link InMemoryTaskStore}.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export interface InMemoryTaskStoreOptions {
     /** Task id factory. Default `crypto.randomUUID()`. */
     createTaskId?: () => string;
@@ -69,6 +79,11 @@ export interface InMemoryTaskStoreOptions {
     now?: () => number;
 }
 
+/**
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export class InMemoryTaskStore implements TaskStore {
     readonly #tasks = new Map<string, TaskRecord>();
     readonly #createTaskId: () => string;

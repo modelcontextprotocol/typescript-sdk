@@ -5,6 +5,11 @@
  * `TasksClientExtension` advertises the capability, accepts task handles on
  * `tools/call`, and wraps `tasks/get`, `tasks/update` and `tasks/cancel`,
  * plus `waitFor` to poll a task to a terminal status.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ * @module
  */
 
 export type { CallToolOutcome, TerminalTask, WaitForOptions } from './tasksClientExtension';
