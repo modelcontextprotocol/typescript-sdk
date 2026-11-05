@@ -43,8 +43,10 @@ before can now fail to compile when it:
 - passes an `outputSchema` typed as possibly `undefined` (a registry forwarding an optional schema). TypeScript drops the `undefined` at the call site, so the callback is checked as if the schema were present.
 
 `isError: true` results, input-required results, and tools without an `outputSchema`
-are unchanged. Runtime validation is unchanged and still authoritative. A test fixture
-that deliberately returns invalid output can cast the result: `() => ({ ... }) as never`.
+are unchanged. Successful typed results may leave out `content`; the server then sends
+the JSON of `structuredContent` as a text block. Runtime validation is unchanged and
+still authoritative. A test fixture that deliberately returns invalid output can cast
+the result: `() => ({ ... }) as never`.
 
 #### Standard Schema objects (raw shapes deprecated)
 

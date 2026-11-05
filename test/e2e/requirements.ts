@@ -452,6 +452,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#structured-content',
         behavior: 'A tool returning structured content also returns the serialized JSON as a text content block.'
     },
+    'server:tools:structured-content:text-when-content-omitted': {
+        source: 'https://modelcontextprotocol.io/specification/draft/server/tools#structured-content',
+        behavior:
+            'A McpServer tool whose handler returns structuredContent but omits content gets a single {type:"text", text: JSON.stringify(structuredContent)} block, so the result carries the serialized JSON the spec asks for. A handler that returns object structuredContent with content, even an empty array, keeps the content it supplied.'
+    },
     'tools:call:unknown-name': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#error-handling',
         behavior: 'tools/call for a name the server does not recognise returns a JSON-RPC error.'

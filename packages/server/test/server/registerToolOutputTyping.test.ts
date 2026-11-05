@@ -14,6 +14,7 @@ import * as z from 'zod/v4';
 
 import type { CallToolResult, ServerContext, ToolCallback, ToolResultFor, ToolStructuredContent } from '../../src/index';
 import { fromJsonSchema, inputRequired, McpServer } from '../../src/index';
+import { invoke } from '../../src/server/invoke';
 
 const server = new McpServer({ name: 's', version: '1' });
 
@@ -125,18 +126,26 @@ describe('registerTool: structuredContent is typed from outputSchema', () => {
         server.registerTool('mixed-bad', { inputSchema, outputSchema }, ({ ok }) => (ok ? { content: [], structuredContent: { data: 1 } } : { content: [], isError: true }));
     });
 
-    it('requires content on every result, typed or not', () => {
+    it('lets typed successes omit content (the server sends structuredContent as JSON text)', () => {
         const outputSchema = z.object({ data: z.string() });
-        // @ts-expect-error content is required on typed successes too
         server.registerTool('no-content', { outputSchema }, () => ({ structuredContent: { data: 'x' } }));
         // The rest of CallToolResult keeps its types on the typed branch.
-        server.registerTool('meta', { outputSchema }, () => ({ content: [], _meta: { trace: 'abc' }, structuredContent: { data: 'x' } }));
-        // @ts-expect-error content blocks are still checked
+        server.registerTool('meta', { outputSchema }, () => ({ _meta: { trace: 'abc' }, structuredContent: { data: 'x' } }));
+        // @ts-expect-error content blocks are still checked when supplied
         server.registerTool('bad-block', { outputSchema }, () => ({ content: [{ type: 'bogus' }], structuredContent: { data: 'x' } }));
+        // Schema-less and error results keep the CallToolResult contract (content required).
         // @ts-expect-error content is required without an outputSchema
         server.registerTool('schemaless-no-content', {}, () => ({ structuredContent: 'x' }));
         // @ts-expect-error content is required on error results
         server.registerTool('err-no-content', { outputSchema }, () => ({ isError: true }));
+
+        // update({ callback }) accepts the same content-less typed result.
+        const tool = server.registerTool('updatable', { outputSchema }, () => ({ structuredContent: { data: 'x' } }));
+        tool.update({ callback: () => ({ structuredContent: { data: 'y' } }) });
+        const typed = (): ToolResultFor<typeof outputSchema> => ({ structuredContent: { data: 'z' } });
+        tool.update({ callback: typed });
+        // @ts-expect-error update still requires content when there is no structuredContent
+        tool.update({ callback: () => ({}) });
     });
 
     it('leaves schema-less tools unchanged', () => {
@@ -264,5 +273,68 @@ describe('registerTool: structuredContent is typed from outputSchema', () => {
         // The one-argument form stays broad (unchanged for existing annotations).
         const broad: ToolCallback<typeof inputSchema> = () => ({ content: [], structuredContent: 'anything' });
         void broad;
+    });
+});
+
+describe('registerTool: runtime content for typed successes', () => {
+    const call = async (s: McpServer, name: string): Promise<CallToolResult> => {
+        const response = await invoke(
+            s,
+            { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: {} } },
+            { classification: { era: 'legacy' } }
+        );
+        return ((await response.json()) as { result: CallToolResult }).result;
+    };
+
+    it('sends structuredContent as a JSON text block when content is omitted', async () => {
+        const s = new McpServer({ name: 's', version: '1' });
+        s.registerTool('obj', { outputSchema: z.object({ data: z.string() }) }, () => ({ structuredContent: { data: 'x' } }));
+        s.registerTool('arr', { outputSchema: z.array(z.number()) }, () => ({ structuredContent: [1, 2] }));
+        s.registerTool('empty', { outputSchema: z.object({ data: z.string() }) }, () => ({
+            content: [],
+            structuredContent: { data: 'x' }
+        }));
+
+        const obj = await call(s, 'obj');
+        expect(obj.isError).toBeUndefined();
+        expect(obj.content).toEqual([{ type: 'text', text: '{"data":"x"}' }]);
+        expect(obj.structuredContent).toEqual({ data: 'x' });
+
+        const arr = await call(s, 'arr');
+        expect(arr.content).toEqual([{ type: 'text', text: '[1,2]' }]);
+
+        // Explicit content, even empty, is left alone.
+        expect((await call(s, 'empty')).content).toEqual([]);
+    });
+
+    it('applies to schema-less tools, error results and callbacks swapped in with update()', async () => {
+        const s = new McpServer({ name: 's', version: '1' });
+        s.registerTool('schemaless', {}, (() => ({ structuredContent: { a: 1 } })) as never);
+        s.registerTool('error', {}, (() => ({ isError: true, structuredContent: { why: 'x' } })) as never);
+        const tool = s.registerTool('updated', { outputSchema: z.object({ n: z.number() }) }, () => ({ structuredContent: { n: 1 } }));
+        tool.update({ callback: () => ({ structuredContent: { n: 2 } }) });
+
+        expect((await call(s, 'schemaless')).content).toEqual([{ type: 'text', text: '{"a":1}' }]);
+        const error = await call(s, 'error');
+        expect(error.isError).toBe(true);
+        expect(error.content).toEqual([{ type: 'text', text: '{"why":"x"}' }]);
+        expect((await call(s, 'updated')).content).toEqual([{ type: 'text', text: '{"n":2}' }]);
+    });
+
+    it('does not turn a content-less result carrying another result family into a success', async () => {
+        const s = new McpServer({ name: 's', version: '1' });
+        for (const key of ['task', 'inputRequests', 'requestState']) {
+            s.registerTool(key, {}, (() => ({ structuredContent: { a: 1 }, [key]: {} })) as never);
+        }
+        for (const key of ['task', 'inputRequests', 'requestState']) {
+            const response = await invoke(
+                s,
+                { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: key, arguments: {} } },
+                { classification: { era: 'legacy' } }
+            );
+            const body = (await response.json()) as { result?: CallToolResult; error?: { code: number } };
+            expect(body.result?.content, key).toBeUndefined();
+            expect(body.error?.code, key).toBe(-32602);
+        }
     });
 });
