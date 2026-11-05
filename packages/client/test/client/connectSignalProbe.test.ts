@@ -219,6 +219,30 @@ describe('connect() signal during the server/discover probe', () => {
         expect(transport.sent.some(m => isJSONRPCRequest(m) && m.method === 'initialize')).toBe(false);
     });
 
+    test('a probe reply that lands after the abort emits nothing: no error, no write, no server version', async () => {
+        const transport = new FakeHttpTransport();
+        let closes = 0;
+        transport.onclose = () => closes++;
+        const client = autoClient();
+        const errors: Error[] = [];
+        client.onerror = error => errors.push(error);
+
+        const settled = await settleWithin(client.connect(transport, { signal: abortSoon() }));
+
+        expectAbortRejection(settled, /aborted by caller/);
+        const [probe] = transport.sent;
+        if (!probe || !isJSONRPCRequest(probe) || probe.method !== 'server/discover') throw new Error('no server/discover probe sent');
+        const sentBefore = transport.sent.length;
+
+        transport.onmessage?.({ jsonrpc: '2.0', id: probe.id, result: discoverResult });
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        expect(errors).toEqual([]);
+        expect(transport.sent).toHaveLength(sentBefore);
+        expect(client.getServerVersion()).toBeUndefined();
+        expect(closes).toBe(1);
+    });
+
     test('pin mode: an abort mid-probe rejects promptly', async () => {
         const client = new Client(
             { name: 'c', version: '0' },
