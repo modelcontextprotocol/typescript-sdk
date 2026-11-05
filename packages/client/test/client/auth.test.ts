@@ -3280,6 +3280,38 @@ describe('OAuth Authorization', () => {
             warn.mockRestore();
         });
 
+        it("routes auth() warnings to the provider's logger instead of console", async () => {
+            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day'));
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
+            (mockProvider.tokens as Mock).mockResolvedValue(storedTokens);
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+            const warn = vi.fn();
+            const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const provider: OAuthClientProvider = Object.create(mockProvider, { logger: { value: { warn } } });
+
+            await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
+
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('Could not refresh OAuth tokens'));
+            expect(consoleWarn).not.toHaveBeenCalled();
+            consoleWarn.mockRestore();
+        });
+
+        it('auth() still completes when the provider logger throws', async () => {
+            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day'));
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
+            (mockProvider.tokens as Mock).mockResolvedValue(storedTokens);
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+            const warn = vi.fn(() => {
+                throw new Error('log sink closed');
+            });
+            const provider: OAuthClientProvider = Object.create(mockProvider, { logger: { value: { warn } } });
+
+            await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
+            expect(warn).toHaveBeenCalled();
+        });
+
         it('warns, and cannot recover, when invalid_grant hits a provider with no invalidateCredentials (#2034)', async () => {
             let tokenPosts = 0;
             mockDiscoveryWithTokenEndpoint(() => {
@@ -5254,6 +5286,16 @@ describe('OAuth Authorization', () => {
             expect(discardIfIssuerMismatch<StoredOAuthTokens>(undefined, AS_TWO)).toBeUndefined();
             expect(warn).toHaveBeenCalledTimes(1);
             warn.mockRestore();
+        });
+
+        it('discardIfIssuerMismatch: sends the unstamped warning to opts.logger', () => {
+            const warn = vi.fn();
+            const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const unstamped: StoredOAuthTokens = { access_token: 'a', token_type: 'Bearer' };
+            expect(discardIfIssuerMismatch(unstamped, AS_ONE, { logger: { warn } })).toBe(unstamped);
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining("no 'issuer' stamp"));
+            expect(consoleWarn).not.toHaveBeenCalled();
+            consoleWarn.mockRestore();
         });
 
         it('clientInformation stamped for AS-one is discarded at AS-two → re-registers (single-slot blob provider)', async () => {
