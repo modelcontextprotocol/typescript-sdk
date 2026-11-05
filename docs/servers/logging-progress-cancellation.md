@@ -73,7 +73,7 @@ Only the result comes back:
 
 ## Route SDK diagnostics
 
-Pass `logger` to `McpServer` to route the warnings and debug messages the SDK prints locally. On stdio, send every level to stderr so diagnostics never enter the JSON-RPC channel.
+Pass `logger` to `McpServer` to route the warnings and debug messages the SDK prints locally. On a stdio server, send every level to stderr: the server's stdout carries only MCP messages.
 
 ```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#sdkLogger_stderr"
 const sdkLogger = {

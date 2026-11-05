@@ -102,7 +102,7 @@ When the requested scope includes `offline_access`, the SDK adds `prompt=consent
 :::
 
 ::: tip
-`auth()` prints warnings while it runs, for example when a stored credential has no `issuer` stamp or a token refresh fails. Set `logger` on the provider to route them somewhere other than `console`. It takes the same console-compatible `SdkLogger` as `Client`; on a stdio client, send every level to stderr.
+`auth()` prints warnings while it runs, for example when a stored credential has no `issuer` stamp or a token refresh fails. Set `logger` on the provider to route them somewhere other than `console`. It takes the same console-compatible `SdkLogger` as `Client`.
 :::
 
 ## Finish the flow from the callback
