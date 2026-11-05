@@ -122,6 +122,8 @@ The SDK validates the value you return and sends it as is, without the parsed re
 
 The SDK also validates `structuredContent` against `outputSchema` at runtime before the result leaves your server, and advertises the derived JSON Schema in `tools/list` so clients can validate it too. The runtime check is still the one that counts: it covers JavaScript callers, values cast with `as`, and constraints TypeScript cannot express, such as `.min()`, `.email()` or `.refine()`.
 
+When `outputSchema` is set you may leave out `content`; the server then sends the JSON of `structuredContent` as a single text block, so clients that ignore `structuredContent` still see the result. Supply your own `content` to control that text.
+
 Calling `product-details` with `{ name: 'Travel mug' }` returns both renderings:
 
 ```

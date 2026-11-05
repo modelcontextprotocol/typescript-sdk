@@ -670,6 +670,27 @@ verifies('tools:call:structured-content:text-mirror', async ({ transport }: Test
     expect(r.content).toContainEqual({ type: 'text', text: JSON.stringify({ doubled: 42 }) });
 });
 
+verifies('server:tools:structured-content:text-when-content-omitted', async ({ transport }: TestArgs) => {
+    const makeServer = (): McpServer => {
+        const s = new McpServer({ name: 's', version: '0' });
+        const outputSchema = z.object({ data: z.string() });
+        s.registerTool('omitted', { inputSchema: z.object({}), outputSchema }, () => ({ structuredContent: { data: 'x' } }));
+        s.registerTool('empty', { inputSchema: z.object({}), outputSchema }, () => ({ content: [], structuredContent: { data: 'x' } }));
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+
+    const omitted = await client.callTool({ name: 'omitted', arguments: {} });
+    expect(omitted.isError).toBeFalsy();
+    expect(omitted.structuredContent).toEqual({ data: 'x' });
+    expect(omitted.content).toEqual([{ type: 'text', text: JSON.stringify({ data: 'x' }) }]);
+
+    const empty = await client.callTool({ name: 'empty', arguments: {} });
+    expect(empty.structuredContent).toEqual({ data: 'x' });
+    expect(empty.content).toEqual([]);
+});
+
 verifies(['client:output-schema:validate', 'client:output-schema:missing-structured'], async ({ transport }: TestArgs) => {
     // Client-side validation is only observable when the server does NOT
     // pre-validate (raw Server) — McpServer would intercept first.

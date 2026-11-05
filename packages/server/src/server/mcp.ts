@@ -307,12 +307,13 @@ export class McpServer {
                 const result = await this.executeToolHandler(tool, args, ctx);
                 await this.validateToolOutput(tool, result, request.params.name);
                 if (isInputRequiredResult(result)) return result;
+                const completed = withStructuredContentText(result);
                 // SEP-2106 result-side projection (the era-agnostic TextContent auto-append; the
                 // `{result:…}` wrap on the 2025 era) lives behind the wire codec's
                 // `projectCallToolResult`. The codec receives the SAME advertised JSON Schema
                 // `tools/list` emits (and that the codec's `encodeResult('tools/list', …)` may have
                 // wrapped) so the listing and the call cannot diverge.
-                return this.server.projectCallToolResult(result, tool.outputSchemaJson);
+                return this.server.projectCallToolResult(completed, tool.outputSchemaJson);
             } catch (error) {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult
@@ -1338,6 +1339,14 @@ export class ResourceTemplate {
     }
 }
 
+/** Sends the JSON of `structuredContent` as text when a tool result omits `content` (spec: SHOULD mirror structured content as text). */
+function withStructuredContentText(result: CallToolResult): CallToolResult {
+    if ((result as { content?: unknown }).content !== undefined || result.structuredContent === undefined) {
+        return result;
+    }
+    return { ...result, content: [{ type: 'text', text: JSON.stringify(result.structuredContent) }] };
+}
+
 /**
  * A plain record of Zod field schemas, e.g. `{ name: z.string() }`. Accepted by
  * `registerTool`/`registerPrompt` as a shorthand; auto-wrapped with `z.object()`.
@@ -1380,12 +1389,16 @@ export type ToolStructuredContent<Output extends StandardSchemaWithJSON | ZodRaw
 /**
  * The successful result of a tool that declares an `outputSchema`: `structuredContent` is
  * required and typed by {@linkcode ToolStructuredContent}.
+ *
+ * `content` is optional here: when it is omitted, the server sends the JSON of
+ * `structuredContent` as a single text block. Supply your own `content` to control what
+ * clients that ignore `structuredContent` see.
  */
 export type ToolResultWithStructuredContent<T> = {
     // `Omit` would collapse CallToolResult's known keys into its index signature; key remapping keeps them.
     [K in keyof CallToolResult as K extends 'content' | 'structuredContent' | 'isError' ? never : K]: CallToolResult[K];
 } & {
-    content: CallToolResult['content'];
+    content?: CallToolResult['content'];
     structuredContent: T;
     isError?: false;
 };
