@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline';
 import { URL } from 'node:url';
 
 import type { ListToolsRequest, OAuthClientMetadata } from '@modelcontextprotocol/client';
-import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import open from 'open';
 
 import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider';
@@ -162,6 +162,7 @@ class InteractiveOAuthClient {
             token_endpoint_auth_method: 'client_secret_post'
         };
 
+        // eslint-disable-next-line prefer-const -- assigned after the closure that captures it
         let currentTransport: StreamableHTTPClientTransport;
 
         console.log('🔐 Creating OAuth provider...');
@@ -171,22 +172,24 @@ class InteractiveOAuthClient {
             (redirectUrl: URL) => {
                 console.log(`📌 OAuth redirect handler called - opening browser`);
                 console.log(`Opening browser to: ${redirectUrl.toString()}`);
-                
+
                 console.log('🔐 OAuth required - waiting for authorization...');
-                this.waitForOAuthCallback().then(async callbackParams => {
-                    console.log('🔐 Authorization code received:', callbackParams.get('code'));
-                    await currentTransport.finishAuth(callbackParams);
-                    console.log('🔌 Authentication complete!');
-                }).catch(err => {
-                    console.error("❌ OAuth flow failed:", err);
-                });
+                this.waitForOAuthCallback()
+                    .then(async callbackParams => {
+                        console.log('🔐 Authorization code received:', callbackParams.get('code'));
+                        await currentTransport.finishAuth(callbackParams);
+                        console.log('🔌 Authentication complete!');
+                    })
+                    .catch(error => {
+                        console.error('❌ OAuth flow failed:', error);
+                    });
 
                 this.openBrowser(redirectUrl.toString());
             },
             this.clientMetadataUrl
         );
         console.log('🔐 OAuth provider created');
-        
+
         const baseUrl = new URL(this.serverUrl);
         currentTransport = new StreamableHTTPClientTransport(baseUrl, {
             authProvider: oauthProvider

@@ -9,7 +9,7 @@
  */
 
 import type { OAuthClientProvider } from '@modelcontextprotocol/client';
-import { Client, SdkHttpError, SSEClientTransport, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
+import { Client, SdkHttpError, SSEClientTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type {
     ElicitRequest,
     ElicitResult,

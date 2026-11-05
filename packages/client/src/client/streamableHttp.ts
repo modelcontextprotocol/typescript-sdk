@@ -423,7 +423,7 @@ export class StreamableHTTPClientTransport implements Transport {
         try {
             return await this._stepUpAuthorizeInner(challenge, stepUpRetries);
         } catch (error) {
-            console.log("CATCH BLOCK ERROR:", error); throw markAuthSeamEscape(error);
+            throw markAuthSeamEscape(error);
         }
     }
 
@@ -508,7 +508,7 @@ export class StreamableHTTPClientTransport implements Transport {
         } catch (error) {
             // Auth-seam stamp: a throwing token() is an auth failure, never a
             // network failure.
-            console.log("CATCH BLOCK ERROR:", error); throw markAuthSeamEscape(error);
+            throw markAuthSeamEscape(error);
         }
         if (token) {
             headers.set('Authorization', `Bearer ${token}`);
@@ -645,7 +645,7 @@ export class StreamableHTTPClientTransport implements Transport {
                             }
                             // Auth-seam stamp: covers the SDK's OAuth flow and
                             // custom onUnauthorized callbacks alike.
-                            console.log("CATCH BLOCK ERROR:", error); throw markAuthSeamEscape(error);
+                            throw markAuthSeamEscape(error);
                         }
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
@@ -971,24 +971,23 @@ export class StreamableHTTPClientTransport implements Transport {
             throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
         }
 
-        const { authorizationCode, iss: issParam } = await resolveAuthorizationCallbackParams(
-            codeOrParams,
-            iss,
-            this._oauthProvider,
-            this._url,
-            { fetchFn: this._fetchWithInit, resourceMetadataUrl: this._resourceMetadataUrl }
-        );
-
         if (!this._pendingAuthPromise) {
             this._pendingAuthPromise = new Promise<void>((resolve, reject) => {
                 this._authResolve = resolve;
                 this._authReject = reject;
             });
-            // Prevent UnhandledPromiseRejection if it fails and no one awaits it
             this._pendingAuthPromise.catch(() => {});
         }
 
         try {
+            const { authorizationCode, iss: issParam } = await resolveAuthorizationCallbackParams(
+                codeOrParams,
+                iss,
+                this._oauthProvider,
+                this._url,
+                { fetchFn: this._fetchWithInit, resourceMetadataUrl: this._resourceMetadataUrl }
+            );
+
             const result = await auth(this._oauthProvider, {
                 serverUrl: this._url,
                 authorizationCode,
@@ -1162,7 +1161,7 @@ export class StreamableHTTPClientTransport implements Transport {
                             }
                             // Auth-seam stamp: covers the SDK's OAuth flow and
                             // custom onUnauthorized callbacks alike.
-                            console.log("CATCH BLOCK ERROR:", error); throw markAuthSeamEscape(error);
+                            throw markAuthSeamEscape(error);
                         }
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice

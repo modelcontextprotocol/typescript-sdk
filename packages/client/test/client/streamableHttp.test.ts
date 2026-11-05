@@ -1092,7 +1092,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         const fetchMock = globalThis.fetch as Mock;
         let callCount = 0;
-        
+
         fetchMock.mockImplementation(async (url, init) => {
             const urlString = url.toString();
             if (urlString.includes('/token')) {
@@ -1129,7 +1129,7 @@ describe('StreamableHTTPClientTransport', () => {
                     })
                 };
             }
-            
+
             callCount++;
             if (callCount === 1) {
                 // First call: 401 Unauthorized
@@ -1169,7 +1169,107 @@ describe('StreamableHTTPClientTransport', () => {
         // The original request should now complete successfully
         await sendPromise;
         expect(callCount).toBe(2);
-        
+
+        fetchMock.mockReset();
+    });
+
+    it('rejects the triggering request when finishAuth callback resolution fails', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        const fetchMock = globalThis.fetch as Mock;
+
+        fetchMock.mockImplementation(async url => {
+            const urlString = url.toString();
+            if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        authorization_servers: ['http://localhost:1234'],
+                        resource: 'http://localhost:1234/mcp'
+                    })
+                };
+            }
+            if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        issuer: 'http://localhost:1234',
+                        authorization_endpoint: 'http://localhost:1234/authorize',
+                        token_endpoint: 'http://localhost:1234/token',
+                        response_types_supported: ['code'],
+                        code_challenge_methods_supported: ['S256']
+                    })
+                };
+            }
+
+            // 401 triggers the auth redirect flow
+            return {
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers(),
+                text: async () => 'Unauthorized'
+            };
+        });
+
+        const sendPromise = transport.send(message);
+
+        await vi.waitFor(() => {
+            expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
+        });
+
+        // Simulate a callback failure (e.g. user denied consent)
+        const callbackError = new OAuthError(OAuthErrorCode.AccessDenied, 'user denied');
+        mockAuthProvider.codeVerifier.mockResolvedValue('test-verifier');
+        // Make the token exchange fail with the callback error
+        fetchMock.mockImplementation(async url => {
+            const urlString = url.toString();
+            if (urlString.includes('/token')) {
+                return {
+                    ok: false,
+                    status: 400,
+                    json: async () => callbackError.toResponseObject()
+                };
+            }
+            if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        authorization_servers: ['http://localhost:1234'],
+                        resource: 'http://localhost:1234/mcp'
+                    })
+                };
+            }
+            if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        issuer: 'http://localhost:1234',
+                        authorization_endpoint: 'http://localhost:1234/authorize',
+                        token_endpoint: 'http://localhost:1234/token',
+                        response_types_supported: ['code'],
+                        code_challenge_methods_supported: ['S256']
+                    })
+                };
+            }
+            return { ok: false, status: 500, text: async () => 'error' };
+        });
+
+        // finishAuth should throw the callback error
+        await expect(transport.finishAuth('test-code')).rejects.toThrow();
+
+        // The triggering request must also reject — not stay pending
+        await expect(sendPromise).rejects.toThrow();
+
         fetchMock.mockReset();
     });
 
@@ -2303,11 +2403,11 @@ describe('StreamableHTTPClientTransport', () => {
         // Ensure the auth flow completes without unhandled rejections for this
         // error type; token invalidation behavior is covered in dedicated tests.
         const sendPromise = transport.send(message);
-        
+
         await vi.waitFor(() => {
             expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalled();
         });
-        
+
         await transport.close();
         await sendPromise.catch(() => {});
     });
@@ -2372,11 +2472,11 @@ describe('StreamableHTTPClientTransport', () => {
         // As above, just ensure the auth flow completes without unhandled
         // rejections in this scenario.
         const sendPromise = transport.send(message);
-        
+
         await vi.waitFor(() => {
             expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalled();
         });
-        
+
         await transport.close();
         await sendPromise.catch(() => {});
     });
@@ -2440,11 +2540,11 @@ describe('StreamableHTTPClientTransport', () => {
         // unit tests and SSE transport tests. Here we just assert that the call
         // path completes without unhandled rejections.
         const sendPromise = transport.send(message);
-        
+
         await vi.waitFor(() => {
             expect(mockAuthProvider.saveTokens).toHaveBeenCalled();
         });
-        
+
         await transport.close();
         await sendPromise.catch(() => {});
     });
@@ -2500,7 +2600,9 @@ describe('StreamableHTTPClientTransport', () => {
 
             // Attempt to start - should trigger auth flow
             await transport.start();
-            const startPromise = (transport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> })._startOrAuthSse({});
+            const startPromise = (transport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> })._startOrAuthSse(
+                {}
+            );
 
             await vi.waitFor(() => {
                 expect(customFetch).toHaveBeenCalled();

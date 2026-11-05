@@ -204,15 +204,17 @@ describe('stamped-seam fault injection (identity-preserving auth outcomes, never
             fetch: authWallFetch(() => {
                 if (firstFetch) {
                     firstFetch = false;
-                    return Promise.resolve(Response.json({ client_id: 'abc', redirect_uris: ['http://localhost:3000/callback'] }, { status: 201 }));
+                    return Promise.resolve(
+                        Response.json({ client_id: 'abc', redirect_uris: ['http://localhost:3000/callback'] }, { status: 201 })
+                    );
                 }
                 // Second fetch succeeds
                 return Promise.resolve(new Response('Forbidden', { status: 403 }));
             })
         });
-        
+
         const probePromise = runProbe(transport, 'node');
-        
+
         // Wait for the transport to enter the pending auth state
         await vi.waitFor(() => {
             expect((transport as any)._pendingAuthPromise).toBeDefined();

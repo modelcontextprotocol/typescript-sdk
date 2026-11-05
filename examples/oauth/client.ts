@@ -31,7 +31,7 @@
  */
 import { check, parseExampleArgs } from '@mcp-examples/shared';
 import type { OAuthClientMetadata } from '@modelcontextprotocol/client';
-import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider';
 
@@ -115,12 +115,7 @@ const provider = new InMemoryOAuthClientProvider(CALLBACK_URL, clientMetadata, a
 });
 
 const firstTransport = new StreamableHTTPClientTransport(new globalThis.URL(url), { authProvider: provider });
-const connectPromise = client.connect(firstTransport).catch(error => {
-    // Both `--legacy` and `mode: 'auto'` surfaced the original
-    // `UnauthorizedError` directly before the pending contract change.
-    // Now they should just succeed after finishAuth completes!
-    throw error;
-});
+const connectPromise = client.connect(firstTransport);
 
 // Give the async connect time to hit the auth wall and trigger the callback
 await urlCapturedPromise;
