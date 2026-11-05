@@ -55,20 +55,4 @@ client:
     # (SEP-1932 DPoP burned by the auth/dpop + auth/dpop-nonce client implementation.)
     - auth/wif-jwt-bearer
 
-server:
-    # --- SEP-2663 (io.modelcontextprotocol/tasks) — server SDK does not implement the tasks extension ---
-    # Extension-tagged scenarios; selected only by `--suite all` (the alpha.10 referee
-    # has no server-side `--suite extensions`). The active/draft/2026 legs never select
-    # them, so they cannot flag these entries as stale. `tasks-status-notifications` is
-    # intentionally absent: the referee SKIPs it unconditionally (harness rewrite pending
-    # against the SEP-2575 subscriptions/listen channel), so a baseline entry would be
-    # flagged stale.
-    - tasks-lifecycle
-    - tasks-capability-negotiation
-    - tasks-wire-fields
-    - tasks-request-state-removal
-    - tasks-mrtr-input
-    - tasks-request-headers
-    - tasks-dispatch-and-envelope
-    - tasks-required-task-error
-    - tasks-mrtr-composition
+server: []

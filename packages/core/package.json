@@ -50,6 +50,16 @@
                 "types": "./dist/ext/skills/index.d.cts",
                 "default": "./dist/ext/skills/index.cjs"
             }
+        },
+        "./ext/tasks": {
+            "import": {
+                "types": "./dist/ext/tasks/index.d.mts",
+                "default": "./dist/ext/tasks/index.mjs"
+            },
+            "require": {
+                "types": "./dist/ext/tasks/index.d.cts",
+                "default": "./dist/ext/tasks/index.cjs"
+            }
         }
     },
     "typesVersions": {
@@ -59,6 +69,9 @@
             ],
             "ext/skills": [
                 "dist/ext/skills/index.d.mts"
+            ],
+            "ext/tasks": [
+                "dist/ext/tasks/index.d.mts"
             ]
         }
     },
