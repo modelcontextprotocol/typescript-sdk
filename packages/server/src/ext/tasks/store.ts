@@ -9,7 +9,13 @@
 import type { InputResponses } from '@modelcontextprotocol/core-internal';
 import type { DetailedTask, Task } from '@modelcontextprotocol/core/ext/tasks';
 
-/** What `TasksExtension.create` asks a store to durably create. */
+/**
+ * What `TasksExtension.create` asks a store to durably create.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export interface CreateTaskParams {
     /** Retention from creation, ms; `null` = unlimited. */
     ttlMs: number | null;
@@ -31,7 +37,13 @@ export interface CreateTaskParams {
     context?: Record<string, unknown>;
 }
 
-/** The caller identity presented on a `tasks/*` request. */
+/**
+ * The caller identity presented on a `tasks/*` request.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export interface TaskAccess {
     principal?: string;
 }
@@ -46,6 +58,10 @@ export interface TaskAccess {
  *   expired, or foreign-principal task; the extension answers `-32602`.
  * - `cancel` is cooperative: it resolves on acknowledgement, the task may
  *   still settle `completed` or `failed`. Idempotent on terminal tasks.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
  */
 export interface TaskStore {
     create(params: CreateTaskParams): Promise<Task>;

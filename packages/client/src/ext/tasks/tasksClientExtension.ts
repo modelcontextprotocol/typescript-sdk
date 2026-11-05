@@ -31,10 +31,22 @@ import * as z from 'zod/v4';
 import type { Client } from '../../client/client';
 import type { ClientExtension, ClientExtensionContext } from '../../client/extension';
 
-/** How a task-capable `tools/call` settled: a task handle to follow, or the ordinary result. */
+/**
+ * How a task-capable `tools/call` settled: a task handle to follow, or the ordinary result.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export type CallToolOutcome = { kind: 'task'; task: CreateTaskResult } | { kind: 'result'; result: CallToolResult };
 
-/** Options for {@link TasksClientExtension.waitFor}. */
+/**
+ * Options for {@link TasksClientExtension.waitFor}.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export interface WaitForOptions {
     /** Aborting stops polling; the task itself is untouched. */
     signal?: AbortSignal;
@@ -46,7 +58,13 @@ export interface WaitForOptions {
     onUpdate?: (task: DetailedTask) => void | Promise<void>;
 }
 
-/** A task in a terminal status. */
+/**
+ * A task in a terminal status.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export type TerminalTask = Extract<DetailedTask, { status: 'completed' | 'failed' | 'cancelled' }>;
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
@@ -59,6 +77,11 @@ const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 const callToolOutcomeSchema = z.union([createTaskResultSchema, CompatibilityCallToolResultSchema]);
 const ackSchema = z.looseObject({});
 
+/**
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export class TasksClientExtension implements ClientExtension {
     readonly id = TASKS_EXTENSION_ID;
     #client: Client | undefined;
@@ -67,7 +90,7 @@ export class TasksClientExtension implements ClientExtension {
      * Binds this instance to the client and lets `tools/call` answer with a
      * task handle. The client calls this for each entry in `extensions`.
      *
-     * Experimental: the extension shape may change in a minor release.
+     * Experimental: may change in a minor release while the extensions SEPs settle.
      *
      * @experimental
      */

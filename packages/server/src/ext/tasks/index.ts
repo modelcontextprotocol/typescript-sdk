@@ -8,6 +8,11 @@
  * in-process reference; durable stores implement the same four methods and
  * live outside the SDK. How the work behind a task runs is the server's
  * own.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ * @module
  */
 
 export type { InMemoryTaskStoreOptions, TaskHandle } from './inMemoryStore';

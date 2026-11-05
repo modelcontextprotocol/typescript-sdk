@@ -4,6 +4,10 @@ shape: how-to
 
 # Tasks (extension)
 
+::: warning Experimental
+The `@modelcontextprotocol/client/ext/tasks` subpath (and `@modelcontextprotocol/core/ext/tasks`) is experimental: it may change in a minor release while the extensions SEPs settle.
+:::
+
 The [MCP Tasks extension](https://github.com/modelcontextprotocol/ext-tasks) (`io.modelcontextprotocol/tasks`) lets a server answer a tool call with a **task handle** instead of blocking: you poll `tasks/get`, answer `tasks/update`, and stop with `tasks/cancel`. `@modelcontextprotocol/client/ext/tasks` is the client side of that wire, as a [client extension](../advanced/extensions.md). The server side is [Tasks (extension)](../servers/tasks.md).
 
 ## Install the extension

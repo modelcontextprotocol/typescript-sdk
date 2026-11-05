@@ -11,7 +11,13 @@ import * as z from 'zod/v4';
 
 import { TASK_STATUSES } from './constants';
 
-/** `TaskStatus` */
+/**
+ * `TaskStatus`
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const taskStatusSchema = z.enum(TASK_STATUSES);
 
 const metaSchema = z.record(z.string(), z.unknown());
@@ -19,19 +25,41 @@ const metaSchema = z.record(z.string(), z.unknown());
 /**
  * An embedded (de-JSON-RPC'd) input request: an elicitation, sampling, or
  * roots request object (`{method, params}`), validated structurally.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
  */
 export const inputRequestSchema = z.looseObject({
     method: z.string(),
     params: z.record(z.string(), z.unknown()).optional()
 });
 
-/** An embedded input response: the bare result object for its request. */
+/**
+ * An embedded input response: the bare result object for its request.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const inputResponseSchema = z.record(z.string(), z.unknown());
 
-/** `InputRequests` — keyed by identifiers unique over the task's lifetime. */
+/**
+ * `InputRequests` — keyed by identifiers unique over the task's lifetime.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const inputRequestsSchema = z.record(z.string(), inputRequestSchema);
 
-/** `InputResponses` — keys correspond to outstanding inputRequest keys. */
+/**
+ * `InputResponses` — keys correspond to outstanding inputRequest keys.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const inputResponsesSchema = z.record(z.string(), inputResponseSchema);
 
 const taskShape = {
@@ -44,43 +72,85 @@ const taskShape = {
     pollIntervalMs: z.int().optional()
 };
 
-/** `Task` */
+/**
+ * `Task`
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const taskSchema = z.looseObject(taskShape);
 
-/** `WorkingTask` */
+/**
+ * `WorkingTask`
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const workingTaskSchema = z.looseObject({
     ...taskShape,
     status: z.literal('working')
 });
 
-/** `InputRequiredTask` */
+/**
+ * `InputRequiredTask`
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const inputRequiredTaskSchema = z.looseObject({
     ...taskShape,
     status: z.literal('input_required'),
     inputRequests: inputRequestsSchema
 });
 
-/** `CompletedTask` — the original request's result structure inlined. */
+/**
+ * `CompletedTask` — the original request's result structure inlined.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const completedTaskSchema = z.looseObject({
     ...taskShape,
     status: z.literal('completed'),
     result: z.record(z.string(), z.unknown())
 });
 
-/** `FailedTask` — the JSON-RPC error object inlined. */
+/**
+ * `FailedTask` — the JSON-RPC error object inlined.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const failedTaskSchema = z.looseObject({
     ...taskShape,
     status: z.literal('failed'),
     error: z.record(z.string(), z.unknown())
 });
 
-/** `CancelledTask` */
+/**
+ * `CancelledTask`
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const cancelledTaskSchema = z.looseObject({
     ...taskShape,
     status: z.literal('cancelled')
 });
 
-/** `DetailedTask` — discriminated on `status`. */
+/**
+ * `DetailedTask` — discriminated on `status`.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const detailedTaskSchema = z.discriminatedUnion('status', [
     workingTaskSchema,
     inputRequiredTaskSchema,
@@ -89,7 +159,13 @@ export const detailedTaskSchema = z.discriminatedUnion('status', [
     cancelledTaskSchema
 ]);
 
-/** `CreateTaskResult` — flat `Result & Task` with `resultType: "task"` (MUST). */
+/**
+ * `CreateTaskResult` — flat `Result & Task` with `resultType: "task"` (MUST).
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const createTaskResultSchema = z.looseObject({
     ...taskShape,
     resultType: z.literal('task'),
@@ -101,7 +177,13 @@ const completeResultShape = {
     _meta: metaSchema.optional()
 };
 
-/** `GetTaskResult` — a `DetailedTask` variant with `resultType: "complete"` (MUST). */
+/**
+ * `GetTaskResult` — a `DetailedTask` variant with `resultType: "complete"` (MUST).
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const getTaskResultSchema = z.discriminatedUnion('status', [
     workingTaskSchema.extend(completeResultShape),
     inputRequiredTaskSchema.extend(completeResultShape),
@@ -110,21 +192,45 @@ export const getTaskResultSchema = z.discriminatedUnion('status', [
     cancelledTaskSchema.extend(completeResultShape)
 ]);
 
-/** `UpdateTaskResult` — empty ack with `resultType: "complete"` (MUST). */
+/**
+ * `UpdateTaskResult` — empty ack with `resultType: "complete"` (MUST).
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const updateTaskResultSchema = z.looseObject(completeResultShape);
 
-/** `CancelTaskResult` — empty ack with `resultType: "complete"` (MUST). */
+/**
+ * `CancelTaskResult` — empty ack with `resultType: "complete"` (MUST).
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const cancelTaskResultSchema = z.looseObject(completeResultShape);
 
 const requestIdSchema = z.union([z.string(), z.int()]);
 
-/** `tasks/get` params (`_meta` carries the modern per-request envelope). */
+/**
+ * `tasks/get` params (`_meta` carries the modern per-request envelope).
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const getTaskParamsSchema = z.looseObject({
     taskId: z.string(),
     _meta: metaSchema.optional()
 });
 
-/** `GetTaskRequest` */
+/**
+ * `GetTaskRequest`
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const getTaskRequestSchema = z.looseObject({
     jsonrpc: z.literal('2.0'),
     id: requestIdSchema,
@@ -132,14 +238,26 @@ export const getTaskRequestSchema = z.looseObject({
     params: getTaskParamsSchema
 });
 
-/** `tasks/update` params (`_meta` carries the modern per-request envelope). */
+/**
+ * `tasks/update` params (`_meta` carries the modern per-request envelope).
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const updateTaskParamsSchema = z.looseObject({
     taskId: z.string(),
     inputResponses: inputResponsesSchema,
     _meta: metaSchema.optional()
 });
 
-/** `UpdateTaskRequest` */
+/**
+ * `UpdateTaskRequest`
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const updateTaskRequestSchema = z.looseObject({
     jsonrpc: z.literal('2.0'),
     id: requestIdSchema,
@@ -147,13 +265,25 @@ export const updateTaskRequestSchema = z.looseObject({
     params: updateTaskParamsSchema
 });
 
-/** `tasks/cancel` params (`_meta` carries the modern per-request envelope). */
+/**
+ * `tasks/cancel` params (`_meta` carries the modern per-request envelope).
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const cancelTaskParamsSchema = z.looseObject({
     taskId: z.string(),
     _meta: metaSchema.optional()
 });
 
-/** `CancelTaskRequest` */
+/**
+ * `CancelTaskRequest`
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const cancelTaskRequestSchema = z.looseObject({
     jsonrpc: z.literal('2.0'),
     id: requestIdSchema,
@@ -161,5 +291,11 @@ export const cancelTaskRequestSchema = z.looseObject({
     params: cancelTaskParamsSchema
 });
 
-/** `TasksExtensionCapability` — an empty object declares support. */
+/**
+ * `TasksExtensionCapability` — an empty object declares support.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
 export const tasksExtensionCapabilitySchema = z.strictObject({});
