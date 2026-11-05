@@ -188,8 +188,8 @@ export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandler
         // from `res.destroyed` at entry to cover the pre-registration window
         // when 'close' already fired during async middleware) is the single
         // termination source — racing it against the drain wait means a
-        // vanished client cannot park the loop, and breaking out of the async
-        // iterator calls return() to cancel the upstream stream.
+        // vanished client cannot park the loop, and cancelling the reader
+        // releases an idle upstream stream without waiting for its next chunk.
         let drainResolve: (() => void) | undefined;
         const releaseDrainWait = () => {
             drainResolve?.();
@@ -199,9 +199,17 @@ export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandler
         const closed = new Promise<void>(resolve => {
             abort.signal.addEventListener('abort', () => resolve(), { once: true });
         });
+        const reader = response.body.getReader();
+        const cancelBody = () => void reader.cancel().catch(() => {});
+        if (abort.signal.aborted) {
+            cancelBody();
+        } else {
+            abort.signal.addEventListener('abort', cancelBody, { once: true });
+        }
         try {
-            for await (const chunk of response.body) {
-                if (abort.signal.aborted) {
+            while (true) {
+                const { done, value: chunk } = await reader.read();
+                if (done || abort.signal.aborted) {
                     break;
                 }
                 if (res.write(chunk) === false) {
