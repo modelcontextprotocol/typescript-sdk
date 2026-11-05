@@ -42,6 +42,8 @@ export type { BearerAuthOptions, OAuthTokenVerifier, VerifyBearerTokenOptions } 
 export { bearerAuthChallengeResponse, requireBearerAuth, verifyBearerToken } from './server/middleware/bearerAuth';
 export type { HostHeaderValidationResult } from './server/middleware/hostHeaderValidation';
 export { hostHeaderValidationResponse, localhostAllowedHostnames, validateHostHeader } from './server/middleware/hostHeaderValidation';
+// Server extensions (experimental): `McpServerOptions.extensions`.
+export type { ServerExtension, ServerExtensionContext } from './server/extension';
 // OAuth discovery documents (RFC 9728 / RFC 8414) for web-standard hosts; the
 // Express metadata router in @modelcontextprotocol/express adapts the same core.
 export type { AuthMetadataOptions } from './server/middleware/oauthMetadata';
