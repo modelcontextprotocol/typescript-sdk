@@ -230,7 +230,7 @@ export function isNoHandlerResponse(message: object): boolean {
  * validated, the context, and `next` — the handler it wraps — and returns
  * the result that goes on the wire.
  *
- * Experimental: this shape may change in a minor release.
+ * Experimental: may change in a minor release while the extensions SEPs settle.
  *
  * @experimental
  */
@@ -2024,7 +2024,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      *
      * @returns A function that removes the middleware.
      *
-     * Experimental: this method may change in a minor release.
+     * Experimental: may change in a minor release while the extensions SEPs settle.
      *
      * @experimental
      */
@@ -2054,7 +2054,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      *
      * @returns A function that withdraws the declaration.
      *
-     * Experimental: this method may change in a minor release.
+     * Experimental: may change in a minor release while the extensions SEPs settle.
      *
      * @experimental
      */

@@ -97,7 +97,7 @@ export type McpServerOptions = ServerOptions & {
      * `ServerExtensionContext`. A duplicate id fails construction before any
      * extension is set up.
      *
-     * Experimental: the shape of an extension may change in a minor release.
+     * Experimental: may change in a minor release while the extensions SEPs settle.
      *
      * @experimental
      */

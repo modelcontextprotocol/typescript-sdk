@@ -5,7 +5,7 @@ shape: how-to
 # Extensions
 
 ::: warning Experimental
-The `extensions` option, the `ServerExtension` and `ClientExtension` shapes, their contexts, `use` and `acceptResultType` are experimental and may change in a minor release.
+The `extensions` option, the `ServerExtension` and `ClientExtension` shapes, their contexts, `use` and `acceptResultType` are experimental: they may change in a minor release while the extensions SEPs settle.
 :::
 
 An **extension** packages protocol behaviour outside the core specification, such as the `io.modelcontextprotocol/tasks` or `io.modelcontextprotocol/skills` extension or a vendor feature, as one object you pass to the server or the client. The SDK advertises it, sets it up, and checks what it depends on before serving.

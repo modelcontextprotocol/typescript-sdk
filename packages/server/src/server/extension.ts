@@ -31,7 +31,7 @@ import type { McpServer } from './mcp';
  * then custom request handlers, middleware on spec methods, and anything
  * registered on the `McpServer` itself, such as resources and tools.
  *
- * Experimental: the shape of an extension may change in a minor release.
+ * Experimental: may change in a minor release while the extensions SEPs settle.
  *
  * @experimental
  */
@@ -53,7 +53,7 @@ export interface ServerExtension {
 /**
  * What a {@linkcode ServerExtension}'s `setup` receives.
  *
- * Experimental: this shape may change in a minor release.
+ * Experimental: may change in a minor release while the extensions SEPs settle.
  *
  * @experimental
  */

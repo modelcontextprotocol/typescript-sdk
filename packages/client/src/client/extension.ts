@@ -32,7 +32,7 @@ import type { Client } from './client';
  * then handlers for server-to-client requests, middleware, and the result
  * kinds it accepts.
  *
- * Experimental: the shape of an extension may change in a minor release.
+ * Experimental: may change in a minor release while the extensions SEPs settle.
  *
  * @experimental
  */
@@ -54,7 +54,7 @@ export interface ClientExtension {
 /**
  * What a {@linkcode ClientExtension}'s `setup` receives.
  *
- * Experimental: this shape may change in a minor release.
+ * Experimental: may change in a minor release while the extensions SEPs settle.
  *
  * @experimental
  */
