@@ -174,7 +174,8 @@ type RawProbeReply =
     | { kind: 'response'; result?: unknown; error?: { code: number; message: string; data?: unknown } }
     | { kind: 'send-error'; error: unknown }
     | { kind: 'closed' }
-    | { kind: 'timeout' };
+    | { kind: 'timeout' }
+    | { kind: 'aborted'; reason: unknown };
 
 /**
  * Temporary ownership of a raw transport for the negotiation exchange, before
@@ -255,8 +256,12 @@ class ProbeWindow {
     /**
      * Send one probe request and await its reply. Probe ids are strings, so they
      * never collide with Protocol's numeric ids (e.g. on a shared stdio pipe).
+     * An abort of `signal` settles the exchange and tears down the request.
      */
-    async exchange(buildRequest: (id: string) => JSONRPCRequest, timeoutMs: number): Promise<RawProbeReply> {
+    async exchange(buildRequest: (id: string) => JSONRPCRequest, timeoutMs: number, signal?: AbortSignal): Promise<RawProbeReply> {
+        if (signal?.aborted) {
+            return { kind: 'aborted', reason: signal.reason };
+        }
         const id = `server-discover-probe-${++this._probeCounter}`;
         return new Promise<RawProbeReply>(resolve => {
             let settled = false;
@@ -264,14 +269,20 @@ class ProbeWindow {
                 if (settled) return;
                 settled = true;
                 clearTimeout(timer);
+                signal?.removeEventListener('abort', onAbort);
                 if (this._pending?.id === id) {
                     this._pending = undefined;
                 }
                 resolve(reply);
             };
+            const onAbort = () => settle({ kind: 'aborted', reason: signal?.reason });
             const timer = setTimeout(() => settle({ kind: 'timeout' }), timeoutMs);
             this._pending = { id, resolve: settle };
-            this._transport.send(buildRequest(id)).catch((error: unknown) => settle({ kind: 'send-error', error }));
+            // Registered before send() so an abort fired during the send still settles here.
+            signal?.addEventListener('abort', onAbort, { once: true });
+            const request = buildRequest(id);
+            const sent = signal === undefined ? this._transport.send(request) : this._transport.send(request, { requestSignal: signal });
+            sent.catch((error: unknown) => settle({ kind: 'send-error', error }));
         });
     }
 
@@ -384,7 +395,7 @@ function isUnusableReplyError(error: unknown): boolean {
     return error instanceof Error && error.name === 'SyntaxError';
 }
 
-function normalizeReply(reply: RawProbeReply, timeoutMs: number): ProbeOutcome {
+function normalizeReply(reply: Exclude<RawProbeReply, { kind: 'aborted' }>, timeoutMs: number): ProbeOutcome {
     switch (reply.kind) {
         case 'response': {
             return reply.error === undefined ? { kind: 'result', result: reply.result } : { kind: 'rpc-error', ...reply.error };
@@ -434,6 +445,11 @@ function normalizeReply(reply: RawProbeReply, timeoutMs: number): ProbeOutcome {
     }
 }
 
+/** The error a connect-signal abort raises; mirrors Protocol.request (update with #3046). */
+function abortError(reason: unknown): SdkError {
+    return reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
+}
+
 export interface NegotiationDeps {
     transport: Transport;
     clientInfo: Implementation;
@@ -451,6 +467,8 @@ export interface NegotiationDeps {
      * fallback stream and stays a typed error.
      */
     disposableProbe?: boolean;
+    /** The caller's connect signal: an abort rejects the probe promptly. */
+    signal?: AbortSignal;
 }
 
 export type NegotiationResult = { era: 'modern'; version: string; discover: DiscoverResult } | { era: 'legacy' };
@@ -471,6 +489,9 @@ export async function negotiateEra(
     const clientModernVersions = negotiation.kind === 'pin' ? [negotiation.version] : negotiation.modernVersions;
     const fallbackAvailable = negotiation.kind === 'auto' && negotiation.fallbackAvailable;
 
+    if (deps.signal?.aborted) {
+        throw abortError(deps.signal.reason);
+    }
     const window = await ProbeWindow.open(deps.transport);
 
     const probe = async (): Promise<NegotiationResult> => {
@@ -485,8 +506,16 @@ export async function negotiateEra(
         for (;;) {
             const reply = await window.exchange(
                 id => buildProbeRequest(id, requestedVersion, deps.clientInfo, deps.capabilities),
-                timeoutMs
+                timeoutMs,
+                deps.signal
             );
+            if (reply.kind === 'aborted') {
+                throw abortError(reply.reason);
+            }
+            // An abort landing in the same tick as a reply still wins: never a verdict.
+            if (deps.signal?.aborted) {
+                throw abortError(deps.signal.reason);
+            }
 
             if (reply.kind === 'timeout' && timeoutRetriesRemaining > 0) {
                 timeoutRetriesRemaining--;
@@ -570,6 +599,11 @@ export async function negotiateEra(
         // handlers detached, original start untouched (no pass-through armed).
         window.detach();
         throw error;
+    }
+    if (deps.signal?.aborted) {
+        // The probe settled, but the abort beat the handover; leave the transport untouched too.
+        window.detach();
+        throw abortError(deps.signal.reason);
     }
     window.release();
     return result;
@@ -659,6 +693,10 @@ export async function negotiateStdioViaSibling(
         // Checked AFTER the finally so a close during either the probe or the
         // disposal window aborts: the session transport is never started.
         throw callerCloseAbortError();
+    }
+    if (deps.signal?.aborted) {
+        // Same window for the caller's signal: an abort during disposal must not start the session.
+        throw abortError(deps.signal.reason);
     }
     return result;
 }
