@@ -126,3 +126,34 @@ function contextFor(mcp: McpServer, id: string, installed: ReadonlySet<string>):
         }
     };
 }
+
+/**
+ * Sets one extension up on a server that is already constructed, for the
+ * deprecated `SkillsExtension.attach`. The capability entry is written only
+ * once `setup` has returned, so a failed setup leaves none. Middleware goes in
+ * the application tier.
+ *
+ * Package-internal.
+ */
+export function attachServerExtension(mcp: McpServer, extension: ServerExtension): void {
+    const server = mcp.server;
+    const installed = new Set([...Object.keys(server.getCapabilities().extensions ?? {}), extension.id]);
+    let settings: JSONObject = {};
+    const result = extension.setup({
+        mcp,
+        capability(next) {
+            settings = next;
+        },
+        require(extensionId) {
+            requireExtension('server', installed, extension.id, extensionId);
+        },
+        use(method, middleware) {
+            server.use(method, middleware);
+        },
+        setRequestHandler(name, schemas, handler) {
+            setExtensionRequestHandler(server, extension.id, name, schemas, handler);
+        }
+    });
+    if (result !== undefined) throw new TypeError(`Extension "${extension.id}" has an async setup; pass it in extensions instead`);
+    server.registerCapabilities({ extensions: { [extension.id]: settings } });
+}

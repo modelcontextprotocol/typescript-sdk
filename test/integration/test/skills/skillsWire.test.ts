@@ -5,6 +5,7 @@
  */
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { SkillsClient } from '@modelcontextprotocol/client/ext/skills';
+import type { ServerExtension } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import type { SkillCatalog, SkillSource } from '@modelcontextprotocol/server/ext/skills';
 import { memorySkillFiles, skillEntry, SkillsExtension } from '@modelcontextprotocol/server/ext/skills';
@@ -46,10 +47,10 @@ afterEach(async () => {
     await Promise.all(open.splice(0).map(client => client.close()));
 });
 
-async function connect(revision: string, build: (mcp: McpServer) => void): Promise<Client> {
+async function connect(revision: string, extension: ServerExtension, configure: (mcp: McpServer) => void = () => {}): Promise<Client> {
     const handler = createMcpHandler(() => {
-        const mcp = new McpServer({ name: 'skills-wire', version: '1.0.0' });
-        build(mcp);
+        const mcp = new McpServer({ name: 'skills-wire', version: '1.0.0' }, { extensions: [extension] });
+        configure(mcp);
         return mcp;
     });
     const client = new Client(
@@ -83,18 +84,18 @@ describe.each([LEGACY, MODERN])('skills wire behaviour on %s', revision => {
         revision === MODERN ? { _meta: { [SERVER_INFO]: { name: 'skills-wire', version: '1.0.0' } }, ttlMs: 0, cacheScope: 'private' } : {};
 
     it('declares the extension next to resources', async () => {
-        const client = await connect(revision, mcp => catalog.attach(mcp));
+        const client = await connect(revision, catalog);
         expect(client.getServerCapabilities()).toMatchObject({ resources: {}, extensions: { [EXTENSION]: { directoryRead: true } } });
     });
 
     it('publishes one resource template', async () => {
-        const client = await connect(revision, mcp => catalog.attach(mcp));
+        const client = await connect(revision, catalog);
         const { resourceTemplates } = await raw(client, 'resources/templates/list');
         expect(resourceTemplates).toEqual([{ name: EXTENSION, uriTemplate: 'skill://{+path}' }]);
     });
 
     it('lists each SKILL.md in resources/list', async () => {
-        const client = await connect(revision, mcp => catalog.attach(mcp));
+        const client = await connect(revision, catalog);
         const { resources } = await raw(client, 'resources/list');
         expect(resources).toEqual([
             {
@@ -108,13 +109,13 @@ describe.each([LEGACY, MODERN])('skills wire behaviour on %s', revision => {
     });
 
     it('serves files through resources/read', async () => {
-        const client = await connect(revision, mcp => catalog.attach(mcp));
+        const client = await connect(revision, catalog);
         const { contents } = await raw(client, 'resources/read', { uri: REVIEW });
         expect(contents).toEqual([{ uri: REVIEW, mimeType: 'text/markdown', text: REVIEW_MD }]);
     });
 
     it('answers skills/list, skills/get and resources/directory/read', async () => {
-        const client = await connect(revision, mcp => catalog.attach(mcp));
+        const client = await connect(revision, catalog);
         expect(await raw(client, 'skills/list')).toEqual({ skills: catalog.entries, ...envelope });
         expect(await raw(client, 'skills/get', { uri: GIT })).toEqual({ skill: catalog.entries[0], ...envelope });
         expect(await raw(client, 'resources/directory/read', { uri: 'skill://git-workflow' })).toEqual({
@@ -127,7 +128,7 @@ describe.each([LEGACY, MODERN])('skills wire behaviour on %s', revision => {
     });
 
     it('uses the agreed error codes', async () => {
-        const client = await connect(revision, mcp => catalog.attach(mcp));
+        const client = await connect(revision, catalog);
         await expect(raw(client, 'resources/read', { uri: 'skill://nope/x.md' })).rejects.toMatchObject({ code: -32_602 });
         await expect(raw(client, 'resources/read', { uri: 'skill://git-workflow' })).rejects.toMatchObject({
             code: -32_602,
@@ -137,10 +138,9 @@ describe.each([LEGACY, MODERN])('skills wire behaviour on %s', revision => {
         await expect(raw(client, 'skills/list', { cursor: 'garbage' })).rejects.toMatchObject({ code: -32_602 });
     });
 
-    it('lets an app resource registered first win at its URI (documented: do not do this)', async () => {
-        const client = await connect(revision, mcp => {
+    it('lets an app resource at a skill URI win over the skill template (do not do this)', async () => {
+        const client = await connect(revision, catalog, mcp => {
             mcp.registerResource('override', REVIEW, { mimeType: 'text/plain' }, () => ({ contents: [{ uri: REVIEW, text: 'app wins' }] }));
-            catalog.attach(mcp);
         });
         const { contents } = await raw(client, 'resources/read', { uri: REVIEW });
         expect(contents).toEqual([{ uri: REVIEW, text: 'app wins' }]);
@@ -150,7 +150,7 @@ describe.each([LEGACY, MODERN])('skills wire behaviour on %s', revision => {
 
     it('lists nothing in resources/list for a source without listResources, and no directoryRead', async () => {
         const source = new SkillsExtension({ source: await notesSource(false) });
-        const client = await connect(revision, mcp => source.attach(mcp));
+        const client = await connect(revision, source);
         expect(client.getServerCapabilities()?.extensions).toEqual({ [EXTENSION]: {} });
         const { resources } = await raw(client, 'resources/list');
         expect(resources).toEqual([]);
@@ -163,7 +163,7 @@ describe.each([LEGACY, MODERN])('skills wire behaviour on %s', revision => {
 
     it('lists what listResources returns, and the host verifies source-built skills', async () => {
         const source = new SkillsExtension({ source: await notesSource(true) });
-        const client = await connect(revision, mcp => source.attach(mcp));
+        const client = await connect(revision, source);
         const { resources } = await raw(client, 'resources/list');
         expect(resources).toEqual([{ uri: 'skill://notes/SKILL.md', name: 'notes', mimeType: 'text/markdown' }]);
         const skills = new SkillsClient(client);
@@ -183,7 +183,7 @@ describe.each([LEGACY, MODERN])('skills wire behaviour on %s', revision => {
             },
             baseUri: 'github://owner/repo/skills'
         });
-        const client = await connect(revision, mcp => source.attach(mcp));
+        const client = await connect(revision, source);
         const { resourceTemplates } = await raw(client, 'resources/templates/list');
         expect(resourceTemplates).toEqual([{ name: EXTENSION, uriTemplate: 'github://owner/repo/skills/{+path}' }]);
         expect(await new SkillsClient(client).read(notes)).toMatchObject({
