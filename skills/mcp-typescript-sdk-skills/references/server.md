@@ -13,7 +13,7 @@ const skills = await loadSkills('./skills');
 const server = new McpServer({ name: 'team-skills', version: '1.0.0' }, { extensions: [skills] });
 ```
 
-The `extensions` option and the extension shape are experimental: how an extension is wired to a server may change in a minor release.
+The `extensions` option and the extension shape are experimental: how an extension is wired to a server may change in a minor release while the extensions SEPs settle.
 
 A **skill** is a folder with a `SKILL.md` and the files it references (SEP-2640). Clients list skills with `skills/list` and read each file with `resources/read`, checking it against the digest your server published.
 

@@ -65,6 +65,8 @@ const skills = await loadSkills('./skills');
 const server = new McpServer({ name: 'team-skills', version: '1.0.0' }, { extensions: [skills] });
 ```
 
+The `extensions` option is experimental: it may change in a minor release while the extensions SEPs settle.
+
 **Resolve the folder from the module, not the working directory.** A relative path like `'./skills'` resolves against `process.cwd()`, and MCP hosts may start stdio servers from another directory (such as `/`), where the load throws and takes the whole server down with it. Build the path from the module's location instead: `fileURLToPath(new URL('../skills', import.meta.url))` from `src/index.ts`, or `path.join(__dirname, '../skills')` in CommonJS.
 
 **Where a factory builds the server, pass it in `extensions` there**, so every server it builds serves the same catalog. That covers `serveStdio(createServer)` on stdio as well as `createMcpHandler` over HTTP:

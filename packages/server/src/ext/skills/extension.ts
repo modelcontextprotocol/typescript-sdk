@@ -114,7 +114,7 @@ export class SkillsExtension implements ServerExtension {
      * capability, then registers the skill resource template and the skills
      * methods. The server calls this for each entry in `extensions`.
      *
-     * @experimental How an extension is wired to a server may change in a minor release.
+     * @experimental How an extension is wired to a server may change in a minor release while the extensions SEPs settle.
      */
     setup(ctx: ServerExtensionContext): void {
         const mcp = ctx.mcp;
