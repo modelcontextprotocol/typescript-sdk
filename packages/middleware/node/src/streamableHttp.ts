@@ -20,7 +20,7 @@ import type {
 } from '@modelcontextprotocol/server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 
-import { toNodeHandler } from './toNodeHandler';
+import { toNodeHandlerInternal } from './toNodeHandler';
 
 /**
  * Configuration options for {@linkcode NodeStreamableHTTPServerTransport}
@@ -77,13 +77,20 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  */
 export class NodeStreamableHTTPServerTransport implements Transport {
     private _webStandardTransport: WebStandardStreamableHTTPServerTransport;
-    private _requestListener: ReturnType<typeof toNodeHandler>;
+    private _requestListener: ReturnType<typeof toNodeHandlerInternal>;
 
     constructor(options: StreamableHTTPServerTransportOptions = {}) {
         this._webStandardTransport = new WebStandardStreamableHTTPServerTransport(options);
-        this._requestListener = toNodeHandler({
-            fetch: (webRequest, requestOptions) => this._webStandardTransport.handleRequest(webRequest, requestOptions)
-        });
+        this._requestListener = toNodeHandlerInternal(
+            {
+                fetch: (webRequest, requestOptions) => this._webStandardTransport.handleRequest(webRequest, requestOptions)
+            },
+            {
+                maxRequestBodySize: options.maxRequestBodySize,
+                onerror: error => this._webStandardTransport.onerror?.(error)
+            },
+            error => this._webStandardTransport.onerror?.(error)
+        );
     }
 
     /**

@@ -128,6 +128,19 @@ export interface ToNodeHandlerOptions {
  * conversion / `handler.fetch` throw) before the `500` response is written.
  */
 export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandlerOptions): NodeMcpRequestHandler {
+    return toNodeHandlerInternal(handler, opts);
+}
+
+/**
+ * Internal adapter entry for wrappers whose own error callback also covers
+ * oversized bodies. Public `toNodeHandler` deliberately treats its 413 answer
+ * as a normal response rather than an adapter failure.
+ */
+export function toNodeHandlerInternal(
+    handler: FetchLikeMcpHandler,
+    opts: ToNodeHandlerOptions | undefined,
+    onRequestBodyTooLarge?: (error: Error) => void
+): NodeMcpRequestHandler {
     const maxRequestBodySize = resolveMaxRequestBodySize(opts?.maxRequestBodySize);
     return async (req, res, parsedBody) => {
         // Express passes (req, res, next) when the handler is mounted as a
@@ -156,6 +169,11 @@ export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandler
             });
         } catch (error) {
             if (error instanceof RequestBodyTooLargeError) {
+                try {
+                    onRequestBodyTooLarge?.(error);
+                } catch {
+                    // Reporting must never alter the response.
+                }
                 // A normal answer, not an adapter failure. `connection: close` has
                 // an HTTP/1.1 server end the socket after answering instead of
                 // idling a connection whose request stream was left partly unread.
