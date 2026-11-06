@@ -492,6 +492,77 @@ describe('protocol tests', () => {
             expect(onProgressMock).toHaveBeenCalledTimes(1);
         });
 
+        test('should enforce maxTotalTimeout when no progress notification arrives', async () => {
+            await protocol.connect(transport);
+            const request = { method: 'example', params: {} };
+            const mockSchema: ZodType<{ result: string }> = z.object({
+                result: z.string()
+            });
+            let settled: Error | undefined;
+            void testRequest(protocol, request, mockSchema, {
+                timeout: 1000,
+                maxTotalTimeout: 150
+            }).catch((error: Error) => {
+                settled = error;
+            });
+
+            await vi.advanceTimersByTimeAsync(151);
+
+            expect(settled?.message).toBe('Maximum total timeout exceeded');
+        });
+
+        test('should re-arm the timeout within the remaining maxTotalTimeout budget', async () => {
+            await protocol.connect(transport);
+            const request = { method: 'example', params: {} };
+            const mockSchema: ZodType<{ result: string }> = z.object({
+                result: z.string()
+            });
+            const onProgressMock = vi.fn();
+            let settled: Error | undefined;
+            void testRequest(protocol, request, mockSchema, {
+                timeout: 1000,
+                maxTotalTimeout: 300,
+                resetTimeoutOnProgress: true,
+                onprogress: onProgressMock
+            }).catch((error: Error) => {
+                settled = error;
+            });
+
+            await vi.advanceTimersByTimeAsync(200);
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                method: 'notifications/progress',
+                params: { progressToken: 0, progress: 50, total: 100 }
+            });
+            await Promise.resolve();
+            expect(onProgressMock).toHaveBeenCalledTimes(1);
+
+            // 200ms elapsed, 100ms of the total budget left: the re-armed timer
+            // must not outlive the cap.
+            await vi.advanceTimersByTimeAsync(101);
+
+            expect(settled?.message).toBe('Maximum total timeout exceeded');
+        });
+
+        test('should still report the per-request timeout when it is shorter than maxTotalTimeout', async () => {
+            await protocol.connect(transport);
+            const request = { method: 'example', params: {} };
+            const mockSchema: ZodType<{ result: string }> = z.object({
+                result: z.string()
+            });
+            let settled: Error | undefined;
+            void testRequest(protocol, request, mockSchema, {
+                timeout: 100,
+                maxTotalTimeout: 1000
+            }).catch((error: Error) => {
+                settled = error;
+            });
+
+            await vi.advanceTimersByTimeAsync(101);
+
+            expect(settled?.message).toBe('Request timed out');
+        });
+
         test('should timeout if no progress received within timeout period', async () => {
             await protocol.connect(transport);
             const request = { method: 'example', params: {} };
