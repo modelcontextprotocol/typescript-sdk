@@ -140,6 +140,46 @@ describe('toNodeHandler', () => {
         expect(await body()).toContain('http2 served');
     });
 
+    it('flushes headers before waiting for the first streamed chunk', async () => {
+        let closeBody!: () => void;
+        const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+                closeBody = () => controller.close();
+            }
+        });
+        const node = toNodeHandler({ fetch: async () => new Response(body) });
+        const { req } = nodeRequestResponse(undefined);
+        const events: string[] = [];
+        const res: NodeServerResponseLike = {
+            writeHead() {
+                events.push('writeHead');
+                return this;
+            },
+            flushHeaders() {
+                events.push('flushHeaders');
+            },
+            write() {
+                events.push('write');
+                return true;
+            },
+            end() {
+                events.push('end');
+                return this;
+            },
+            on() {
+                return this;
+            }
+        };
+
+        const served = node(req, res);
+        try {
+            await vi.waitFor(() => expect(events).toEqual(['writeHead', 'flushHeaders']));
+        } finally {
+            closeBody();
+        }
+        await served;
+    });
+
     it('waits for drain before writing the next chunk when res.write reports backpressure', async () => {
         const { factory } = testFactory();
         const node = toNodeHandler(createMcpHandler(factory));
