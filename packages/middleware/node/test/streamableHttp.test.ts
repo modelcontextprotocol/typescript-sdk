@@ -16,7 +16,7 @@ import type { EventId, EventStore, StreamId } from '@modelcontextprotocol/server
 import { McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import * as z from 'zod/v4';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { NodeStreamableHTTPServerTransport } from '../src/streamableHttp';
 
@@ -45,6 +45,8 @@ interface TestServerConfig {
     onsessioninitialized?: ((sessionId: string) => void | Promise<void>) | undefined;
     onsessionclosed?: ((sessionId: string) => void | Promise<void>) | undefined;
     retryInterval?: number;
+    maxRequestBodySize?: number;
+    keepAliveMs?: number;
 }
 
 /**
@@ -174,7 +176,9 @@ describe('Zod v4', () => {
             eventStore: config.eventStore,
             onsessioninitialized: config.onsessioninitialized,
             onsessionclosed: config.onsessionclosed,
-            retryInterval: config.retryInterval
+            retryInterval: config.retryInterval,
+            maxRequestBodySize: config.maxRequestBodySize,
+            keepAliveMs: config.keepAliveMs
         });
 
         await mcpServer.connect(transport);
@@ -1046,6 +1050,103 @@ describe('Zod v4', () => {
                 const errorData = await response.json();
                 expectErrorResponse(errorData, -32_000, /Bad Request: Unsupported protocol version/);
             });
+        });
+    });
+
+    describe('NodeStreamableHTTPServerTransport disconnect cleanup', () => {
+        it('cancels an idle standalone SSE stream and allows a subsequent GET', async () => {
+            let transport!: NodeStreamableHTTPServerTransport;
+            let standaloneRequestDone!: () => void;
+            const requestDone = new Promise<void>(resolve => {
+                standaloneRequestDone = resolve;
+            });
+            const result = await createTestServer({
+                sessionIdGenerator: () => randomUUID(),
+                keepAliveMs: 0,
+                customRequestHandler: async (req, res) => {
+                    await transport.handleRequest(req, res);
+                    if (req.method === 'GET') {
+                        standaloneRequestDone();
+                    }
+                }
+            });
+            transport = result.transport;
+            const { server, baseUrl } = result;
+            try {
+                const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+                const sessionId = initResponse.headers.get('mcp-session-id')!;
+                await initResponse.text();
+                const headers = {
+                    Accept: 'text/event-stream',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-11-25'
+                };
+                const abort = new AbortController();
+                const firstResponse = await fetch(baseUrl, { headers, signal: abort.signal });
+                expect(firstResponse.status).toBe(200);
+                abort.abort();
+
+                await expect(
+                    Promise.race([
+                        requestDone,
+                        new Promise<void>((_, reject) => setTimeout(() => reject(new Error('standalone request did not finish')), 500))
+                    ])
+                ).resolves.toBeUndefined();
+                const secondResponse = await fetch(baseUrl, { headers });
+                expect(secondResponse.status).toBe(200);
+                await secondResponse.body?.cancel();
+            } finally {
+                await stopTestServer({ server, transport });
+            }
+        });
+    });
+
+    describe('NodeStreamableHTTPServerTransport request body limits', () => {
+        it('accepts a raw body above 4 MiB when the configured limit allows it', async () => {
+            const { server, transport, baseUrl } = await createTestServer({
+                sessionIdGenerator: () => randomUUID(),
+                enableJsonResponse: true,
+                maxRequestBodySize: 6 * 1024 * 1024
+            });
+            try {
+                const response = await sendPostRequest(baseUrl, {
+                    jsonrpc: '2.0',
+                    method: 'initialize',
+                    params: {
+                        clientInfo: { name: 'large-body-client', version: '1.0' },
+                        protocolVersion: '2025-11-25',
+                        capabilities: {},
+                        _meta: { padding: 'x'.repeat(5 * 1024 * 1024) }
+                    },
+                    id: 'large-init'
+                });
+                expect(response.status).toBe(200);
+                await response.text();
+            } finally {
+                await stopTestServer({ server, transport });
+            }
+        });
+
+        it('enforces the configured limit and reports an oversized raw body to onerror', async () => {
+            const { server, transport, baseUrl } = await createTestServer({
+                sessionIdGenerator: () => randomUUID(),
+                maxRequestBodySize: 1024
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+            try {
+                const response = await fetch(baseUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+                    body: 'x'.repeat(2048)
+                });
+                expect(response.status).toBe(413);
+                await response.text();
+                expect(onerror).toHaveBeenCalledTimes(1);
+                expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('1024 bytes') }));
+            } finally {
+                await stopTestServer({ server, transport });
+            }
         });
     });
 

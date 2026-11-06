@@ -48,10 +48,6 @@
         "test": "vitest run",
         "test:watch": "vitest"
     },
-    "dependencies": {
-        "@hono/node-server": "catalog:runtimeServerOnly",
-        "hono": "catalog:runtimeServerOnly"
-    },
     "peerDependencies": {
         "@modelcontextprotocol/server": "workspace:^"
     },
