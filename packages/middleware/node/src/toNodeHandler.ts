@@ -204,12 +204,16 @@ export function toNodeHandlerInternal(
         }
         // Honor write backpressure: when write() reports a full buffer (Node's
         // `false` return), wait for the response to drain before pulling the
-        // next chunk. The abort signal (wired to 'close' above, and seeded
-        // from `res.destroyed` at entry to cover the pre-registration window
-        // when 'close' already fired during async middleware) is the single
-        // termination source — racing it against the drain wait means a
-        // vanished client cannot park the loop, and breaking out of the async
-        // iterator calls return() to cancel the upstream stream.
+        // next chunk. Closing the response cancels the reader so an idle body
+        // read finishes and upstream stream cleanup runs immediately.
+        const reader = response.body.getReader();
+        const cancelReader = () => {
+            void reader.cancel().catch(() => {});
+        };
+        abort.signal.addEventListener('abort', cancelReader, { once: true });
+        if (abort.signal.aborted) {
+            cancelReader();
+        }
         let drainResolve: (() => void) | undefined;
         const releaseDrainWait = () => {
             drainResolve?.();
@@ -220,11 +224,12 @@ export function toNodeHandlerInternal(
             abort.signal.addEventListener('abort', () => resolve(), { once: true });
         });
         try {
-            for await (const chunk of response.body) {
-                if (abort.signal.aborted) {
+            while (!abort.signal.aborted) {
+                const { done, value } = await reader.read();
+                if (done) {
                     break;
                 }
-                if (res.write(chunk) === false) {
+                if (res.write(value) === false) {
                     await Promise.race([
                         new Promise<void>(resolve => {
                             drainResolve = resolve;
@@ -234,7 +239,14 @@ export function toNodeHandlerInternal(
                 }
             }
         } catch {
-            // Stream aborted upstream; the abort signal already cancelled the exchange.
+            try {
+                await reader.cancel();
+            } catch {
+                // The stream is already closed or errored.
+            }
+        } finally {
+            abort.signal.removeEventListener('abort', cancelReader);
+            reader.releaseLock();
         }
         finished = true;
         res.end();
@@ -286,8 +298,10 @@ export async function toWebRequest(req: NodeIncomingMessageLike, parsedBody?: un
     const method = (req.method ?? 'GET').toUpperCase();
     // HTTP/2 requests carry their authority as the `:authority` pseudo-header,
     // usually with no `host` entry at all (mirrors Node's `request.authority`).
+    const socket = (req as NodeIncomingMessageLike & { socket?: { encrypted?: boolean } }).socket;
+    const scheme = singleHeaderValue(req.headers[':scheme']) ?? (socket?.encrypted === true ? 'https' : 'http');
     const host = singleHeaderValue(req.headers['host']) ?? singleHeaderValue(req.headers[':authority']) ?? 'localhost';
-    const url = `http://${host}${req.url ?? '/'}`;
+    const url = `${scheme}://${host}${req.url ?? '/'}`;
 
     const headers = new Headers();
     for (const [name, value] of Object.entries(req.headers)) {

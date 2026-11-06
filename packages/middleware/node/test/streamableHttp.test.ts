@@ -46,6 +46,7 @@ interface TestServerConfig {
     onsessionclosed?: ((sessionId: string) => void | Promise<void>) | undefined;
     retryInterval?: number;
     maxRequestBodySize?: number;
+    keepAliveMs?: number;
 }
 
 /**
@@ -176,7 +177,8 @@ describe('Zod v4', () => {
             onsessioninitialized: config.onsessioninitialized,
             onsessionclosed: config.onsessionclosed,
             retryInterval: config.retryInterval,
-            maxRequestBodySize: config.maxRequestBodySize
+            maxRequestBodySize: config.maxRequestBodySize,
+            keepAliveMs: config.keepAliveMs
         });
 
         await mcpServer.connect(transport);
@@ -1048,6 +1050,54 @@ describe('Zod v4', () => {
                 const errorData = await response.json();
                 expectErrorResponse(errorData, -32_000, /Bad Request: Unsupported protocol version/);
             });
+        });
+    });
+
+    describe('NodeStreamableHTTPServerTransport disconnect cleanup', () => {
+        it('cancels an idle standalone SSE stream and allows a subsequent GET', async () => {
+            let transport!: NodeStreamableHTTPServerTransport;
+            let standaloneRequestDone!: () => void;
+            const requestDone = new Promise<void>(resolve => {
+                standaloneRequestDone = resolve;
+            });
+            const result = await createTestServer({
+                sessionIdGenerator: () => randomUUID(),
+                keepAliveMs: 0,
+                customRequestHandler: async (req, res) => {
+                    await transport.handleRequest(req, res);
+                    if (req.method === 'GET') {
+                        standaloneRequestDone();
+                    }
+                }
+            });
+            transport = result.transport;
+            const { server, baseUrl } = result;
+            try {
+                const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+                const sessionId = initResponse.headers.get('mcp-session-id')!;
+                await initResponse.text();
+                const headers = {
+                    Accept: 'text/event-stream',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-11-25'
+                };
+                const abort = new AbortController();
+                const firstResponse = await fetch(baseUrl, { headers, signal: abort.signal });
+                expect(firstResponse.status).toBe(200);
+                abort.abort();
+
+                await expect(
+                    Promise.race([
+                        requestDone,
+                        new Promise<void>((_, reject) => setTimeout(() => reject(new Error('standalone request did not finish')), 500))
+                    ])
+                ).resolves.toBeUndefined();
+                const secondResponse = await fetch(baseUrl, { headers });
+                expect(secondResponse.status).toBe(200);
+                await secondResponse.body?.cancel();
+            } finally {
+                await stopTestServer({ server, transport });
+            }
         });
     });
 
