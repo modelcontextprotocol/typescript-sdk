@@ -134,10 +134,10 @@ export function buildWwwAuthenticateHeader(
     return `Bearer ${parts.join(', ')}`;
 }
 
-/** No `Authorization` credentials were sent. Distinct from a token the server rejected. */
+/** No bearer credentials were presented: the header is absent, or its scheme is not Bearer. */
 class MissingAuthorizationError extends OAuthError {
-    constructor() {
-        super(OAuthErrorCode.InvalidToken, 'Missing Authorization header');
+    constructor(message = 'Missing Authorization header') {
+        super(OAuthErrorCode.InvalidToken, message);
     }
 }
 
@@ -166,8 +166,13 @@ export async function verifyBearerToken(
     }
 
     const [type, token] = authorizationHeader.split(' ');
-    if (type?.toLowerCase() !== 'bearer' || !token) {
-        throw new OAuthError(OAuthErrorCode.InvalidToken, "Invalid Authorization header format, expected 'Bearer TOKEN'");
+    // Unsupported schemes presented no bearer token; a Bearer header with no token stays invalid_token.
+    const invalidAuthorizationHeader = "Invalid Authorization header format, expected 'Bearer TOKEN'";
+    if (type?.toLowerCase() !== 'bearer') {
+        throw new MissingAuthorizationError(invalidAuthorizationHeader);
+    }
+    if (!token) {
+        throw new OAuthError(OAuthErrorCode.InvalidToken, invalidAuthorizationHeader);
     }
 
     const authInfo = await verifier.verifyAccessToken(token);
@@ -211,9 +216,11 @@ export async function verifyBearerToken(
  * challenge, with `resource_metadata` when configured so clients can discover
  * the Authorization Server), `500` for `server_error`, `400` for anything
  * else. A non-`OAuthError` value answers `500 server_error`. The body is the
- * OAuth error JSON. A `401` for a request that sent no credentials omits
- * `error` and `error_description` from the challenge and the body when
- * `scope` or `resource_metadata` is present (RFC 6750 §3.1); with neither,
+ * OAuth error JSON. A `401` for a request that presented no bearer
+ * credentials (no `Authorization` header, or a scheme other than Bearer)
+ * omits `error` and `error_description` from the challenge and the body
+ * when `scope` or `resource_metadata` is present (RFC 6750 §3.1). A
+ * malformed Bearer header keeps `invalid_token`. With neither parameter,
  * the challenge keeps `invalid_token`.
  */
 export function bearerAuthChallengeResponse(

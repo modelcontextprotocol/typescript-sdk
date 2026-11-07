@@ -43,9 +43,9 @@ describe('verifyBearerToken', () => {
         });
     });
 
-    it('rejects a non-Bearer or empty-token header as a format error', async () => {
+    it('rejects an unsupported scheme or an empty Bearer token before calling the verifier', async () => {
         const verifier = verifierReturning(validAuthInfo);
-        for (const header of ['Basic dXNlcjpwYXNz', 'Bearer', 'Bearer ']) {
+        for (const header of ['Basic dXNlcjpwYXNz', 'Digest username="x"', 'Bearer', 'Bearer ']) {
             await expect(verifyBearerToken(header, { verifier })).rejects.toMatchObject({
                 code: OAuthErrorCode.InvalidToken,
                 message: "Invalid Authorization header format, expected 'Bearer TOKEN'"
@@ -286,11 +286,46 @@ describe('requireBearerAuth (web-standard)', () => {
             verifier: verifierReturning(validAuthInfo),
             resourceMetadataUrl: metadata
         });
-        const formatResponse = (await malformed(
-            new Request('https://mcp.example/mcp', { headers: { authorization: 'Basic abc' } })
+        for (const authorization of ['Bearer', 'Bearer ']) {
+            const formatResponse = (await malformed(new Request('https://mcp.example/mcp', { headers: { authorization } }))) as Response;
+            expect(formatResponse.headers.get('WWW-Authenticate')).toContain('error="invalid_token"');
+            expect(await formatResponse.json()).toMatchObject({ error: 'invalid_token' });
+        }
+    });
+
+    it('omits invalid_token for Basic and Digest when scope or resource_metadata is present', async () => {
+        const metadata = 'https://mcp.example/.well-known/oauth-protected-resource/mcp';
+        const verifier = verifierReturning(validAuthInfo);
+        const withMetadata = requireBearerAuth({ verifier, resourceMetadataUrl: metadata });
+        const withScope = requireBearerAuth({ verifier, requiredScopes: ['a:read'] });
+
+        const basic = (await withMetadata(
+            new Request('https://mcp.example/mcp', { headers: { authorization: 'Basic dXNlcjpwYXNz' } })
         )) as Response;
-        expect(formatResponse.headers.get('WWW-Authenticate')).toContain('error="invalid_token"');
-        expect(await formatResponse.json()).toMatchObject({ error: 'invalid_token' });
+        expect(basic.status).toBe(401);
+        expect(basic.headers.get('WWW-Authenticate')).toBe(`Bearer resource_metadata="${metadata}"`);
+        expect(await basic.json()).toEqual({});
+
+        const digest = (await withScope(
+            new Request('https://mcp.example/mcp', {
+                headers: { authorization: 'Digest username="alice", realm="mcp", nonce="n", uri="/mcp", response="r"' }
+            })
+        )) as Response;
+        expect(digest.status).toBe(401);
+        expect(digest.headers.get('WWW-Authenticate')).toBe('Bearer scope="a:read"');
+        expect(await digest.json()).toEqual({});
+
+        const neither = (await requireBearerAuth({ verifier })(
+            new Request('https://mcp.example/mcp', { headers: { authorization: 'Basic dXNlcjpwYXNz' } })
+        )) as Response;
+        expect(neither.headers.get('WWW-Authenticate')).toBe(
+            'Bearer error="invalid_token", error_description="Invalid Authorization header format, expected \'Bearer TOKEN\'"'
+        );
+        expect(await neither.json()).toEqual({
+            error: 'invalid_token',
+            error_description: "Invalid Authorization header format, expected 'Bearer TOKEN'"
+        });
+        expect(verifier.verifyAccessToken).not.toHaveBeenCalled();
     });
 
     it('resolves to a 403 Response when scopes are missing', async () => {

@@ -86,6 +86,34 @@ describe('requireBearerAuth middleware', () => {
         expect(next).not.toHaveBeenCalled();
     });
 
+    it('omits invalid_token for Basic when resource_metadata is set, and keeps it for an empty Bearer token', async () => {
+        const middleware = requireBearerAuth({
+            verifier: mockVerifier,
+            resourceMetadataUrl: 'https://api.example.com/.well-known/oauth-protected-resource'
+        });
+
+        const basic = createMockReqResNext('Basic dXNlcjpwYXNz');
+        await middleware(basic.req, basic.res, basic.next);
+        expect(basic.res.status).toHaveBeenCalledWith(401);
+        expect(basic.res.set).toHaveBeenCalledWith(
+            'WWW-Authenticate',
+            'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+        );
+        expect(basic.res.json).toHaveBeenCalledWith({});
+        expect(mockVerifyAccessToken).not.toHaveBeenCalled();
+
+        const emptyBearer = createMockReqResNext('Bearer');
+        await middleware(emptyBearer.req, emptyBearer.res, emptyBearer.next);
+        expect(emptyBearer.res.set).toHaveBeenCalledWith(
+            'WWW-Authenticate',
+            'Bearer error="invalid_token", error_description="Invalid Authorization header format, expected \'Bearer TOKEN\'", resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+        );
+        expect(emptyBearer.res.json).toHaveBeenCalledWith({
+            error: 'invalid_token',
+            error_description: "Invalid Authorization header format, expected 'Bearer TOKEN'"
+        });
+    });
+
     it('responds 401 when the verifier throws InvalidToken', async () => {
         mockVerifyAccessToken.mockRejectedValue(new OAuthError(OAuthErrorCode.InvalidToken, 'unknown token'));
 
