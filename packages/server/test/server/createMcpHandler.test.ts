@@ -522,6 +522,88 @@ describe('createMcpHandler — stateless legacy fallback (the default)', () => {
         expect(state.products[0]!.server.getNegotiatedProtocolVersion()).not.toBe(MODERN_REVISION);
     });
 
+    it('serves a request whose _meta claim names a 2025-era revision through the legacy leg (#3159)', async () => {
+        const { factory, state } = testFactory();
+        const handler = createMcpHandler(factory, { legacy: 'stateless' });
+
+        const legacyClaim = {
+            [PROTOCOL_VERSION_META_KEY]: '2025-06-18',
+            [CLIENT_INFO_META_KEY]: { name: 't', version: '0' },
+            [CLIENT_CAPABILITIES_META_KEY]: {}
+        };
+        const response = await handler.fetch(postRequest({ jsonrpc: '2.0', id: 9, method: 'tools/list', params: { _meta: legacyClaim } }));
+        expect(response.status).toBe(200);
+        expect(state.contexts).toHaveLength(1);
+        expect(state.contexts[0]?.era).toBe('legacy');
+    });
+
+    it('serves a request carrying only the version key of a 2025-era claim, without the modern envelope schema (#3159)', async () => {
+        const { factory, state } = testFactory();
+        const handler = createMcpHandler(factory, { legacy: 'stateless' });
+
+        const response = await handler.fetch(
+            postRequest({ jsonrpc: '2.0', id: 9, method: 'tools/list', params: { _meta: { [PROTOCOL_VERSION_META_KEY]: '2025-06-18' } } })
+        );
+        expect(response.status).toBe(200);
+        expect(state.contexts[0]?.era).toBe('legacy');
+    });
+
+    it('routes a notification whose claim names a 2025-era revision to the legacy leg (#3159)', async () => {
+        const { factory, state } = testFactory();
+        const handler = createMcpHandler(factory, { legacy: 'stateless' });
+
+        const response = await handler.fetch(
+            postRequest({
+                jsonrpc: '2.0',
+                method: 'notifications/cancelled',
+                params: { requestId: 1, _meta: { [PROTOCOL_VERSION_META_KEY]: '2025-06-18' } }
+            })
+        );
+        expect(response.status).toBe(202);
+        expect(state.contexts).toHaveLength(1);
+        expect(state.contexts[0]?.era).toBe('legacy');
+    });
+
+    it('routes a batch containing an element whose claim names a 2025-era revision to the legacy leg (#3159)', async () => {
+        const { factory } = testFactory();
+        const handler = createMcpHandler(factory, { legacy: 'stateless' });
+
+        const response = await handler.fetch(
+            postRequest([
+                { jsonrpc: '2.0', method: 'notifications/initialized' },
+                { jsonrpc: '2.0', id: 9, method: 'tools/list', params: { _meta: { [PROTOCOL_VERSION_META_KEY]: '2025-06-18' } } }
+            ])
+        );
+        // The legacy stateless leg decides how to answer a batch; it must not
+        // be the entry's -32600 batch-with-modern-element rejection.
+        expect(response.status).not.toBe(400);
+    });
+
+    it('a modern-only endpoint still answers a 2025-era claim with -32022 naming the supported revisions', async () => {
+        const { factory } = testFactory();
+        const handler = createMcpHandler(factory, { legacy: 'reject' });
+
+        const response = await handler.fetch(
+            postRequest({
+                jsonrpc: '2.0',
+                id: 9,
+                method: 'tools/list',
+                params: {
+                    _meta: {
+                        [PROTOCOL_VERSION_META_KEY]: '2025-06-18',
+                        [CLIENT_INFO_META_KEY]: { name: 't', version: '0' },
+                        [CLIENT_CAPABILITIES_META_KEY]: {}
+                    }
+                }
+            })
+        );
+        expect(response.status).toBe(400);
+        const body = (await response.json()) as JSONRPCErrorBody;
+        expect(body.error.code).toBe(-32_022);
+        expect(JSON.stringify(body.error.data)).toContain(MODERN_REVISION);
+        expect(JSON.stringify(body.error.data)).toContain('2025-06-18');
+    });
+
     it("serves the same legacy traffic when 'stateless' is passed explicitly (the explicit value of the default)", async () => {
         const { factory, state } = testFactory();
         const handler = createMcpHandler(factory, { legacy: 'stateless' });

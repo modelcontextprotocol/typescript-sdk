@@ -1,0 +1,4 @@
+'@modelcontextprotocol/server': patch
+---
+
+Dual-era Streamable HTTP entries (`createMcpHandler` with legacy serving) no longer reject non-`initialize` requests whose `_meta` carries a pre-2026 `io.modelcontextprotocol/protocolVersion` claim. Such requests are legacy-era traffic: they are routed to legacy serving exactly as they would be without the claim, and the 2026-07-28 envelope schema is no longer applied to them (a claim carrying only the version key previously failed with `-32602`, and a full claim with `-32022`). Notifications and batch elements claiming a pre-2026 revision get the same routing. Claims naming a modern revision are unchanged, a `MCP-Protocol-Version` header that disagrees with a legacy claim is still a `-32020` header-validation failure, and modern-only endpoints still answer 2025-era claims with `-32022` naming the supported revisions.

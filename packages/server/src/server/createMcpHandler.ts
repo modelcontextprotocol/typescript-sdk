@@ -730,8 +730,10 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         const claimedRevision = route.classification.revision;
         if (claimedRevision === undefined || !SUPPORTED_MODERN_PROTOCOL_VERSIONS.includes(claimedRevision)) {
             // The claim names a revision this endpoint does not serve (an
-            // unknown future revision, or a 2025-era revision delivered via the
-            // envelope mechanism).
+            // unknown future revision; a 2025-era revision delivered via the
+            // envelope mechanism never reaches this path — the classifier
+            // routes it to legacy serving, where a modern-only endpoint
+            // answers it with the same -32022 through the strict mapping).
             const error = new UnsupportedProtocolVersionError({
                 supported: [...SUPPORTED_MODERN_PROTOCOL_VERSIONS],
                 requested: claimedRevision ?? 'unknown'

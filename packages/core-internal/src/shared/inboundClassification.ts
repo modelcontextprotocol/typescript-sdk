@@ -14,8 +14,12 @@
  *   define).
  * - A request whose `params._meta` carries the reserved protocol-version key
  *   claims the per-request envelope mechanism and classifies into the era the
- *   named revision belongs to (a malformed envelope behind a present claim is
- *   a validation error, never a silent fall back to legacy handling).
+ *   named revision belongs to: a claim naming a pre-2026 revision is legacy-era
+ *   traffic served exactly as it would be without the claim (the 2026-07-28
+ *   envelope schema does not apply to it), while a claim naming a modern
+ *   revision is validated against that schema (a malformed envelope behind a
+ *   present claim is a validation error, never a silent fall back to legacy
+ *   handling).
  * - A request without a claim is legacy-era traffic.
  * - The `MCP-Protocol-Version` header is a cross-check only *for
  *   classification*: it never upgrades or downgrades a body-derived
@@ -703,9 +707,18 @@ function classifyBatch(body: readonly unknown[]): InboundClassificationOutcome {
     for (const element of body) {
         const params = isPlainObject(element) ? element['params'] : undefined;
         if (hasEnvelopeClaim(params)) {
+            const claimedVersion = envelopeClaimVersion(params);
+            if (claimedVersion !== undefined && !isModernProtocolVersion(claimedVersion)) {
+                // An element claiming a pre-2026 revision is legacy-era
+                // traffic: the array stays a legacy batch and legacy serving
+                // decides whether it accepts batches at all.
+                continue;
+            }
             // Element-wise rule: a single modern element makes the whole array
             // unservable — modern requests are single-message POSTs, and the
-            // legacy path must never serve an envelope-claiming element.
+            // legacy path must never serve a modern envelope-claiming element.
+            // A claim whose version key is not a string is treated the same:
+            // its era cannot be established, so it is never served silently.
             return rejection(
                 'jsonrpc-shape',
                 'batch-with-modern-element',
@@ -763,6 +776,24 @@ function classifyRequestBody(request: InboundHttpRequest, body: JSONRPCRequest):
     }
 
     if (hasEnvelopeClaim(params)) {
+        const claimedVersion = envelopeClaimVersion(params);
+        if (claimedVersion !== undefined && !isModernProtocolVersion(claimedVersion)) {
+            // A claim naming a pre-2026 revision is legacy-era traffic: the
+            // 2026-07-28 envelope schema does not apply to it, and the request
+            // is served by the legacy leg exactly as it would be without the
+            // claim (the same precedence `initialize` already gets). A
+            // protocol-version header that disagrees with the claim is still a
+            // header-validation failure.
+            if (headerVersion !== undefined && headerVersion !== claimedVersion) {
+                return crossCheckMismatch(
+                    'header-body-version-mismatch',
+                    headerVersion,
+                    `the body envelope names protocol version ${claimedVersion} but the MCP-Protocol-Version header names ${headerVersion}`
+                );
+            }
+            return { kind: 'legacy', reason: 'no-claim', requestedVersion: claimedVersion };
+        }
+
         // A present claim is validated, never silently ignored: a malformed
         // envelope behind the claim is an invalid-params rejection naming the
         // offending key, not a fall back to legacy handling.
@@ -783,7 +814,6 @@ function classifyRequestBody(request: InboundHttpRequest, body: JSONRPCRequest):
             );
         }
 
-        const claimedVersion = envelopeClaimVersion(params);
         if (headerVersion !== undefined && claimedVersion !== undefined && headerVersion !== claimedVersion) {
             return crossCheckMismatch(
                 'header-body-version-mismatch',
@@ -869,6 +899,12 @@ function classifyNotificationBody(request: InboundHttpRequest, body: JSONRPCNoti
                 headerVersion,
                 `the notification envelope names protocol version ${claimedVersion} but the MCP-Protocol-Version header names ${headerVersion}`
             );
+        }
+        if (!isModernProtocolVersion(claimedVersion)) {
+            // A claim naming a pre-2026 revision is legacy-era traffic: the
+            // notification is served by the legacy leg exactly as it would be
+            // without the claim.
+            return { kind: 'legacy', reason: 'notification', requestedVersion: claimedVersion };
         }
         const classification = classificationForClaim(claimedVersion);
         if (classification.era === 'modern' && request.mcpMethodHeader !== undefined && request.mcpMethodHeader !== method) {
