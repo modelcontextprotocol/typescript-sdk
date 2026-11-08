@@ -1,3 +1,4 @@
+---
 '@modelcontextprotocol/server': patch
 ---
 
