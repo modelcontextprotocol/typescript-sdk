@@ -1438,6 +1438,74 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
+         * Test: Non-object outputSchema roots validate instead of crashing (#1308)
+         *
+         * optional/nullable/nullish/union output schemas previously crashed every
+         * tools/call with "Cannot read properties of undefined (reading '_zod')" and
+         * were silently omitted from tools/list. The call must now validate (mirroring
+         * the input path's fallback), and the listing omission — unavoidable, since the
+         * wire schema requires type "object" at the outputSchema root — must be warned
+         * about at registration rather than silent.
+         */
+        test('should validate output for non-object outputSchema roots and warn about the listing omission', async () => {
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const cases = [
+                { name: 'optional-root', schema: z.object({ data: z.string() }).optional() },
+                { name: 'nullable-root', schema: z.object({ data: z.string() }).nullable() },
+                { name: 'nullish-root', schema: z.object({ data: z.string() }).nullish() },
+                {
+                    name: 'union-root',
+                    schema: z.union([z.object({ data: z.string() }), z.object({ value: z.string() })])
+                }
+            ];
+
+            for (const { name, schema } of cases) {
+                mcpServer.registerTool(name, { description: name, outputSchema: schema }, async () => ({
+                    structuredContent: { data: 'hello' },
+                    content: []
+                }));
+            }
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const listResult = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            expect(listResult.tools).toHaveLength(cases.length);
+            // Pinned: the wire schema (Tool.outputSchema requires type "object" at the
+            // root) means these schemas cannot be advertised. The pin keeps the omission
+            // a documented behaviour; the registration warning keeps it non-silent.
+            for (const tool of listResult.tools) {
+                expect(tool.outputSchema).toBeUndefined();
+            }
+
+            // Every root that previously crashed the call now validates cleanly.
+            for (const { name } of cases) {
+                const result = await client.request({ method: 'tools/call', params: { name, arguments: {} } }, CallToolResultSchema);
+                expect(result.isError).toBeFalsy();
+                expect(result.structuredContent).toEqual({ data: 'hello' });
+            }
+
+            // The listing omission is warned about once per tool at registration.
+            const warnings = warnSpy.mock.calls.map(call => call.join(' ')).join('\n');
+            expect(warnings).toContain('outputSchema warning');
+            expect(warnings).toContain('type "object"');
+            for (const { name } of cases) {
+                expect(warnings).toContain(`"${name}"`);
+            }
+            warnSpy.mockRestore();
+        });
+
+        /***
          * Test: Tool with Output Schema Must Provide Structured Content
          */
         test('should throw error when tool with outputSchema returns no structuredContent', async () => {
