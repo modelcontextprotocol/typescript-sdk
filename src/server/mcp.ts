@@ -60,6 +60,7 @@ import { RequestHandlerExtra } from '../shared/protocol.js';
 import { Transport } from '../shared/transport.js';
 
 import { validateAndWarnToolName } from '../shared/toolNameValidation.js';
+import { issueNonObjectOutputSchemaWarning } from '../shared/outputSchemaWarning.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcp-server.js';
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ZodOptional } from 'zod';
@@ -373,9 +374,13 @@ export class McpServer {
             );
         }
 
-        // if the tool has an output schema, validate structured content
-        const outputObj = normalizeObjectSchema(tool.outputSchema) as AnyObjectSchema;
-        const parseResult = await safeParseAsync(outputObj, result.structuredContent);
+        // if the tool has an output schema, validate structured content.
+        // Try to normalize to object schema first (for raw shapes and object schemas)
+        // If that fails, use the schema directly (for union/intersection/etc), mirroring
+        // the input-validation path — non-object roots must validate, not crash (#1308)
+        const outputObj = normalizeObjectSchema(tool.outputSchema);
+        const schemaToParse = outputObj ?? (tool.outputSchema as AnySchema);
+        const parseResult = await safeParseAsync(schemaToParse, result.structuredContent);
         if (!parseResult.success) {
             const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
             const errorMessage = getParseErrorMessage(error);
@@ -950,11 +955,20 @@ export class McpServer {
         // Validate tool name according to SEP specification
         validateAndWarnToolName(name);
 
+        const normalizedInputSchema = getZodSchemaObject(inputSchema);
+        const normalizedOutputSchema = getZodSchemaObject(outputSchema);
+
+        // Warn (rather than refuse) when the output schema cannot be advertised in
+        // tools/list: the call-time validation still applies, so registration proceeds.
+        if (normalizedOutputSchema && !normalizeObjectSchema(normalizedOutputSchema)) {
+            issueNonObjectOutputSchemaWarning(name);
+        }
+
         const registeredTool: RegisteredTool = {
             title,
             description,
-            inputSchema: getZodSchemaObject(inputSchema),
-            outputSchema: getZodSchemaObject(outputSchema),
+            inputSchema: normalizedInputSchema,
+            outputSchema: normalizedOutputSchema,
             annotations,
             execution,
             _meta,
