@@ -709,8 +709,14 @@ verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
         // Over SSE the tools/call POST is real I/O that fake timers do not wait for.
         // Advancing before it lands lets the per-request timeout fire before any
         // progress is sent, so maxTotalTimeout is never exercised (#3045). Awaiting a
-        // promise, unlike vi.waitFor, does not move the fake clock.
-        await callReceived;
+        // promise, unlike vi.waitFor, does not move the fake clock. If the call settles
+        // without reaching the handler (e.g. its arguments are rejected), fail with
+        // that reason instead of waiting on callReceived until the test times out.
+        const settledFirst = call.then(() => {
+            throw new Error('tools/call settled before the tool handler ran');
+        });
+        settledFirst.catch(() => {});
+        await Promise.race([callReceived, settledFirst]);
 
         for (let elapsed = 0; elapsed < maxTotal + perChunk; elapsed += delayMs) {
             await vi.advanceTimersByTimeAsync(delayMs);
