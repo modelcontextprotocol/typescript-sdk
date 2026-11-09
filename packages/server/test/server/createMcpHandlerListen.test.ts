@@ -343,6 +343,21 @@ describe('createMcpHandler — subscriptions/listen', () => {
         await handler.close();
     });
 
+    it('ignores getSessionId when maxSubscriptionsPerSession is unset, even if it would throw', async () => {
+        // The resolver is documented as ignored without the per-session cap.
+        // Verify it is not invoked, so a user-supplied throw cannot turn a
+        // legitimate listen into a 500 when the cap is off.
+        const getSessionId = vi.fn(() => {
+            throw new Error('resolver should not be called when maxSubscriptionsPerSession is unset');
+        });
+        const handler = createMcpHandler(trivialFactory(), { keepAliveMs: 0, getSessionId });
+        const response = await handler.fetch(listenRequest(1, { toolsListChanged: true }, 'session-a'));
+        expect(response.headers.get('Content-Type')).toBe('text/event-stream');
+        expect(getSessionId).not.toHaveBeenCalled();
+        await response.body!.cancel();
+        await handler.close();
+    });
+
     it("rejects with -32602 when params.notifications is absent (spec marks 'notifications' REQUIRED)", async () => {
         const handler = createMcpHandler(trivialFactory(), { keepAliveMs: 0 });
         const response = await handler.fetch(
