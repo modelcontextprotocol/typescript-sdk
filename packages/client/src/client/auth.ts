@@ -14,7 +14,6 @@ import type {
 } from '@modelcontextprotocol/core-internal';
 import {
     brandedHasInstance,
-    checkResourceAllowed,
     fetchWithinOrigin,
     LATEST_PROTOCOL_VERSION,
     OAuthClientInformationFullSchema,
@@ -391,9 +390,8 @@ export interface OAuthClientProvider {
     dpop?(): DpopSession | undefined | Promise<DpopSession | undefined>;
 
     /**
-     * If defined, overrides the selection and validation of the
-     * RFC 8707 Resource Indicator. If left undefined, default
-     * validation behavior will be used.
+     * If defined, overrides selection of the RFC 8707 Resource Indicator
+     * after protected resource metadata passes RFC 9728 identity validation.
      *
      * Implementations must verify the returned resource matches the MCP server.
      */
@@ -1174,6 +1172,7 @@ async function authInternal(
     let authorizationServerUrl: string | URL;
     let metadata: AuthorizationServerMetadata | undefined;
     let freshDiscoveryState: OAuthDiscoveryState | undefined;
+    let resourceMetadataRootFallback = false;
 
     // If resourceMetadataUrl is not provided, try to load it from cached state
     // This handles browser redirects where the URL was saved before navigation
@@ -1182,10 +1181,43 @@ async function authInternal(
         effectiveResourceMetadataUrl = new URL(cachedState.resourceMetadataUrl);
     }
 
-    if (cachedState?.authorizationServerUrl) {
+    // Older caches did not distinguish a root fallback from an invalid path-level response.
+    const rediscoverRootMetadata =
+        cachedState?.resourceMetadata !== undefined &&
+        cachedState.resourceMetadataRootFallback === undefined &&
+        effectiveResourceMetadataUrl === undefined &&
+        resourceMatches(new URL('/', serverUrl), cachedState.resourceMetadata.resource) &&
+        !resourceMatches(resourceUrlFromServerUrl(serverUrl), cachedState.resourceMetadata.resource);
+
+    if (cachedState?.authorizationServerUrl && !rediscoverRootMetadata) {
         // Restore discovery state from cache
         authorizationServerUrl = cachedState.authorizationServerUrl;
         resourceMetadata = cachedState.resourceMetadata;
+        resourceMetadataRootFallback = cachedState.resourceMetadataRootFallback === true && effectiveResourceMetadataUrl === undefined;
+        if (resourceMetadata) {
+            validateResourceMetadata(resourceMetadata, resourceMetadataRootFallback ? new URL('/', serverUrl) : serverUrl);
+        }
+
+        // If resource metadata wasn't cached, try to fetch it for selectResourceURL
+        if (!resourceMetadata) {
+            try {
+                const discovered = await discoverProtectedResourceMetadata(
+                    serverUrl,
+                    { resourceMetadataUrl: effectiveResourceMetadataUrl },
+                    fetchFn
+                );
+                resourceMetadata = discovered.metadata;
+                resourceMetadataRootFallback = discovered.rootFallback;
+            } catch (error) {
+                // Network failures (DNS, connection refused) surface as TypeError — propagate
+                // those rather than masking a transient reachability problem.
+                if (error instanceof TypeError || error instanceof ProtectedResourceMismatchError) {
+                    throw error;
+                }
+                // RFC 9728 not available — selectResourceURL will handle undefined
+            }
+        }
+
         metadata =
             cachedState.authorizationServerMetadata ??
             (await discoverAuthorizationServerMetadata(authorizationServerUrl, {
@@ -1193,30 +1225,13 @@ async function authInternal(
                 skipIssuerValidation: skipIssuerMetadataValidation
             }));
 
-        // If resource metadata wasn't cached, try to fetch it for selectResourceURL
-        if (!resourceMetadata) {
-            try {
-                resourceMetadata = await discoverOAuthProtectedResourceMetadata(
-                    serverUrl,
-                    { resourceMetadataUrl: effectiveResourceMetadataUrl },
-                    fetchFn
-                );
-            } catch (error) {
-                // Network failures (DNS, connection refused) surface as TypeError — propagate
-                // those rather than masking a transient reachability problem.
-                if (error instanceof TypeError) {
-                    throw error;
-                }
-                // RFC 9728 not available — selectResourceURL will handle undefined
-            }
-        }
-
         // Re-save if we enriched the cached state with missing metadata
         if (metadata !== cachedState.authorizationServerMetadata || resourceMetadata !== cachedState.resourceMetadata) {
             await provider.saveDiscoveryState?.({
                 authorizationServerUrl: String(authorizationServerUrl),
                 resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
                 resourceMetadata,
+                ...(resourceMetadataRootFallback && { resourceMetadataRootFallback: true }),
                 authorizationServerMetadata: metadata
             });
         }
@@ -1230,6 +1245,7 @@ async function authInternal(
         authorizationServerUrl = serverInfo.authorizationServerUrl;
         metadata = serverInfo.authorizationServerMetadata;
         resourceMetadata = serverInfo.resourceMetadata;
+        resourceMetadataRootFallback = serverInfo.resourceMetadataRootFallback === true;
 
         // Captured now, persisted only after the SEP-2352 callback-leg gate below — so a
         // gate throw cannot leave a freshly resolved (potentially PRM-poisoned) AS recorded
@@ -1241,6 +1257,7 @@ async function authInternal(
             authorizationServerUrl: String(authorizationServerUrl),
             resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
             resourceMetadata,
+            ...(resourceMetadataRootFallback && { resourceMetadataRootFallback: true }),
             authorizationServerMetadata: metadata
         };
     }
@@ -1291,7 +1308,7 @@ async function authInternal(
     // `URL`, and `URL.href` appends "/" to a pathless indicator such as `https://example.com`,
     // which exact-match authorization servers reject (#1968). A URL returned by the
     // provider's own `validateResourceURL` is used as returned.
-    const selectedResource = await selectResourceURL(serverUrl, provider, resourceMetadata);
+    const selectedResource = await selectValidatedResourceURL(serverUrl, provider, resourceMetadata);
     const resource: string | URL | undefined =
         selectedResource && resourceMetadata && !provider.validateResourceURL ? resourceMetadata.resource : selectedResource;
 
@@ -1516,8 +1533,8 @@ export function isHttpsUrl(value?: string): boolean {
 /**
  * Selects the RFC 8707 resource indicator for an MCP server: the provider's
  * {@linkcode OAuthClientProvider.validateResourceURL | validateResourceURL} result when
- * implemented, otherwise the protected resource metadata's `resource` (checked against the
- * server URL with `checkResourceAllowed`), or `undefined` when there is no metadata.
+ * implemented, otherwise the protected resource metadata's `resource`, or `undefined` when
+ * there is no metadata. Metadata must identify the supplied server URL; parent paths are rejected.
  *
  * The result is a parsed `URL`, so a pathless indicator such as `https://example.com` has
  * the `href` `https://example.com/`. {@linkcode auth} therefore sends the metadata string
@@ -1525,6 +1542,15 @@ export function isHttpsUrl(value?: string): boolean {
  * parameter themselves should do the same.
  */
 export async function selectResourceURL(
+    serverUrl: string | URL,
+    provider: OAuthClientProvider,
+    resourceMetadata?: OAuthProtectedResourceMetadata
+): Promise<URL | undefined> {
+    if (resourceMetadata) validateResourceMetadata(resourceMetadata, serverUrl);
+    return selectValidatedResourceURL(serverUrl, provider, resourceMetadata);
+}
+
+async function selectValidatedResourceURL(
     serverUrl: string | URL,
     provider: OAuthClientProvider,
     resourceMetadata?: OAuthProtectedResourceMetadata
@@ -1541,12 +1567,31 @@ export async function selectResourceURL(
         return undefined;
     }
 
-    // Validate that the metadata's resource is compatible with our request
-    if (!checkResourceAllowed({ requestedResource: defaultResource, configuredResource: resourceMetadata.resource })) {
-        throw new Error(`Protected resource ${resourceMetadata.resource} does not match expected ${defaultResource} (or origin)`);
-    }
     // Prefer the resource from metadata since it's what the server is telling us to request
     return new URL(resourceMetadata.resource);
+}
+
+class ProtectedResourceMismatchError extends Error {
+    override name = 'ProtectedResourceMismatchError';
+}
+
+function resourceMatches(expected: URL, resource: string): boolean {
+    // Normalize the authority and empty root path, preserving path spelling, query and fragment.
+    const match = /^https?:\/\/[^/?#\s]+(.*)$/i.exec(resource);
+    if (!match || match[0] !== resource) return false;
+    const actual = new URL(resource);
+    if (actual.username || actual.password) return false;
+    const suffix = match[1]!;
+    return `${actual.origin}${suffix.startsWith('/') ? suffix : `/${suffix}`}` === expected.href;
+}
+
+function validateResourceMetadata(metadata: OAuthProtectedResourceMetadata, expectedResource: string | URL): void {
+    const expected = resourceUrlFromServerUrl(expectedResource);
+    if (!resourceMatches(expected, metadata.resource)) {
+        throw new ProtectedResourceMismatchError(
+            `Protected resource ${JSON.stringify(metadata.resource)} does not match expected ${JSON.stringify(expected.href)} (RFC 9728 §3.3)`
+        );
+    }
 }
 
 /** Auth-scheme challenge tokens {@linkcode extractWWWAuthenticateParams} recognizes. */
@@ -1667,7 +1712,16 @@ export async function discoverOAuthProtectedResourceMetadata(
     opts?: { protocolVersion?: string; resourceMetadataUrl?: string | URL },
     fetchFn: FetchLike = fetch
 ): Promise<OAuthProtectedResourceMetadata> {
-    const response = await discoverMetadataWithFallback(serverUrl, 'oauth-protected-resource', fetchFn, {
+    const discovered = await discoverProtectedResourceMetadata(serverUrl, opts, fetchFn);
+    return discovered.metadata;
+}
+
+async function discoverProtectedResourceMetadata(
+    serverUrl: string | URL,
+    opts?: { protocolVersion?: string; resourceMetadataUrl?: string | URL },
+    fetchFn: FetchLike = fetch
+): Promise<{ metadata: OAuthProtectedResourceMetadata; rootFallback: boolean }> {
+    const { response, rootFallback } = await discoverMetadataWithFallback(serverUrl, 'oauth-protected-resource', fetchFn, {
         protocolVersion: opts?.protocolVersion,
         metadataUrl: opts?.resourceMetadataUrl
     });
@@ -1681,7 +1735,9 @@ export async function discoverOAuthProtectedResourceMetadata(
         await response.text?.().catch(() => {});
         throw new Error(`HTTP ${response.status} trying to load well-known OAuth protected resource metadata.`);
     }
-    return OAuthProtectedResourceMetadataSchema.parse(await response.json());
+    const metadata = OAuthProtectedResourceMetadataSchema.parse(await response.json());
+    validateResourceMetadata(metadata, rootFallback ? new URL('/', serverUrl) : serverUrl);
+    return { metadata, rootFallback };
 }
 
 /**
@@ -1771,7 +1827,7 @@ async function discoverMetadataWithFallback(
     wellKnownType: 'oauth-authorization-server' | 'oauth-protected-resource',
     fetchFn: FetchLike,
     opts?: { protocolVersion?: string; metadataUrl?: string | URL; metadataServerUrl?: string | URL }
-): Promise<Response | undefined> {
+): Promise<{ response: Response | undefined; rootFallback: boolean }> {
     const issuer = new URL(serverUrl);
     const protocolVersion = opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION;
 
@@ -1780,20 +1836,25 @@ async function discoverMetadataWithFallback(
         url = new URL(opts.metadataUrl);
     } else {
         // Try path-aware discovery first
-        const wellKnownPath = buildWellKnownPath(wellKnownType, issuer.pathname);
+        const wellKnownPath =
+            wellKnownType === 'oauth-protected-resource'
+                ? `/.well-known/${wellKnownType}${issuer.pathname === '/' ? '' : issuer.pathname}`
+                : buildWellKnownPath(wellKnownType, issuer.pathname);
         url = new URL(wellKnownPath, opts?.metadataServerUrl ?? issuer);
         url.search = issuer.search;
     }
 
     let response = await tryMetadataDiscovery(url, protocolVersion, fetchFn);
+    let rootFallback = false;
 
     // If path-aware discovery fails (4xx, 502 or a redirect not followed) and we're not already at root, try fallback to root discovery
     if (!opts?.metadataUrl && shouldAttemptFallback(response, issuer.pathname)) {
         const rootUrl = new URL(`/.well-known/${wellKnownType}`, issuer);
         response = await tryMetadataDiscovery(rootUrl, protocolVersion, fetchFn);
+        rootFallback = true;
     }
 
-    return response;
+    return { response, rootFallback };
 }
 
 /**
@@ -1826,7 +1887,7 @@ export async function discoverOAuthMetadata(
     }
     protocolVersion ??= LATEST_PROTOCOL_VERSION;
 
-    const response = await discoverMetadataWithFallback(authorizationServerUrl, 'oauth-authorization-server', fetchFn, {
+    const { response } = await discoverMetadataWithFallback(authorizationServerUrl, 'oauth-authorization-server', fetchFn, {
         protocolVersion,
         metadataServerUrl: authorizationServerUrl
     });
@@ -2023,6 +2084,9 @@ export interface OAuthServerInfo {
      * or `undefined` if the server does not support it.
      */
     resourceMetadata?: OAuthProtectedResourceMetadata;
+
+    /** True when the metadata was validated against the root well-known fallback; persist with discovery state. */
+    resourceMetadataRootFallback?: boolean;
 }
 
 /**
@@ -2059,13 +2123,16 @@ export async function discoverOAuthServerInfo(
 ): Promise<OAuthServerInfo> {
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | undefined;
+    let resourceMetadataRootFallback = false;
 
     try {
-        resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+        const discovered = await discoverProtectedResourceMetadata(
             serverUrl,
             { resourceMetadataUrl: opts?.resourceMetadataUrl },
             opts?.fetchFn
         );
+        resourceMetadata = discovered.metadata;
+        resourceMetadataRootFallback = discovered.rootFallback;
         if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
             authorizationServerUrl = resourceMetadata.authorization_servers[0];
         }
@@ -2073,7 +2140,7 @@ export async function discoverOAuthServerInfo(
         // Network failures (DNS, connection refused) surface as TypeError from fetch. Those are
         // transient reachability problems, not "server doesn't support PRM" — propagate so the
         // caller sees the real error instead of silently falling back to a different auth server.
-        if (error instanceof TypeError) {
+        if (error instanceof TypeError || error instanceof ProtectedResourceMismatchError) {
             throw error;
         }
         // RFC 9728 not supported -- fall back to treating the server URL as the authorization server
@@ -2093,7 +2160,8 @@ export async function discoverOAuthServerInfo(
     return {
         authorizationServerUrl,
         authorizationServerMetadata,
-        resourceMetadata
+        resourceMetadata,
+        ...(resourceMetadataRootFallback && { resourceMetadataRootFallback: true })
     };
 }
 

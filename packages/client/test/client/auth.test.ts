@@ -353,14 +353,15 @@ describe('OAuth Authorization', () => {
         });
 
         it('returns metadata when discovery succeeds with path', async () => {
+            const pathMetadata = { ...validMetadata, resource: 'https://resource.example.com/path/name' };
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
-                json: async () => validMetadata
+                json: async () => pathMetadata
             });
 
             const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name');
-            expect(metadata).toEqual(validMetadata);
+            expect(metadata).toEqual(pathMetadata);
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1);
             const [url] = calls[0]!;
@@ -368,14 +369,15 @@ describe('OAuth Authorization', () => {
         });
 
         it('preserves query parameters in path-aware discovery', async () => {
+            const pathMetadata = { ...validMetadata, resource: 'https://resource.example.com/path?param=value' };
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
-                json: async () => validMetadata
+                json: async () => pathMetadata
             });
 
             const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/path?param=value');
-            expect(metadata).toEqual(validMetadata);
+            expect(metadata).toEqual(pathMetadata);
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1);
             const [url] = calls[0]!;
@@ -3381,15 +3383,14 @@ describe('OAuth Authorization', () => {
             warn.mockRestore();
         });
 
-        it('skips default PRM resource validation when custom validateResourceURL is provided', async () => {
+        it('allows custom resource selection after validating PRM identity', async () => {
             const mockValidateResourceURL = vi.fn().mockResolvedValue(undefined);
             const providerWithCustomValidation = {
                 ...mockProvider,
                 validateResourceURL: mockValidateResourceURL
             };
 
-            // Mock protected resource metadata with mismatched resource URL
-            // This would normally throw an error in default validation, but should be skipped
+            // A provider may omit the resource parameter after metadata identity is validated.
             mockFetch.mockImplementation(url => {
                 const urlString = url.toString();
 
@@ -3398,7 +3399,7 @@ describe('OAuth Authorization', () => {
                         ok: true,
                         status: 200,
                         json: async () => ({
-                            resource: 'https://different-resource.example.com/mcp-server', // Mismatched resource
+                            resource: 'https://api.example.com/mcp-server',
                             authorization_servers: ['https://auth.example.com']
                         })
                     });
@@ -3428,7 +3429,7 @@ describe('OAuth Authorization', () => {
             (providerWithCustomValidation.saveCodeVerifier as Mock).mockResolvedValue(undefined);
             (providerWithCustomValidation.redirectToAuthorization as Mock).mockResolvedValue(undefined);
 
-            // Call auth - should succeed despite resource mismatch because custom validation overrides default
+            // Call auth with valid metadata and custom resource selection.
             const result = await auth(providerWithCustomValidation, {
                 serverUrl: 'https://api.example.com/mcp-server'
             });
@@ -3438,21 +3439,23 @@ describe('OAuth Authorization', () => {
             // Verify custom validation method was called
             expect(mockValidateResourceURL).toHaveBeenCalledWith(
                 new URL('https://api.example.com/mcp-server'),
-                'https://different-resource.example.com/mcp-server'
+                'https://api.example.com/mcp-server'
             );
         });
 
-        it('uses prefix of server URL from PRM resource as resource parameter', async () => {
-            // Mock successful metadata discovery with resource URL that is a prefix of requested URL
+        it('uses the root resource when path-aware discovery falls back to root metadata', async () => {
             mockFetch.mockImplementation(url => {
                 const urlString = url.toString();
 
-                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                if (urlString === 'https://api.example.com/.well-known/oauth-protected-resource/mcp-server/endpoint') {
+                    return Promise.resolve({ ok: false, status: 404 });
+                }
+                if (urlString === 'https://api.example.com/.well-known/oauth-protected-resource') {
                     return Promise.resolve({
                         ok: true,
                         status: 200,
                         json: async () => ({
-                            // Resource is a prefix of the requested server URL
+                            // The resource identifies the root discovery target.
                             resource: 'https://api.example.com/',
                             authorization_servers: ['https://auth.example.com']
                         })
@@ -3511,7 +3514,10 @@ describe('OAuth Authorization', () => {
             mockFetch.mockImplementation(url => {
                 const urlString = url.toString();
 
-                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                if (urlString === 'https://example.com/.well-known/oauth-protected-resource/mcp') {
+                    return Promise.resolve({ ok: false, status: 404 });
+                }
+                if (urlString === 'https://example.com/.well-known/oauth-protected-resource') {
                     return Promise.resolve({
                         ok: true,
                         status: 200,
@@ -3905,7 +3911,7 @@ describe('OAuth Authorization', () => {
                         ok: true,
                         status: 200,
                         json: async () => ({
-                            resource: 'https://my.resource.com/',
+                            resource: 'https://my.resource.com/path/name',
                             authorization_servers: ['https://auth.example.com/oauth']
                         })
                     });

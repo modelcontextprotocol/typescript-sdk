@@ -241,7 +241,7 @@ describe('redirects', () => {
         });
 
         test('protected resource metadata discovery tries the root well-known URL', async () => {
-            const metadata = { resource: new URL('/mcp', endpointUrl).href, authorization_servers: [endpointUrl.origin] };
+            const metadata = { resource: endpointUrl.origin, authorization_servers: [endpointUrl.origin] };
             handle = (req, res, recorded) =>
                 req.url === '/.well-known/oauth-protected-resource'
                     ? void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(metadata))
@@ -400,7 +400,7 @@ describe('redirects', () => {
             (req, res, recorded) => {
                 const origin = endpointUrl.origin;
                 const metadata = req.url?.startsWith('/.well-known/oauth-protected-resource')
-                    ? { resource: origin, authorization_servers: [origin] }
+                    ? { resource: origin + req.url.slice('/.well-known/oauth-protected-resource'.length), authorization_servers: [origin] }
                     : req.url?.startsWith('/.well-known/oauth-authorization-server')
                       ? {
                             issuer: origin,

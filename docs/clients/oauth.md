@@ -2,6 +2,7 @@
 shape: how-to
 description: 'Sign an end user in from a client you build with the OAuth authorization-code flow.'
 ---
+
 # Authenticate a user with OAuth
 
 Protecting a server you run → [Require authorization](../serving/authorization.md). Signing a user in from a client → this page. No user present → [Authenticate without a user](./machine-auth.md).
@@ -149,7 +150,9 @@ A mismatch means the callback came from an authorization server you did not star
 
 ## Pin the resource indicator
 
-The SDK binds tokens to your server with the RFC 8707 `resource` parameter: when the server publishes protected resource metadata (RFC 9728), the SDK checks the metadata's `resource` against the server URL and attaches it to the authorization redirect and every token request. Override `validateResourceURL` to force the value — return the URL to send, or `undefined` to omit the parameter.
+The SDK binds tokens to your server with the RFC 8707 `resource` parameter. Protected resource metadata (RFC 9728) must identify the requested server when discovered through a challenge or a path-specific well-known URL; a root well-known fallback must identify the root resource. Parent paths, different queries, and different trailing path slashes are rejected before the metadata is used. Valid resource identifiers are sent unchanged on the authorization redirect and every token request. Override `validateResourceURL` to select the value after metadata identity validation — return the URL to send, or `undefined` to omit the parameter. The hook cannot bypass metadata identity validation.
+
+Persist the complete `OAuthDiscoveryState` returned to `saveDiscoveryState`, including `resourceMetadataRootFallback`, so a valid root fallback can be restored after a redirect. Older root-resource caches without that marker are rediscovered before use.
 
 ```ts source="../../examples/guides/clients/oauth.examples.ts#validateResourceURL_pin"
 class PinnedResourceProvider extends MyOAuthProvider {
