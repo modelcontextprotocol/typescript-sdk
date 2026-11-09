@@ -689,6 +689,60 @@ describe('Zod v4', () => {
                 await transport.close();
             }
         });
+
+        it('settles a JSON-mode POST that carries the cancellation in the same batch', async () => {
+            // The cancellation arrives inside the POST that opened the stream,
+            // so the settle path has to run at dispatch time: no second POST
+            // exists to trigger it.
+            const transport = await createTransport(true);
+            try {
+                const sessionId = await initialize(transport);
+
+                const response = await transport.handleRequest(
+                    createRequest(
+                        'POST',
+                        [
+                            { jsonrpc: '2.0', method: 'tools/call', params: { name: 'hang' }, id: 'batch-cancel' },
+                            { jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 'batch-cancel' } }
+                        ],
+                        { sessionId }
+                    )
+                );
+
+                expect(response.status).toBe(202);
+                expect(await response.text()).toBe('');
+                expect((transport as any)._streamMapping.size).toBe(0);
+                expect((transport as any)._requestToStreamMapping.size).toBe(0);
+            } finally {
+                await transport.close();
+            }
+        });
+
+        it('closes the SSE stream when the cancellation arrives in the same batch', async () => {
+            const transport = await createTransport(false);
+            try {
+                const sessionId = await initialize(transport);
+
+                const response = await transport.handleRequest(
+                    createRequest(
+                        'POST',
+                        [
+                            { jsonrpc: '2.0', method: 'tools/call', params: { name: 'hang' }, id: 'batch-cancel' },
+                            { jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 'batch-cancel' } }
+                        ],
+                        { sessionId }
+                    )
+                );
+                expect(response.status).toBe(200);
+
+                const reader = response.body!.getReader();
+                await expect(reader.read()).resolves.toMatchObject({ done: true });
+                expect((transport as any)._streamMapping.size).toBe(0);
+                expect((transport as any)._requestToStreamMapping.size).toBe(0);
+            } finally {
+                await transport.close();
+            }
+        });
     });
 
     describe('HTTPServerTransport - Session Callbacks', () => {
