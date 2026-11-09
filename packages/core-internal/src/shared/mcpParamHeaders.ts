@@ -356,9 +356,20 @@ export function validateMcpParamHeaders(
             // Server MUST NOT expect the header for a null/absent value.
             continue;
         }
+        if (typeof bodyRaw === 'object') {
+            // An object or array can never be mirrored into a header, so a
+            // present header cannot match it. With no header, params
+            // validation owns the body-vs-schema fault.
+            if (headerValue === null) continue;
+            return paramHeaderMismatchRejection(
+                'param-header-mismatch',
+                headerKey,
+                `the ${headerKey} header is present but the body carries a non-primitive ${pathName(decl.path)}`
+            );
+        }
         const bodyString = mcpParamPrimitiveToString(bodyRaw);
         if (bodyString === undefined) {
-            // Body carries a non-primitive where the schema declares one;
+            // A non-finite number or an unsafe integer has no header form;
             // params validation owns that fault. Skip the header check.
             continue;
         }
