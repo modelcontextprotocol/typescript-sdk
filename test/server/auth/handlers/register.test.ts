@@ -114,7 +114,7 @@ describe('Client Registration Handler', () => {
                 });
 
             expect(response.status).toBe(400);
-            expect(response.body.error).toBe('invalid_client_metadata');
+            expect(response.body.error).toBe('invalid_redirect_uri');
             expect(response.body.error_description).toContain('http://attacker.example.com/callback');
             expect(spyRegisterClient).not.toHaveBeenCalled();
         });
@@ -136,7 +136,7 @@ describe('Client Registration Handler', () => {
                 });
 
             expect(response.status).toBe(400);
-            expect(response.body.error).toBe('invalid_client_metadata');
+            expect(response.body.error).toBe('invalid_redirect_uri');
             expect(spyRegisterClient).not.toHaveBeenCalled();
         });
 

@@ -5,7 +5,7 @@ import cors from 'cors';
 import { OAuthRegisteredClientsStore } from '../clients.js';
 import { rateLimit, Options as RateLimitOptions } from 'express-rate-limit';
 import { allowedMethods } from '../middleware/allowedMethods.js';
-import { InvalidClientMetadataError, ServerError, TooManyRequestsError, OAuthError } from '../errors.js';
+import { CustomOAuthError, InvalidClientMetadataError, ServerError, TooManyRequestsError, OAuthError } from '../errors.js';
 import { LOOPBACK_HOSTS } from './authorize.js';
 
 export type ClientRegistrationHandlerOptions = {
@@ -89,7 +89,8 @@ export function clientRegistrationHandler({
             const clientMetadata = parseResult.data;
             const invalidRedirectUri = clientMetadata.redirect_uris.find(uri => !isAllowedRedirectUri(uri));
             if (invalidRedirectUri !== undefined) {
-                throw new InvalidClientMetadataError(
+                throw new CustomOAuthError(
+                    'invalid_redirect_uri',
                     `Invalid redirect_uris: ${invalidRedirectUri} must use HTTPS or a loopback host and must not include a fragment`
                 );
             }
