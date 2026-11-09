@@ -300,9 +300,26 @@ describe('validateMcpParamHeaders — server-behavior table', () => {
         }
     });
 
-    test('header absent and the body value is an object → ok (params validation owns it)', () => {
+    test('header absent and the body value is an object or array → reject 400/-32020 as missing', () => {
+        for (const region of [{ a: 'eu' }, ['eu']]) {
+            expect(validateMcpParamHeaders(DECLS, { region }, new Headers())).toMatchObject({
+                kind: 'reject',
+                httpStatus: 400,
+                code: HEADER_MISMATCH_ERROR_CODE,
+                cell: 'param-header-missing'
+            });
+        }
+    });
+
+    test('unsafe integer body value: a present header is rejected, an absent one passes', () => {
         const intDecl = [{ path: ['n'], headerName: 'N', type: 'integer' }] as const;
-        expect(validateMcpParamHeaders(intDecl, { n: { a: 1 } }, new Headers())).toBeUndefined();
+        const n = 2 ** 53;
+        expect(validateMcpParamHeaders(intDecl, { n }, new Headers({ [`${MCP_PARAM_HEADER_PREFIX}N`]: '5' }))).toMatchObject({
+            kind: 'reject',
+            code: HEADER_MISMATCH_ERROR_CODE,
+            cell: 'param-header-mismatch'
+        });
+        expect(validateMcpParamHeaders(intDecl, { n }, new Headers())).toBeUndefined();
     });
 
     test('invalid Base64 sentinel → reject 400/-32020', () => {

@@ -356,22 +356,29 @@ export function validateMcpParamHeaders(
             // Server MUST NOT expect the header for a null/absent value.
             continue;
         }
+        // An object or array has no header form: reject it with or without a header.
         if (typeof bodyRaw === 'object') {
-            // An object or array can never be mirrored into a header, so a
-            // present header cannot match it. With no header, params
-            // validation owns the body-vs-schema fault.
+            return headerValue === null
+                ? paramHeaderMismatchRejection(
+                      'param-header-missing',
+                      headerKey,
+                      `the body carries a non-primitive ${pathName(decl.path)} but the ${headerKey} header is absent`
+                  )
+                : paramHeaderMismatchRejection(
+                      'param-header-mismatch',
+                      headerKey,
+                      `the ${headerKey} header is present but the body carries a non-primitive ${pathName(decl.path)}`
+                  );
+        }
+        const bodyString = mcpParamPrimitiveToString(bodyRaw);
+        if (bodyString === undefined) {
+            // No header form (unsafe integer): an absent header is expected, a present one cannot be verified.
             if (headerValue === null) continue;
             return paramHeaderMismatchRejection(
                 'param-header-mismatch',
                 headerKey,
-                `the ${headerKey} header is present but the body carries a non-primitive ${pathName(decl.path)}`
+                `the ${headerKey} header cannot be compared with ${pathName(decl.path)}=${JSON.stringify(bodyRaw)}, which has no header form`
             );
-        }
-        const bodyString = mcpParamPrimitiveToString(bodyRaw);
-        if (bodyString === undefined) {
-            // A non-finite number or an unsafe integer has no header form;
-            // params validation owns that fault. Skip the header check.
-            continue;
         }
         if (headerValue === null) {
             return paramHeaderMismatchRejection(
