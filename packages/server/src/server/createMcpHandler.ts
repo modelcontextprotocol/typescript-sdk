@@ -864,13 +864,16 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             const serverInfo = serverIdentityOf(server);
             void product.close().catch(reportError);
             // Resolve the per-session bucketing key through the caller-supplied
-            // getSessionId. Without a resolver the per-session cap is off (and
-            // construction already rejected the "cap configured but resolver
-            // missing" misconfiguration), so sessionId stays undefined.
-            // Deployments decide the trust source for identity (typically a
-            // field stamped onto authInfo by their auth middleware); the SDK
-            // never derives the key from request headers directly.
-            const sessionId = options.getSessionId?.(requestOptions ?? {}, request);
+            // getSessionId only when the per-session cap is actually configured.
+            // The resolver is documented as ignored otherwise, so skipping it
+            // avoids a user-supplied throw turning an otherwise valid listen
+            // into a 500. Deployments decide the trust source for identity
+            // (typically a field stamped onto authInfo by their auth
+            // middleware); the SDK never derives the key from request headers
+            // directly. Construction already rejected the "cap configured but
+            // resolver missing" misconfiguration.
+            const sessionId =
+                options.maxSubscriptionsPerSession === undefined ? undefined : options.getSessionId?.(requestOptions ?? {}, request);
             return listenRouter.serve(route.message, request.signal, capabilities, serverInfo, sessionId);
         }
 
