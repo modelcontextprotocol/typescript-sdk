@@ -238,7 +238,10 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
             }
         });
 
-        if (signal !== undefined) {
+        // A stream honored down to nothing is already torn down inside `start()`, and
+        // `teardown()` short-circuits once `closed` is set — wiring `onAbort` to such a
+        // stream would strand it on the caller's signal, past `closeAll()`.
+        if (!closed && signal !== undefined) {
             if (signal.aborted) {
                 teardown(false);
             } else {
