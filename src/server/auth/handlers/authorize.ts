@@ -15,7 +15,7 @@ export type AuthorizationHandlerOptions = {
     rateLimit?: Partial<RateLimitOptions> | false;
 };
 
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+export const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 /**
  * Validates a requested redirect_uri against a registered one.
