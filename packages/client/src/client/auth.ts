@@ -1068,8 +1068,8 @@ export interface AuthOptions {
  */
 function warnCredentialInvalidation(provider: OAuthClientProvider, error: OAuthError, invalidated: string): void {
     // `invalidateCredentials` is optional. When a provider omits it nothing is actually
-    // discarded, so do not claim otherwise — the stale credential is still in storage and
-    // will be replayed on the next call, which is the thing worth telling the operator.
+    // discarded, so do not claim otherwise — the stale credential is still in storage, which is
+    // the thing worth telling the operator.
     const action =
         provider.invalidateCredentials === undefined
             ? `retrying authorization without discarding the stored ${invalidated} (provider implements no invalidateCredentials())`
@@ -1079,6 +1079,14 @@ function warnCredentialInvalidation(provider: OAuthClientProvider, error: OAuthE
     // metadata, and both `code` and `message` are echoed from its response verbatim.
     console.warn(`[mcp-sdk] OAuth ${JSON.stringify(error.code)} — ${action}. Cause: ${JSON.stringify(error.message)}`);
 }
+
+/**
+ * The last refresh token each provider had rejected with `invalid_grant` or `invalid_dpop_proof`.
+ * `invalidateCredentials()` is optional, so a provider may keep returning a rejected token from
+ * `tokens()` until a new authorization saves a different one. Sending it again cannot succeed
+ * (RFC 6749 §5.2), so the refresh branch skips it, in the retry and in every later call.
+ */
+const rejectedRefreshTokens = new WeakMap<OAuthClientProvider, string>();
 
 /**
  * Orchestrates the full auth flow with a server.
@@ -1410,7 +1418,8 @@ async function authInternal(
     // `forceReauthorization` when the requested scope strictly exceeds the
     // current token's granted scope — refreshing would not widen it (RFC 6749
     // §6), so skip straight to a fresh authorization request.
-    if (tokens?.refresh_token && !forceReauthorization) {
+    const refreshTokenRejected = tokens?.refresh_token !== undefined && rejectedRefreshTokens.get(provider) === tokens.refresh_token;
+    if (tokens?.refresh_token && !forceReauthorization && !refreshTokenRejected) {
         const refreshScope = await provider.scopeForRefresh?.(tokens);
         let newTokens: OAuthTokens | undefined;
         try {
@@ -1431,6 +1440,12 @@ async function authInternal(
             // unexplained re-auth prompt.
             if (error instanceof InsecureTokenEndpointError) {
                 throw error;
+            }
+            if (
+                error instanceof OAuthError &&
+                (error.code === OAuthErrorCode.InvalidGrant || error.code === OAuthErrorCode.InvalidDpopProof)
+            ) {
+                rejectedRefreshTokens.set(provider, tokens.refresh_token);
             }
             // If this is a ServerError, or an unknown type, log it out and try to continue. Otherwise, escalate so we can fix things and retry.
             if (!(error instanceof OAuthError) || error.code === OAuthErrorCode.ServerError) {
