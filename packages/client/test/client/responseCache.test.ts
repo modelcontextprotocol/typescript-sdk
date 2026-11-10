@@ -1337,3 +1337,164 @@ describe('Client honours cacheHints (SEP-2549)', () => {
         expect(errors.map(e => e.message)).toContain('redis down');
     });
 });
+
+describe('asynchronous cache reads during invalidation', () => {
+    it.each(['resource', 'tool definition', 'output validator'] as const)('discards an invalidated pending %s lookup', async kind => {
+        const store = new InMemoryResponseCacheStore();
+        const cache = new ClientResponseCache(store, true);
+        const method = kind === 'resource' ? 'resources/read' : 'tools/list';
+        const params = kind === 'resource' ? 'res://a' : '';
+        store.set(
+            { method, params, partition: PRE },
+            {
+                value: JSON.stringify(kind === 'resource' ? { contents: [] } : { tools: [TOOL_A] }),
+                expiresAt: Date.now() + 60_000
+            }
+        );
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => {
+            release = resolve;
+        });
+        const get = store.get.bind(store);
+        (store as ResponseCacheStore).get = async key => {
+            const snapshot = get(key);
+            await gate;
+            return snapshot;
+        };
+        const pending =
+            kind === 'resource'
+                ? cache.read(method, params)
+                : kind === 'tool definition'
+                  ? cache.toolDefinition('a')
+                  : cache.outputValidator('a', tool => tool.name);
+        try {
+            if (kind === 'resource') await cache.evictKey(method, params);
+            else await cache.evict(method);
+        } finally {
+            release();
+        }
+        expect(await pending).toBeUndefined();
+    });
+
+    it.each([
+        { scope: 'private', invalidateTools: true },
+        { scope: 'public', invalidateTools: true },
+        { scope: 'private', invalidateTools: false },
+        { scope: 'public', invalidateTools: false }
+    ] as const)('pending $scope listTools cache hit with invalidateTools=$invalidateTools', async ({ scope, invalidateTools }) => {
+        const backing = new InMemoryResponseCacheStore();
+        let release!: () => void;
+        let started!: () => void;
+        const gate = new Promise<void>(resolve => {
+            release = resolve;
+        });
+        const reading = new Promise<void>(resolve => {
+            started = resolve;
+        });
+        let pause = false;
+        const store: ResponseCacheStore = {
+            get: async key => {
+                const snapshot = backing.get(key);
+                if (pause && key.method === 'tools/list' && snapshot !== undefined) {
+                    pause = false;
+                    started();
+                    await gate;
+                }
+                return snapshot;
+            },
+            set: (key, value) => backing.set(key, value),
+            delete: key => backing.delete(key),
+            evict: method => backing.evict(method),
+            clear: () => backing.clear()
+        };
+        const pages = [[TOOL_A]];
+        const { clientTx, serverTx, listCount } = await scriptedModernServer(pages, {
+            listHint: { ttlMs: 60_000, cacheScope: scope }
+        });
+        const client = new Client(
+            { name: 'cache-client', version: '1.0.0' },
+            {
+                versionNegotiation: { mode: { pin: MODERN } },
+                responseCacheStore: store,
+                cachePartition: 'alice'
+            }
+        );
+        try {
+            await client.connect(clientTx);
+            await client.listTools();
+            pause = true;
+            const pending = client.listTools();
+            await reading;
+            pages[0] = [TOOL_B];
+            await serverTx.send({
+                jsonrpc: '2.0',
+                method: invalidateTools ? 'notifications/tools/list_changed' : 'notifications/prompts/list_changed'
+            });
+            release();
+            expect((await pending).tools.map(tool => tool.name)).toEqual(invalidateTools ? ['b'] : ['a']);
+            expect(listCount()).toBe(invalidateTools ? 2 : 1);
+        } finally {
+            release();
+            await client.close();
+        }
+    });
+});
+
+describe('cache reads across reconnect', () => {
+    const cases = (['private', 'public'] as const).flatMap(scope =>
+        [false, true].flatMap(changeServer => [false, true].map(readBeforeRelease => ({ scope, changeServer, readBeforeRelease })))
+    );
+
+    it.each(cases)(
+        '$scope read is discarded on reset (changeServer=$changeServer, readBeforeRelease=$readBeforeRelease)',
+        async ({ scope, changeServer, readBeforeRelease }) => {
+            const store = new InMemoryResponseCacheStore();
+            const cache = new ClientResponseCache(store, true, undefined, 'alice');
+            const partition = (server: string) => JSON.stringify([server, scope === 'public' ? '' : 'alice']);
+            const entry = (tool: Tool) => ({
+                value: JSON.stringify({ tools: [tool] }),
+                expiresAt: Date.now() + 60_000,
+                scope
+            });
+            cache.setServerIdentity('old-server');
+            store.set({ method: 'tools/list', partition: partition('old-server') }, entry(TOOL_A));
+            const get = store.get.bind(store);
+            let release!: () => void;
+            let started!: () => void;
+            const gate = new Promise<void>(resolve => {
+                release = resolve;
+            });
+            const reading = new Promise<void>(resolve => {
+                started = resolve;
+            });
+            let pause = true;
+            (store as ResponseCacheStore).get = async key => {
+                const snapshot = get(key);
+                if (pause && snapshot !== undefined) {
+                    pause = false;
+                    started();
+                    await gate;
+                }
+                return snapshot;
+            };
+            const pending = cache.read('tools/list');
+            try {
+                await reading;
+                cache.resetForReconnect();
+                expect(get({ method: 'tools/list', partition: partition('old-server') })).toBeDefined();
+                const server = changeServer ? 'new-server' : 'old-server';
+                cache.setServerIdentity(server);
+                store.set({ method: 'tools/list', partition: partition(server) }, entry(TOOL_B));
+                if (readBeforeRelease) {
+                    expect(await cache.read('tools/list')).toEqual({ value: { tools: [TOOL_B] } });
+                }
+                release();
+                expect(await pending).toBeUndefined();
+                expect(await cache.read('tools/list')).toEqual({ value: { tools: [TOOL_B] } });
+            } finally {
+                release();
+                await pending;
+            }
+        }
+    );
+});
