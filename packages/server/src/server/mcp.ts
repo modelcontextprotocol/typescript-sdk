@@ -216,7 +216,7 @@ export class McpServer {
                     return;
                 }
 
-                const resource = this._registeredResources[uri.toString()];
+                const resource = this._registeredResources[resourceUri] ?? this._registeredResources[uri.toString()];
                 if (resource !== undefined) {
                     return resource.enabled ? resource.scopeChallenge?.(context) : undefined;
                 }
@@ -582,8 +582,8 @@ export class McpServer {
                 });
             }
 
-            // First check for exact resource match
-            const resource = this._registeredResources[uri.toString()];
+            // First check for a resource registered under the requested URI or its parsed form
+            const resource = this._registeredResources[request.params.uri] ?? this._registeredResources[uri.toString()];
             if (resource) {
                 if (!resource.enabled) {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource ${uri} disabled`);

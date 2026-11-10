@@ -95,6 +95,34 @@ describe('scope challenges for resources and prompts', () => {
         await transport.close();
     });
 
+    it('challenges a static resource read by a registered URI that new URL() serializes differently', async () => {
+        const server = new McpServer({ name: 'scope-primitives', version: '1.0.0' });
+        const read = vi.fn(async (uri: URL) => ({ contents: [{ uri: uri.href, text: 'secret' }] }));
+        server.registerResource('site', 'https://example.com', { scopeChallenge: requireScopes('site:read') }, read);
+        const { transport, sessionId } = await createHarness(server);
+
+        const response = await transport.handleRequest(request(readResource('https://example.com'), sessionId), {
+            authInfo: auth([])
+        });
+
+        expect(response.status).toBe(403);
+        expect(response.headers.get('WWW-Authenticate')).toContain('scope="site:read"');
+        expect(read).not.toHaveBeenCalled();
+        await transport.close();
+    });
+
+    it('resolves no challenge from a parsed-form twin when the exact registered URI is disabled', async () => {
+        const server = new McpServer({ name: 'scope-primitives', version: '1.0.0' });
+        const read = async (uri: URL) => ({ contents: [{ uri: uri.href, text: 'secret' }] });
+        server.registerResource('bare', 'https://example.com', {}, read).disable();
+        server.registerResource('slash', 'https://example.com/', { scopeChallenge: requireScopes('site:read') }, read);
+
+        expect(await server.resolveScopeChallenge({ request: readResource('https://example.com'), authInfo: auth([]) })).toBeUndefined();
+        expect(await server.resolveScopeChallenge({ request: readResource('https://example.com/'), authInfo: auth([]) })).toEqual({
+            scopes: ['site:read']
+        });
+    });
+
     it('routes a template resource request to its request-aware callback', async () => {
         const callback = vi.fn<ScopeChallengeHandler>(({ request: incoming, authInfo }) => {
             const uri = (incoming.params as { uri?: unknown }).uri;
