@@ -1,3 +1,5 @@
+import { timingSafeEqual } from 'node:crypto';
+
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/core-internal';
 import type { RequestHandler } from 'express';
 import * as z from 'zod/v4';
@@ -26,6 +28,19 @@ declare module 'express-serve-static-core' {
     }
 }
 
+/**
+ * Constant-time string comparison, to avoid leaking `client_secret` via a
+ * timing side channel. `timingSafeEqual` requires equal-length buffers, so a
+ * length mismatch is handled as an immediate non-match — this still leaks
+ * length, not content, the same tradeoff every constant-time-compare helper
+ * makes.
+ */
+function secretsMatch(a: string, b: string): boolean {
+    const aBuf = Buffer.from(a);
+    const bBuf = Buffer.from(b);
+    return aBuf.length === bBuf.length && timingSafeEqual(aBuf, bBuf);
+}
+
 export function authenticateClient({ clientsStore }: ClientAuthenticationMiddlewareOptions): RequestHandler {
     return async (req, res, next) => {
         try {
@@ -42,7 +57,7 @@ export function authenticateClient({ clientsStore }: ClientAuthenticationMiddlew
                 if (!client_secret) {
                     throw new InvalidClientError('Client secret is required');
                 }
-                if (client.client_secret !== client_secret) {
+                if (!secretsMatch(client.client_secret, client_secret)) {
                     throw new InvalidClientError('Invalid client_secret');
                 }
                 if (client.client_secret_expires_at && client.client_secret_expires_at < Math.floor(Date.now() / 1000)) {
