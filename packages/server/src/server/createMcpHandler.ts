@@ -198,6 +198,41 @@ export interface CreateMcpHandlerOptions {
      */
     maxSubscriptions?: number;
     /**
+     * Reject a new `subscriptions/listen` with `-32603` 'Subscription limit
+     * reached' (in-band, HTTP 200, before the ack) when this many subscription
+     * streams are already open under the same resolved session key (see
+     * {@linkcode getSessionId}). Enforced alongside the handler-wide
+     * {@linkcode maxSubscriptions} cap; whichever fires first wins and both
+     * return the same error. Requires {@linkcode getSessionId} to be
+     * configured. {@linkcode createMcpHandler} throws `TypeError` at
+     * construction otherwise, since without a resolver the SDK has no safe
+     * source for per-session attribution.
+     * @default no per-session cap
+     */
+    maxSubscriptionsPerSession?: number;
+    /**
+     * Resolver for the trusted session key used by
+     * {@linkcode maxSubscriptionsPerSession} to attribute a
+     * `subscriptions/listen` stream to a session bucket. Required when
+     * `maxSubscriptionsPerSession` is configured, ignored otherwise.
+     *
+     * Receives the pass-through {@linkcode McpHandlerRequestOptions} (whose
+     * `authInfo` reflects what trusted middleware established) and the inbound
+     * `Request`; returns the session key when identity is established,
+     * `undefined` when it is not. The SDK does **not** authenticate the
+     * returned value: it is used only as a bucketing key for the per-session
+     * cap, so the deployment must derive it from a trusted source (for
+     * example `authInfo.extra`), never from an unvalidated inbound header
+     * forwarded as-is.
+     *
+     * **Fail-closed contract:** when this resolver returns `undefined` for a
+     * listen request, the stream is refused pre-ack with
+     * `-32603 'Subscription limit reached'` rather than silently falling back
+     * to the handler-wide cap. A misconfigured deployment therefore cannot
+     * accidentally appear to be enforcing isolation that was never applied.
+     */
+    getSessionId?: (options: McpHandlerRequestOptions, request: Request) => string | undefined;
+    /**
      * SSE comment-frame keepalive interval for every SSE stream this handler
      * serves. In modern `auto` mode it starts after SSE upgrade. Set to `0` to disable.
      * @default 15000
@@ -693,6 +728,17 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         );
     }
 
+    // Fail-closed configuration guard: per-session attribution has no safe
+    // default source. If the cap is set without a resolver, there is no honest
+    // way to bucket a listen request. Reading `Mcp-Session-Id` off raw headers
+    // would claim isolation the SDK cannot vouch for. Reject at construction.
+    if (options.maxSubscriptionsPerSession !== undefined && options.getSessionId === undefined) {
+        throw new TypeError(
+            "The 'maxSubscriptionsPerSession' option requires a 'getSessionId' resolver to supply the trusted session key. " +
+                'Without a resolver the SDK has no safe source for per-session attribution. The entry does not authenticate inbound headers.'
+        );
+    }
+
     /** Modern per-request instances with an exchange still in flight (close() tears these down). */
     const inflight = new Set<Server>();
     let closed = false;
@@ -710,6 +756,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     const listenRouter = createListenRouter({
         bus,
         maxSubscriptions: options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS,
+        ...(options.maxSubscriptionsPerSession !== undefined && { maxSubscriptionsPerSession: options.maxSubscriptionsPerSession }),
         keepAliveMs: options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS,
         onerror: reportError
     });
@@ -726,7 +773,12 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     const legacyHandler: LegacyHttpHandler | undefined =
         legacy === 'reject' ? undefined : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs, maxRequestBodySize);
 
-    async function serveModern(route: InboundModernRoute, request: Request, authInfo: AuthInfo | undefined): Promise<Response> {
+    async function serveModern(
+        route: InboundModernRoute,
+        request: Request,
+        requestOptions: McpHandlerRequestOptions | undefined,
+        authInfo: AuthInfo | undefined
+    ): Promise<Response> {
         const claimedRevision = route.classification.revision;
         if (claimedRevision === undefined || !SUPPORTED_MODERN_PROTOCOL_VERSIONS.includes(claimedRevision)) {
             // The claim names a revision this endpoint does not serve (an
@@ -811,7 +863,18 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             const capabilities = server.getCapabilities();
             const serverInfo = serverIdentityOf(server);
             void product.close().catch(reportError);
-            return listenRouter.serve(route.message, request.signal, capabilities, serverInfo);
+            // Resolve the per-session bucketing key through the caller-supplied
+            // getSessionId only when the per-session cap is actually configured.
+            // The resolver is documented as ignored otherwise, so skipping it
+            // avoids a user-supplied throw turning an otherwise valid listen
+            // into a 500. Deployments decide the trust source for identity
+            // (typically a field stamped onto authInfo by their auth
+            // middleware); the SDK never derives the key from request headers
+            // directly. Construction already rejected the "cap configured but
+            // resolver missing" misconfiguration.
+            const sessionId =
+                options.maxSubscriptionsPerSession === undefined ? undefined : options.getSessionId?.(requestOptions ?? {}, request);
+            return listenRouter.serve(route.message, request.signal, capabilities, serverInfo, sessionId);
         }
 
         // SEP-2243 `Mcp-Param-*` server-side validation (pre-dispatch ladder
@@ -984,7 +1047,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                     return rejectionResponse(outcome, echoableRequestId(body));
                 }
                 case 'modern': {
-                    return await serveModern(outcome, request, authInfo);
+                    return await serveModern(outcome, request, requestOptions, authInfo);
                 }
                 case 'legacy': {
                     return await serveLegacyRoute(outcome, forwardRequest, authInfo, parsedBody);

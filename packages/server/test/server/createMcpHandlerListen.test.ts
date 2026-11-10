@@ -26,15 +26,17 @@ const ENVELOPE = {
     [CLIENT_CAPABILITIES_META_KEY]: {}
 };
 
-function listenRequest(id: string | number, filter: Record<string, unknown>): Request {
+function listenRequest(id: string | number, filter: Record<string, unknown>, sessionId?: string): Request {
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        'mcp-protocol-version': MODERN_REVISION,
+        'mcp-method': 'subscriptions/listen'
+    };
+    if (sessionId !== undefined) headers['mcp-session-id'] = sessionId;
     return new Request('http://localhost/mcp', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json, text/event-stream',
-            'mcp-protocol-version': MODERN_REVISION,
-            'mcp-method': 'subscriptions/listen'
-        },
+        headers,
         body: JSON.stringify({
             jsonrpc: '2.0',
             id,
@@ -203,6 +205,156 @@ describe('createMcpHandler — subscriptions/listen', () => {
         expect(body.error.message).toBe('Subscription limit reached');
         expect(body.id).toBe(2);
         await first.body!.cancel();
+        await handler.close();
+    });
+
+    it('enforces maxSubscriptionsPerSession per resolved session key, independently of other sessions', async () => {
+        // Per-session cap: two sessions, cap of 1 each. Each session's second
+        // listen is refused with -32603; the other session is unaffected. The
+        // test resolver reads from the mcp-session-id header for shape, which
+        // is the deployment's trust choice. The SDK itself does not consult
+        // request headers.
+        const handler = createMcpHandler(trivialFactory(), {
+            keepAliveMs: 0,
+            maxSubscriptions: 1024,
+            maxSubscriptionsPerSession: 1,
+            getSessionId: (_opts, req) => req.headers.get('mcp-session-id') ?? undefined
+        });
+        const sessionA = 'session-a';
+        const sessionB = 'session-b';
+
+        const aFirst = await handler.fetch(listenRequest(1, { toolsListChanged: true }, sessionA));
+        expect(aFirst.headers.get('Content-Type')).toBe('text/event-stream');
+
+        const aSecond = await handler.fetch(listenRequest(2, { toolsListChanged: true }, sessionA));
+        expect(aSecond.headers.get('Content-Type')).toContain('application/json');
+        const aBody = (await aSecond.json()) as { error: { code: number; message: string }; id: unknown };
+        expect(aBody.error.code).toBe(-32_603);
+        expect(aBody.error.message).toBe('Subscription limit reached');
+        expect(aBody.id).toBe(2);
+
+        // Session B still has capacity even though session A is full.
+        const bFirst = await handler.fetch(listenRequest(3, { toolsListChanged: true }, sessionB));
+        expect(bFirst.headers.get('Content-Type')).toBe('text/event-stream');
+
+        // Session B now also at its cap.
+        const bSecond = await handler.fetch(listenRequest(4, { toolsListChanged: true }, sessionB));
+        const bBody = (await bSecond.json()) as { error: { code: number; message: string }; id: unknown };
+        expect(bBody.error.code).toBe(-32_603);
+        expect(bBody.id).toBe(4);
+
+        await aFirst.body!.cancel();
+        await bFirst.body!.cancel();
+        await handler.close();
+    });
+
+    it('handler-wide maxSubscriptions still fires across sessions even when per-session cap has room', async () => {
+        // Three sessions, each well under a generous per-session cap, but the
+        // handler-wide cap of 2 fires on the third open regardless of session.
+        const handler = createMcpHandler(trivialFactory(), {
+            keepAliveMs: 0,
+            maxSubscriptions: 2,
+            maxSubscriptionsPerSession: 10,
+            getSessionId: (_opts, req) => req.headers.get('mcp-session-id') ?? undefined
+        });
+
+        const one = await handler.fetch(listenRequest(1, { toolsListChanged: true }, 'session-a'));
+        expect(one.headers.get('Content-Type')).toBe('text/event-stream');
+        const two = await handler.fetch(listenRequest(2, { toolsListChanged: true }, 'session-b'));
+        expect(two.headers.get('Content-Type')).toBe('text/event-stream');
+
+        const three = await handler.fetch(listenRequest(3, { toolsListChanged: true }, 'session-c'));
+        expect(three.headers.get('Content-Type')).toContain('application/json');
+        const body = (await three.json()) as { error: { code: number; message: string }; id: unknown };
+        expect(body.error.code).toBe(-32_603);
+        expect(body.error.message).toBe('Subscription limit reached');
+        expect(body.id).toBe(3);
+
+        await one.body!.cancel();
+        await two.body!.cancel();
+        await handler.close();
+    });
+
+    it('throws TypeError at construction when maxSubscriptionsPerSession is set without getSessionId', () => {
+        // Fail-closed configuration: per-session attribution has no safe
+        // default source. The entry refuses to construct a handler that would
+        // appear to enforce per-session isolation without a trusted resolver.
+        expect(() => createMcpHandler(trivialFactory(), { maxSubscriptionsPerSession: 1 })).toThrow(TypeError);
+    });
+
+    it('refuses pre-ack with -32603 when getSessionId returns undefined for a configured per-session cap', async () => {
+        // Fail-closed runtime contract: the resolver signaled it cannot
+        // attribute this listen (no trusted identity available), so the SDK
+        // refuses rather than silently applying only the handler-wide cap and
+        // misreporting the guarantee.
+        const handler = createMcpHandler(trivialFactory(), {
+            keepAliveMs: 0,
+            maxSubscriptionsPerSession: 1,
+            getSessionId: () => undefined
+        });
+        const response = await handler.fetch(listenRequest(1, { toolsListChanged: true }, 'session-a'));
+        expect(response.headers.get('Content-Type')).toContain('application/json');
+        const body = (await response.json()) as { error: { code: number; message: string }; id: unknown };
+        expect(body.error.code).toBe(-32_603);
+        expect(body.error.message).toBe('Subscription limit reached');
+        expect(body.id).toBe(1);
+        await handler.close();
+    });
+
+    it('releases a per-session slot when the client cancels the listen stream', async () => {
+        // Slot accounting on cancel: the client drops the SSE stream, teardown
+        // decrements both the handler-wide and per-session buckets, and a
+        // subsequent listen on the same session is accepted.
+        const handler = createMcpHandler(trivialFactory(), {
+            keepAliveMs: 0,
+            maxSubscriptionsPerSession: 1,
+            getSessionId: (_opts, req) => req.headers.get('mcp-session-id') ?? undefined
+        });
+
+        const first = await handler.fetch(listenRequest(1, { toolsListChanged: true }, 'session-a'));
+        expect(first.headers.get('Content-Type')).toBe('text/event-stream');
+        await first.body!.cancel();
+
+        const second = await handler.fetch(listenRequest(2, { toolsListChanged: true }, 'session-a'));
+        expect(second.headers.get('Content-Type')).toBe('text/event-stream');
+        await second.body!.cancel();
+        await handler.close();
+    });
+
+    it('does not consume a per-session slot for a listen whose honored filter narrows to empty', async () => {
+        // Empty-honored listen (server declares no capabilities): the stream
+        // acks and immediately completes, never adding the teardown to the
+        // open set. A subsequent listen on the same session must still be
+        // accepted under a cap of 1.
+        const bareFactory = () => new McpServer({ name: 'listen-test-server', version: '1.0.0' }, { capabilities: {} });
+        const handler = createMcpHandler(bareFactory, {
+            keepAliveMs: 0,
+            maxSubscriptionsPerSession: 1,
+            getSessionId: (_opts, req) => req.headers.get('mcp-session-id') ?? undefined
+        });
+
+        const emptyListen = await handler.fetch(listenRequest(1, { toolsListChanged: true }, 'session-a'));
+        // Drain to the server-side graceful close so the auto-completion runs.
+        await emptyListen.text();
+
+        const second = await handler.fetch(listenRequest(2, { toolsListChanged: true }, 'session-a'));
+        expect(second.headers.get('Content-Type')).toBe('text/event-stream');
+        await second.body!.cancel();
+        await handler.close();
+    });
+
+    it('ignores getSessionId when maxSubscriptionsPerSession is unset, even if it would throw', async () => {
+        // The resolver is documented as ignored without the per-session cap.
+        // Verify it is not invoked, so a user-supplied throw cannot turn a
+        // legitimate listen into a 500 when the cap is off.
+        const getSessionId = vi.fn(() => {
+            throw new Error('resolver should not be called when maxSubscriptionsPerSession is unset');
+        });
+        const handler = createMcpHandler(trivialFactory(), { keepAliveMs: 0, getSessionId });
+        const response = await handler.fetch(listenRequest(1, { toolsListChanged: true }, 'session-a'));
+        expect(response.headers.get('Content-Type')).toBe('text/event-stream');
+        expect(getSessionId).not.toHaveBeenCalled();
+        await response.body!.cancel();
         await handler.close();
     });
 
