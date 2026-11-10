@@ -185,13 +185,40 @@ describe('body-primary era predicate', () => {
         expect(classifyInboundRequest({ httpMethod: 'DELETE' })).toMatchObject({ kind: 'legacy', reason: 'http-method' });
     });
 
-    test('a claim naming a legacy revision keeps the named revision on the classification', () => {
-        // The envelope mechanism naming a pre-2026 revision is carried as-is;
-        // the serving instance answers it through the protocol-version
-        // mismatch handoff rather than being silently re-routed.
+    test('a claim naming a legacy revision routes legacy, keeping the named revision as requestedVersion', () => {
+        // The envelope mechanism naming a pre-2026 revision classifies into
+        // the era the named revision belongs to: the request is legacy-era
+        // traffic served exactly as it would be without the claim, with the
+        // claimed revision kept as requestedVersion so a modern-only endpoint
+        // still answers it through the protocol-version mismatch handoff.
         const meta = { ...ENVELOPE, [PROTOCOL_VERSION_META_KEY]: '2025-06-18' };
         const outcome = classifyInboundRequest(post(modernToolsCall(meta)));
-        expect(outcome).toMatchObject({ kind: 'modern', classification: { era: 'legacy', revision: '2025-06-18' } });
+        expect(outcome).toMatchObject({ kind: 'legacy', reason: 'no-claim', requestedVersion: '2025-06-18' });
+    });
+
+    test('a claim naming a legacy revision is not validated against the modern envelope schema', () => {
+        // Only the version key in `_meta`: still a legacy route, never the
+        // modern envelope's missing-key rejection.
+        const body = {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/list',
+            params: { _meta: { [PROTOCOL_VERSION_META_KEY]: '2025-06-18' } }
+        };
+        const outcome = classifyInboundRequest(post(body, { protocolVersion: '2025-06-18' }));
+        expect(outcome).toMatchObject({ kind: 'legacy', reason: 'no-claim', requestedVersion: '2025-06-18' });
+    });
+
+    test('a legacy claim with a disagreeing protocol-version header is still a mismatch outcome', () => {
+        const meta = { ...ENVELOPE, [PROTOCOL_VERSION_META_KEY]: '2025-06-18' };
+        const outcome = classifyInboundRequest(post(modernToolsCall(meta), { protocolVersion: '2025-11-25' }));
+        expectMismatch(outcome, 'header-body-version-mismatch');
+    });
+
+    test('a notification whose claim names a legacy revision routes legacy', () => {
+        const meta = { [PROTOCOL_VERSION_META_KEY]: '2025-06-18' };
+        const outcome = classifyInboundRequest(post(notification('notifications/cancelled', meta), { protocolVersion: '2025-06-18' }));
+        expect(outcome).toMatchObject({ kind: 'legacy', reason: 'notification', requestedVersion: '2025-06-18' });
     });
 
     test('a claim with a malformed envelope is rejected, never silently treated as legacy', () => {
@@ -385,6 +412,25 @@ describe('element-wise batch classification', () => {
 
     test('an array containing a modern-claiming element is rejected', () => {
         const outcome = classifyInboundRequest(post([legacyToolsList(), modernToolsCall()]));
+        expect(outcome).toMatchObject({ kind: 'reject', cell: 'batch-with-modern-element', code: -32_600, httpStatus: 400, settled: true });
+    });
+
+    test('an array containing an element whose claim names a legacy revision stays legacy traffic', () => {
+        const legacyClaiming = {
+            jsonrpc: '2.0',
+            id: 3,
+            method: 'tools/list',
+            params: { _meta: { [PROTOCOL_VERSION_META_KEY]: '2025-06-18' } }
+        };
+        const outcome = classifyInboundRequest(post([legacyToolsList(), legacyClaiming]));
+        expect(outcome).toMatchObject({ kind: 'legacy', reason: 'batch' });
+    });
+
+    test('an array containing an element with a malformed claim is rejected', () => {
+        // The claim key is present but not a string: the era cannot be
+        // established, so the element is never served silently.
+        const malformedClaiming = { jsonrpc: '2.0', id: 4, method: 'tools/list', params: { _meta: { [PROTOCOL_VERSION_META_KEY]: 42 } } };
+        const outcome = classifyInboundRequest(post([legacyToolsList(), malformedClaiming]));
         expect(outcome).toMatchObject({ kind: 'reject', cell: 'batch-with-modern-element', code: -32_600, httpStatus: 400, settled: true });
     });
 
