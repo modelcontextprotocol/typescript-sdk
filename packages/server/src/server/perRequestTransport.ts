@@ -52,6 +52,7 @@ import {
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
+    isNoHandlerResponse,
     LADDER_ERROR_HTTP_STATUS,
     ProtocolErrorCode,
     SdkError,
@@ -296,7 +297,10 @@ export class PerRequestHTTPServerTransport implements Transport {
             // response mode.
             const errorCode = isJSONRPCErrorResponse(message) ? message.error.code : undefined;
             const ladderStatus =
-                errorCode !== undefined && (this._dispatchWindowOpen || errorCode === ProtocolErrorCode.MissingRequiredClientCapability)
+                errorCode !== undefined &&
+                (this._dispatchWindowOpen ||
+                    errorCode === ProtocolErrorCode.MissingRequiredClientCapability ||
+                    isNoHandlerResponse(message))
                     ? LADDER_ERROR_HTTP_STATUS[errorCode]
                     : undefined;
             if (ladderStatus !== undefined && this._sse === undefined) {
