@@ -21,8 +21,11 @@ describe('AUTH_SCHEMA_NAMES (codemod auth schema-routing allowlist)', () => {
 
         const notExportedByCore = [...AUTH_SCHEMA_NAMES].filter(name => !coreAuthExports.has(name));
         expect(notExportedByCore).toEqual([]);
-        // The v1 auth-schema set is frozen; pin its size so an accidental add/remove is caught.
-        expect(AUTH_SCHEMA_NAMES.size).toBe(11);
+        // Pin the v1 auth-schema set's size so an accidental add/remove is caught. 12 = the 11
+        // original v1 exports plus OAuthTokenResponseSchema (the null-tolerant token-response
+        // wrapper, public in v1 and exported from core's barrel).
+        expect(AUTH_SCHEMA_NAMES.size).toBe(12);
+        expect(AUTH_SCHEMA_NAMES.has('OAuthTokenResponseSchema')).toBe(true);
     });
 
     it('keeps the no-v2-home auth schemas OUT of the routing allowlist', () => {
