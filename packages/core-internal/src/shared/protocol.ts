@@ -530,12 +530,12 @@ export type ClientContext = BaseContext;
  * Information about a request's timeout state
  */
 type TimeoutInfo = {
-    timeoutId: ReturnType<typeof setTimeout>;
+    timeoutId?: ReturnType<typeof setTimeout>;
     startTime: number;
     timeout: number;
     maxTotalTimeout?: number;
     resetTimeoutOnProgress: boolean;
-    onTimeout: () => void;
+    onTimeout: (reason: 'timeout' | 'maxTotalTimeout', elapsed: number) => void;
 };
 
 /*
@@ -771,17 +771,33 @@ export abstract class Protocol<ContextT extends BaseContext> {
         messageId: number,
         timeout: number,
         maxTotalTimeout: number | undefined,
-        onTimeout: () => void,
+        onTimeout: (reason: 'timeout' | 'maxTotalTimeout', elapsed: number) => void,
         resetTimeoutOnProgress: boolean = false
     ) {
-        this._timeoutInfo.set(messageId, {
-            timeoutId: setTimeout(onTimeout, timeout),
+        const info: TimeoutInfo = {
             startTime: Date.now(),
             timeout,
             maxTotalTimeout,
             resetTimeoutOnProgress,
             onTimeout
-        });
+        };
+        this._armTimeout(info);
+        this._timeoutInfo.set(messageId, info);
+    }
+
+    /**
+     * Arms the pending timer with whichever budget runs out first: the
+     * per-request `timeout`, or what is left of the `maxTotalTimeout` cap.
+     */
+    private _armTimeout(info: TimeoutInfo) {
+        const elapsed = Date.now() - info.startTime;
+        const remainingTotal = info.maxTotalTimeout === undefined ? Number.POSITIVE_INFINITY : info.maxTotalTimeout - elapsed;
+        const delay = Math.max(0, Math.min(info.timeout, remainingTotal));
+        info.timeoutId = setTimeout(() => {
+            const firedAt = Date.now() - info.startTime;
+            const reason = info.maxTotalTimeout !== undefined && firedAt >= info.maxTotalTimeout ? 'maxTotalTimeout' : 'timeout';
+            info.onTimeout(reason, firedAt);
+        }, delay);
     }
 
     private _resetTimeout(messageId: number): boolean {
@@ -798,7 +814,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         }
 
         clearTimeout(info.timeoutId);
-        info.timeoutId = setTimeout(info.onTimeout, info.timeout);
+        this._armTimeout(info);
         return true;
     }
 
@@ -1657,7 +1673,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
             options?.signal?.addEventListener('abort', onAbort, { once: true });
 
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
-            const timeoutHandler = () => cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }), 'timeout');
+            const timeoutHandler = (reason: 'timeout' | 'maxTotalTimeout', elapsed: number) =>
+                reason === 'maxTotalTimeout'
+                    ? cancel(
+                          new SdkError(SdkErrorCode.RequestTimeout, 'Maximum total timeout exceeded', {
+                              maxTotalTimeout: options?.maxTotalTimeout,
+                              totalElapsed: elapsed
+                          }),
+                          'timeout'
+                      )
+                    : cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }), 'timeout');
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
