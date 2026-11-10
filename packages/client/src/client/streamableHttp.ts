@@ -868,7 +868,7 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
                 // Handle stream errors - likely a network disconnect
-                this.onerror?.(new Error(`SSE stream disconnected: ${error}`));
+                this.onerror?.(new Error(`SSE stream disconnected: ${error}`, { cause: error }));
 
                 // Attempt to reconnect if the stream disconnects unexpectedly and we aren't closing
                 // Reconnect if: already reconnectable (GET stream) OR received a priming event (POST stream with event ID)
