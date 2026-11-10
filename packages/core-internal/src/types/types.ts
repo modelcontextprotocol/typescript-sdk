@@ -4,17 +4,7 @@
 
 import type * as z from 'zod/v4';
 
-import type {
-    CLIENT_CAPABILITIES_META_KEY,
-    CLIENT_INFO_META_KEY,
-    INTERNAL_ERROR,
-    INVALID_PARAMS,
-    INVALID_REQUEST,
-    LOG_LEVEL_META_KEY,
-    METHOD_NOT_FOUND,
-    PARSE_ERROR,
-    PROTOCOL_VERSION_META_KEY
-} from './constants';
+import type { INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR } from './constants';
 import type {
     AnnotationsSchema,
     AudioContentSchema,
@@ -240,20 +230,22 @@ export type NotificationParams = Infer<typeof NotificationsParamsSchema>;
  * The per-request `_meta` envelope carried by every request under protocol revision
  * 2026-07-28 (protocol version, client info, client capabilities, optional log level).
  *
- * Neutral hand-written shape keyed by the public meta-key constants — never
- * inferred from a wire-module schema (this neutral layer does not import from
+ * Neutral hand-written shape whose keys are the public meta-key constant
+ * values, written as string literals so the tsdown declaration bundler
+ * cannot drop them (it published this type as `{}` in 2.4.0). Never inferred
+ * from a wire-module schema (this neutral layer does not import from
  * `wire/rev*`). A `type` alias rather than an interface so it stays assignable
  * to `_meta`'s string-indexed object slot.
  */
 export type RequestMetaEnvelope = {
-    [PROTOCOL_VERSION_META_KEY]: string;
+    'io.modelcontextprotocol/protocolVersion': string;
     /**
      * Optional since spec PR #3002: clients SHOULD send it, servers must not
      * require it (and should not rely on it for behavior or security).
      */
-    [CLIENT_INFO_META_KEY]?: Implementation;
-    [CLIENT_CAPABILITIES_META_KEY]: ClientCapabilities;
-    [LOG_LEVEL_META_KEY]?: LoggingLevel;
+    'io.modelcontextprotocol/clientInfo'?: Implementation;
+    'io.modelcontextprotocol/clientCapabilities': ClientCapabilities;
+    'io.modelcontextprotocol/logLevel'?: LoggingLevel;
 };
 
 /* Empty result */
