@@ -311,4 +311,153 @@ describe('UriTemplate', () => {
             expect(elapsed).toBeLessThan(100);
         });
     });
+
+    describe('RFC 6570 prefix modifier', () => {
+        it('should report variableNames without the prefix modifier', () => {
+            const template = new UriTemplate('resource:///{name:3}');
+            expect(template.variableNames).toEqual(['name']);
+        });
+
+        it('should truncate scalar values to prefix length for simple string expansion', () => {
+            const template = new UriTemplate('{name:3}');
+            expect(template.expand({ name: 'abcdef' })).toBe('abc');
+            expect(template.variableNames).toEqual(['name']);
+        });
+
+        it('should expand prefix in URI path context', () => {
+            const template = new UriTemplate('resource:///{name:3}');
+            expect(template.expand({ name: 'abcdef' })).toBe('resource:///abc');
+        });
+
+        it('should apply prefix to Unicode code points before percent-encoding', () => {
+            const template = new UriTemplate('{name:2}');
+            expect(template.expand({ name: '你好世界' })).toBe(encodeURIComponent('你好'));
+        });
+
+        it('should handle supplementary Unicode characters (surrogate pairs)', () => {
+            const template = new UriTemplate('{emoji:2}');
+            expect(template.expand({ emoji: '👋🌍🎉' })).toBe(encodeURIComponent('👋🌍'));
+        });
+
+        it('should use the entire string when prefix is longer than value', () => {
+            const template = new UriTemplate('{name:30}');
+            expect(template.expand({ name: 'abcdef' })).toBe('abcdef');
+        });
+
+        it('should return empty string when variable is missing', () => {
+            const template = new UriTemplate('{name:3}');
+            expect(template.expand({})).toBe('');
+        });
+
+        it('should support prefix modifiers with reserved expansion (+ operator)', () => {
+            const template = new UriTemplate('{+path:4}/here');
+            expect(template.expand({ path: '/foo/bar' })).toBe('/foo/here');
+            expect(template.variableNames).toEqual(['path']);
+        });
+
+        it('should support prefix modifiers with fragment operator (#)', () => {
+            const template = new UriTemplate('X{#var:2}');
+            expect(template.expand({ var: '/test' })).toBe('X#/t');
+            expect(template.variableNames).toEqual(['var']);
+        });
+
+        it('should support prefix modifiers with label operator (.)', () => {
+            const template = new UriTemplate('X{.var:2}');
+            expect(template.expand({ var: 'test' })).toBe('X.te');
+            expect(template.variableNames).toEqual(['var']);
+        });
+
+        it('should support prefix modifiers with path operator (/)', () => {
+            const template = new UriTemplate('X{/var:2}');
+            expect(template.expand({ var: 'test' })).toBe('X/te');
+            expect(template.variableNames).toEqual(['var']);
+        });
+
+        it('should support prefix modifiers with query operator (?)', () => {
+            const template = new UriTemplate('X{?var:2}');
+            expect(template.expand({ var: 'test' })).toBe('X?var=te');
+            expect(template.variableNames).toEqual(['var']);
+        });
+
+        it('should support prefix modifiers with form continuation operator (&)', () => {
+            const template = new UriTemplate('X{&var:2}');
+            expect(template.expand({ var: 'test' })).toBe('X&var=te');
+            expect(template.variableNames).toEqual(['var']);
+        });
+
+        it('should ignore prefix modifier on composite (array) values per RFC 6570', () => {
+            const template = new UriTemplate('{list:2}');
+            expect(template.expand({ list: ['red', 'green'] })).toBe('red,green');
+            expect(template.variableNames).toEqual(['list']);
+        });
+
+        it('should handle multiple variables with prefix modifiers and encode values', () => {
+            const template = new UriTemplate('{x,y:2}');
+            expect(template.expand({ x: '1024', y: 'é ü' })).toBe('1024,%C3%A9%20');
+            expect(template.variableNames).toEqual(['x', 'y']);
+        });
+
+        it('should join multiple variables using the operator separator', () => {
+            const pathTemplate = new UriTemplate('{/x,y}');
+            expect(pathTemplate.expand({ x: '1024', y: '768' })).toBe('/1024/768');
+
+            const labelTemplate = new UriTemplate('{.x,y}');
+            expect(labelTemplate.expand({ x: '1024', y: '768' })).toBe('.1024.768');
+
+            const fragTemplate = new UriTemplate('{#x,y}');
+            expect(fragTemplate.expand({ x: '1024', y: '768' })).toBe('#1024,768');
+
+            const partialTemplate = new UriTemplate('{/x,y}');
+            expect(partialTemplate.expand({ x: '1024' })).toBe('/1024');
+        });
+
+        it('should match URIs and extract variables for templates with prefix modifiers', () => {
+            const template = new UriTemplate('resource:///{name:3}');
+            expect(template.match('resource:///abc')).toEqual({ name: 'abc' });
+        });
+
+        it('pins that match() extracts the segment value without enforcing prefix truncation', () => {
+            const template = new UriTemplate('/users/{id:3}');
+            // Prefix modifiers apply during expansion (RFC 6570); match() extracts the matched segment
+            expect(template.match('/users/abc')).toEqual({ id: 'abc' });
+            expect(template.match('/users/abcdef')).toEqual({ id: 'abcdef' });
+        });
+
+        it('should match query parameters for templates with prefix modifiers', () => {
+            const template = new UriTemplate('/search{?q:5}');
+            expect(template.match('/search?q=hello')).toEqual({ q: 'hello' });
+        });
+
+        describe('malformed and combined modifier boundary cases', () => {
+            it('should not resolve prefix of :0 and preserve unresolved behavior', () => {
+                const template = new UriTemplate('{name:0}');
+                expect(template.variableNames).toEqual(['name:0']);
+                expect(template.expand({ name: 'abcdef' })).toBe('');
+            });
+
+            it('should not resolve prefix with five or more digits and preserve unresolved behavior', () => {
+                const template = new UriTemplate('{name:10000}');
+                expect(template.variableNames).toEqual(['name:10000']);
+                expect(template.expand({ name: 'abcdef' })).toBe('');
+            });
+
+            it('should not resolve non-digit prefix and preserve unresolved behavior', () => {
+                const template = new UriTemplate('{name:abc}');
+                expect(template.variableNames).toEqual(['name:abc']);
+                expect(template.expand({ name: 'abcdef' })).toBe('');
+            });
+
+            it('should reject combined prefix and explode modifiers :N* and preserve unresolved behavior', () => {
+                const template = new UriTemplate('{name:3*}');
+                expect(template.variableNames).toEqual(['name:3']);
+                expect(template.expand({ name: 'abcdef' })).toBe('');
+            });
+
+            it('should accept valid upper boundary prefix length (up to 4 digits, e.g. 9999)', () => {
+                const template = new UriTemplate('{name:9999}');
+                expect(template.variableNames).toEqual(['name']);
+                expect(template.expand({ name: 'abcdef' })).toBe('abcdef');
+            });
+        });
+    });
 });
