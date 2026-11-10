@@ -584,6 +584,16 @@ export class UnauthorizedError extends Error {
 }
 
 /**
+ * Reads RFC 9207's `authorization_response_iss_parameter_supported` from
+ * authorization-server metadata. Only a literal `true` counts as advertised;
+ * absent, `false`, or a non-boolean wire value (coerced to `undefined` by the
+ * schema) means not advertised.
+ */
+function isIssParameterSupported(metadata: AuthorizationServerMetadata | undefined): boolean {
+    return metadata?.authorization_response_iss_parameter_supported === true;
+}
+
+/**
  * Validates the `iss` parameter from an authorization response against the
  * issuer recorded from the authorization server's validated metadata, per
  * RFC 9207 §2.4 and the MCP specification's four-row decision table.
@@ -604,16 +614,6 @@ export class UnauthorizedError extends Error {
  *
  * @throws {IssuerMismatchError} with `kind: 'authorization_response'`
  */
-/**
- * Reads RFC 9207's `authorization_response_iss_parameter_supported` from
- * authorization-server metadata. Only a literal `true` counts as advertised;
- * absent, `false`, or a non-boolean wire value (coerced to `undefined` by the
- * schema) means not advertised.
- */
-function isIssParameterSupported(metadata: AuthorizationServerMetadata | undefined): boolean {
-    return metadata?.authorization_response_iss_parameter_supported === true;
-}
-
 export function validateAuthorizationResponseIssuer({
     iss,
     expectedIssuer,
