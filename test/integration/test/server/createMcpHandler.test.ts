@@ -22,6 +22,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
 const MODERN = '2026-07-28';
+type ServerFactory = (ctx: McpRequestContext) => McpServer;
 
 describe('createMcpHandler over HTTP (legacy postures end to end)', () => {
     const cleanups: Array<() => Promise<void> | void> = [];
@@ -31,7 +32,7 @@ describe('createMcpHandler over HTTP (legacy postures end to end)', () => {
 
     // One factory for both legs: the era only shows up in the tool output so the
     // tests can see which leg served the call.
-    const factory = (ctx: McpRequestContext) => {
+    const factory: ServerFactory = (ctx: McpRequestContext) => {
         const mcpServer = new McpServer(
             { name: 'dual-era-endpoint', version: '1.0.0' },
             { capabilities: { tools: {} }, instructions: 'dual era endpoint' }
@@ -42,8 +43,11 @@ describe('createMcpHandler over HTTP (legacy postures end to end)', () => {
         return mcpServer;
     };
 
-    async function startEndpoint(options?: CreateMcpHandlerOptions): Promise<{ baseUrl: URL; handler: McpHttpHandler }> {
-        const handler = createMcpHandler(factory, options);
+    async function startEndpoint(
+        options?: CreateMcpHandlerOptions,
+        serverFactory: ServerFactory = factory
+    ): Promise<{ baseUrl: URL; handler: McpHttpHandler }> {
+        const handler = createMcpHandler(serverFactory, options);
         const httpServer: HttpServer = createServer(toNodeHandler(handler));
         const baseUrl = await listenOnRandomPort(httpServer);
         cleanups.push(async () => {
@@ -112,6 +116,54 @@ describe('createMcpHandler over HTTP (legacy postures end to end)', () => {
         expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
         expect(bodies.some(body => body.includes('"initialize"'))).toBe(false);
         expect(bodies[0]).toContain('server/discover');
+    });
+
+    it('preserves non-object tool output schemas and structured content for modern clients', async () => {
+        const { baseUrl } = await startEndpoint(undefined, () => {
+            const mcpServer = new McpServer({ name: 'non-object-output', version: '1.0.0' }, { capabilities: { tools: {} } });
+            mcpServer.registerTool(
+                'string-output',
+                {
+                    outputSchema: z.string()
+                },
+                () => ({
+                    structuredContent: 'pong'
+                })
+            );
+            mcpServer.registerTool(
+                'array-output',
+                {
+                    outputSchema: z.array(z.string())
+                },
+                () => ({
+                    structuredContent: ['alpha', 'beta']
+                })
+            );
+            return mcpServer;
+        });
+
+        const client = new Client({ name: 'modern-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(new StreamableHTTPClientTransport(baseUrl));
+        cleanups.push(() => client.close());
+
+        expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
+
+        const { tools } = await client.listTools();
+        expect(tools.find(tool => tool.name === 'string-output')?.outputSchema).toMatchObject({
+            type: 'string'
+        });
+        expect(tools.find(tool => tool.name === 'array-output')?.outputSchema).toMatchObject({
+            type: 'array',
+            items: { type: 'string' }
+        });
+
+        const stringResult = await client.callTool({ name: 'string-output', arguments: {} });
+        expect(stringResult.structuredContent).toBe('pong');
+        expect(stringResult.content).toContainEqual({ type: 'text', text: '"pong"' });
+
+        const arrayResult = await client.callTool({ name: 'array-output', arguments: {} });
+        expect(arrayResult.structuredContent).toEqual(['alpha', 'beta']);
+        expect(arrayResult.content).toContainEqual({ type: 'text', text: '["alpha","beta"]' });
     });
 
     it('answers an envelope claiming an unsupported revision with the supported list over plain HTTP', async () => {
