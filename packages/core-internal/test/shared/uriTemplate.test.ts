@@ -109,6 +109,23 @@ describe('UriTemplate', () => {
             const match = template.match('/red,green,blue');
             expect(match).toEqual({ list: ['red', 'green', 'blue'] });
         });
+
+        it('should percent-decode matched values', () => {
+            const template = new UriTemplate('/users/{username}{?query}{/tags*}');
+            const match = template.match('/users/Ada%20Lovelace?query=machine%20learning/r%26d,AI%2FML');
+
+            expect(match).toEqual({
+                username: 'Ada Lovelace',
+                query: 'machine learning',
+                tags: ['r&d', 'AI/ML']
+            });
+        });
+
+        it('should preserve malformed percent-encoded values', () => {
+            const template = new UriTemplate('/users/{username}');
+
+            expect(template.match('/users/Ada%ZZ')).toEqual({ username: 'Ada%ZZ' });
+        });
     });
 
     describe('edge cases', () => {
