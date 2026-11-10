@@ -39,4 +39,47 @@ describe('standardSchemaToJsonSchema', () => {
         expect(keys.filter(k => k === 'type')).toHaveLength(1);
         expect(result.type).toBe('object');
     });
+
+    test('inlines local $ref from library-converted schemas (zod globalRegistry)', () => {
+        const Address = z.object({ street: z.string(), city: z.string() });
+        z.globalRegistry.add(Address, { id: 'Address' });
+        try {
+            const result = standardSchemaToJsonSchema(z.object({ home: Address, work: Address }), 'input');
+            expect(JSON.stringify(result)).not.toContain('$ref');
+            expect(result.$defs).toBeUndefined();
+            const props = result.properties as Record<string, Record<string, unknown>>;
+            expect(props.home?.type).toBe('object');
+            expect(props.work?.type).toBe('object');
+        } finally {
+            z.globalRegistry.remove(Address);
+        }
+    });
+
+    test('preserves $defs/$ref verbatim for hand-authored JSON Schema (vendor mcp)', () => {
+        // SEP-1613: schemas registered via fromJsonSchema() are authorial intent and
+        // must survive tools/list unchanged — the json-schema-2020-12 conformance
+        // scenario asserts this round-trip. Only library-converted schemas (where
+        // $ref is a conversion artifact) get dereferenced.
+        const raw = {
+            type: 'object',
+            $defs: {
+                address: { $anchor: 'addressDef', type: 'object', properties: { street: { type: 'string' } } }
+            },
+            properties: { name: { type: 'string' }, address: { $ref: '#/$defs/address' } },
+            additionalProperties: false
+        };
+        // Same shape fromJsonSchema() produces (vendor 'mcp', verbatim input/output).
+        const handAuthored = {
+            '~standard': {
+                version: 1,
+                vendor: 'mcp',
+                jsonSchema: { input: () => raw, output: () => raw },
+                validate: (value: unknown) => ({ value })
+            }
+        };
+        const result = standardSchemaToJsonSchema(handAuthored as never, 'input');
+        expect(result.$defs).toEqual(raw.$defs);
+        expect((result.properties as Record<string, unknown>).address).toEqual({ $ref: '#/$defs/address' });
+        expect(result.additionalProperties).toBe(false);
+    });
 });
