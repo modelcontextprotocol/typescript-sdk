@@ -16,6 +16,7 @@ import {
     mcpNameSource,
     mediaTypeEssence,
     PROTOCOL_VERSION_META_KEY,
+    releaseBody,
     SdkError,
     SdkErrorCode,
     SdkHttpError,
@@ -1164,7 +1165,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
             // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {
-                await response.text?.().catch(() => {});
+                releaseBody(response);
                 // if the accepted notification is initialized, we start the SSE stream
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
@@ -1208,14 +1209,14 @@ export class StreamableHTTPClientTransport implements Transport {
                         this.onmessage?.(msg);
                     }
                 } else {
-                    await response.text?.().catch(() => {});
+                    releaseBody(response);
                     throw new SdkError(SdkErrorCode.ClientHttpUnexpectedContent, `Unexpected content type: ${contentType}`, {
                         contentType
                     });
                 }
             } else {
                 // No requests in message but got 200 OK - still need to release connection
-                await response.text?.().catch(() => {});
+                releaseBody(response);
             }
         } catch (error) {
             // Intentional per-request abort BEFORE response headers (the
