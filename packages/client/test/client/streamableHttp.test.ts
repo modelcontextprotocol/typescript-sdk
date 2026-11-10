@@ -7,6 +7,23 @@ import { UnauthorizedError } from '../../src/client/auth';
 import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
 
+function captureTransportErrors(transport: StreamableHTTPClientTransport): { errors: Error[]; firstError: Promise<Error> } {
+    const errors: Error[] = [];
+    let resolveFirstError!: (error: Error) => void;
+    const firstError = new Promise<Error>(resolve => {
+        resolveFirstError = resolve;
+    });
+
+    transport.onerror = error => {
+        errors.push(error);
+        if (errors.length === 1) {
+            resolveFirstError(error);
+        }
+    };
+
+    return { errors, firstError };
+}
+
 describe('StreamableHTTPClientTransport', () => {
     let transport: StreamableHTTPClientTransport;
     let mockAuthProvider: Mocked<OAuthClientProvider>;
@@ -465,6 +482,110 @@ describe('StreamableHTTPClientTransport', () => {
                 params: {}
             })
         );
+    });
+
+    it('should fire onerror only once when the standalone GET stream fails to open', async () => {
+        const { errors, firstError } = captureTransportErrors(transport);
+
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock.mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+        fetchMock.mockResolvedValueOnce({
+            ok: false,
+            status: 500,
+            statusText: 'Internal Server Error',
+            text: () => Promise.resolve(''),
+            headers: new Headers()
+        });
+
+        await transport.start();
+        await transport.send({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} } as JSONRPCMessage);
+
+        const error = await firstError;
+        await Promise.resolve();
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(errors).toHaveLength(1);
+        expect(error.message).toContain('Failed to open SSE stream');
+    });
+
+    it('should fire onerror only once when close() aborts an in-flight standalone GET request', async () => {
+        const { errors, firstError } = captureTransportErrors(transport);
+        let markGetStarted!: () => void;
+        const getStarted = new Promise<void>(resolve => {
+            markGetStarted = resolve;
+        });
+
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock.mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+        fetchMock.mockImplementationOnce(
+            (_url, init: RequestInit) =>
+                new Promise((_resolve, reject) => {
+                    markGetStarted();
+                    init.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+                })
+        );
+
+        await transport.start();
+        await transport.send({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} } as JSONRPCMessage);
+
+        await getStarted;
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+
+        await transport.close();
+        await firstError;
+        await Promise.resolve();
+
+        expect(errors).toHaveLength(1);
+    });
+
+    it('should fire onerror once and reject when resumeStream fails', async () => {
+        const { errors } = captureTransportErrors(transport);
+
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock.mockResolvedValueOnce({
+            ok: false,
+            status: 500,
+            statusText: 'Internal Server Error',
+            text: () => Promise.resolve(''),
+            headers: new Headers()
+        });
+
+        await transport.start();
+        await expect(transport.resumeStream('event-123')).rejects.toThrow('Failed to open SSE stream');
+
+        expect(errors).toHaveLength(1);
+        expect(errors[0]?.message).toContain('Failed to open SSE stream');
+    });
+
+    it('should fire onerror only once when a resumption GET fails', async () => {
+        const { errors, firstError } = captureTransportErrors(transport);
+
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock.mockResolvedValueOnce({
+            ok: false,
+            status: 500,
+            statusText: 'Internal Server Error',
+            text: () => Promise.resolve(''),
+            headers: new Headers()
+        });
+
+        await transport.start();
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'request-1' }, { resumptionToken: 'event-123' });
+
+        const error = await firstError;
+        await Promise.resolve();
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(errors).toHaveLength(1);
+        expect(error.message).toContain('Failed to open SSE stream');
     });
 
     it('should handle multiple concurrent SSE streams', async () => {
