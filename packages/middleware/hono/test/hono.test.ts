@@ -64,6 +64,22 @@ describe('@modelcontextprotocol/hono', () => {
         expect(res.status).toBe(200);
     });
 
+    test.each(['192.168.1.1', 'mcp.internal'])('createMcpHonoApp warns when binding to non-loopback host %s without allowedHosts', host => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        createMcpHonoApp({ host });
+        expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining(`Warning: Server is binding to ${host} without DNS rebinding protection`)
+        );
+        warn.mockRestore();
+    });
+
+    test('createMcpHonoApp does not warn for a non-loopback host when allowedHosts is provided', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        createMcpHonoApp({ host: '192.168.1.1', allowedHosts: ['192.168.1.1'] });
+        expect(warn).not.toHaveBeenCalled();
+        warn.mockRestore();
+    });
+
     test('createMcpHonoApp parses JSON bodies into parsedBody (express.json()-like)', async () => {
         const app = createMcpHonoApp();
         app.post('/echo', (c: Context) => c.json(c.get('parsedBody')));
