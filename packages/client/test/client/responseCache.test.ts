@@ -7,9 +7,11 @@
  * `toolDefinition` hit/miss and re-derivation only on a stamp change; the
  * generation guard skipping a stale write.
  */
-import type { JSONRPCMessage, JSONRPCRequest, Tool } from '@modelcontextprotocol/core-internal';
+import { setImmediate as nextTurn } from 'node:timers/promises';
+
+import type { JSONRPCMessage, JSONRPCRequest, Tool, Transport } from '@modelcontextprotocol/core-internal';
 import { InMemoryTransport, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { Client } from '../../src/client/client';
 import type { CacheEntry, ResponseCacheStore } from '../../src/client/responseCache';
@@ -422,6 +424,50 @@ const cacheOf = (client: Client): ClientResponseCache => (client as unknown as {
 const toolDef = (client: Client, name: string): Promise<Tool | undefined> => cacheOf(client).toolDefinition(name);
 
 describe('Client response-cache substrate', () => {
+    it.each([
+        { method: 'notifications/tools/list_changed', params: {}, deletesPerPartition: 1 },
+        { method: 'notifications/resources/list_changed', params: {}, deletesPerPartition: 2 },
+        { method: 'notifications/resources/updated', params: { uri: 'file:///a' }, deletesPerPartition: 1 }
+    ] as const)(
+        'completion joins async cache eviction for $method without delaying dispatch',
+        async ({ method, params, deletesPerPartition }) => {
+            const store = new InMemoryResponseCacheStore();
+            const pending: (() => void)[] = [];
+            const deleted: string[] = [];
+            (store as ResponseCacheStore).delete = async key => {
+                await new Promise<void>(resolve => pending.push(resolve));
+                deleted.push(key.partition!);
+            };
+            const transport: Transport = (await scriptedModernServer([])).clientTx;
+            const client = modernClient(store, { cachePartition: 'alice' });
+            const handled = vi.fn();
+            const complete = vi.fn();
+            client.setNotificationHandler(method, handled);
+            await client.connect(transport);
+            try {
+                transport.onmessage!({ jsonrpc: '2.0', method, params }, { onMessageProcessed: complete });
+                await nextTurn();
+                expect(handled).toHaveBeenCalledOnce();
+                expect(pending).toHaveLength(deletesPerPartition);
+                expect(complete).not.toHaveBeenCalled();
+                pending.splice(0).forEach(resolve => resolve());
+                await nextTurn();
+                expect(deleted).toEqual(Array(deletesPerPartition).fill(part('alice')));
+                expect(pending).toHaveLength(deletesPerPartition);
+                expect(complete).not.toHaveBeenCalled();
+                pending.splice(0).forEach(resolve => resolve());
+                await nextTurn();
+                expect(deleted).toEqual([...Array(deletesPerPartition).fill(part('alice')), ...Array(deletesPerPartition).fill(part())]);
+                expect(complete).toHaveBeenCalledOnce();
+            } finally {
+                pending.splice(0).forEach(resolve => resolve());
+                await nextTurn();
+                pending.splice(0).forEach(resolve => resolve());
+                await client.close();
+            }
+        }
+    );
+
     it('listTools() with no cursor reads every page, writes one cache entry; listTools({cursor}) stays per-page and does not write', async () => {
         const store = new InMemoryResponseCacheStore();
         const { clientTx, listCount } = await scriptedModernServer([[TOOL_A], [TOOL_B]]);

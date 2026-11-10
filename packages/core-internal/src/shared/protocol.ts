@@ -589,7 +589,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _customSchemaRequestMethods = new Set<string>();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification, codec: WireCodec) => Promise<void>> = new Map();
-    private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
+    private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void | Promise<void>> = new Map();
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
@@ -834,15 +834,48 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         const _onmessage = this._transport?.onmessage;
         this._transport.onmessage = (message, extra) => {
-            _onmessage?.(message, extra);
-            if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
-                this._onresponse(message);
-            } else if (isJSONRPCRequest(message)) {
-                this._onrequest(message, extra);
-            } else if (isJSONRPCNotification(message)) {
-                this._onnotification(message, extra);
-            } else {
-                this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
+            let processed = false;
+            const complete = () => {
+                if (processed) return;
+                processed = true;
+                try {
+                    extra?.onMessageProcessed?.();
+                } catch (error) {
+                    this._onerror(error instanceof Error ? error : new Error('Inbound completion callback failed'));
+                }
+            };
+            let work: void | Promise<void> | undefined;
+            try {
+                _onmessage?.(message, extra);
+                if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
+                    work = this._onresponse(message);
+                } else if (isJSONRPCRequest(message)) {
+                    work = this._onrequest(message, extra);
+                } else if (isJSONRPCNotification(message)) {
+                    work = this._onnotification(message, extra);
+                } else {
+                    this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
+                }
+            } catch (error) {
+                // Without a completion observer retain the historical dispatch behavior.
+                if (!extra?.onMessageProcessed) throw error;
+                this._onerror(error instanceof Error ? error : new Error('Inbound dispatch failed'));
+                work = isJSONRPCRequest(message)
+                    ? this._transport?.send({
+                          jsonrpc: '2.0',
+                          id: message.id,
+                          error: { code: ProtocolErrorCode.InternalError, message: 'Internal server error' }
+                      })
+                    : undefined;
+            }
+            if (extra?.onMessageProcessed) {
+                void Promise.resolve(work).then(complete, error => {
+                    try {
+                        this._onerror(error instanceof Error ? error : new Error('Inbound processing failed'));
+                    } finally {
+                        complete();
+                    }
+                });
             }
         };
 
@@ -898,7 +931,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * an override that consumes only what it owns and falls through to base
      * dispatch for everything else.
      */
-    protected _onnotification(rawNotification: JSONRPCNotification, extra?: MessageExtraInfo): void {
+    protected _onnotification(rawNotification: JSONRPCNotification, extra?: MessageExtraInfo): void | Promise<void> {
         // Hide wire-only material from notification handlers too — but ONLY
         // the reserved envelope `_meta` keys (the retry params names are
         // reserved on requests, not notifications). There is no
@@ -960,7 +993,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         );
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
-        runInScope(scope, () =>
+        return runInScope(scope, () =>
             Promise.resolve().then(() => (handler === undefined ? fallback!(notification) : handler(notification, codec)))
         ).then(
             () => scope?.end({ type: 'delivered' }),
@@ -971,7 +1004,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         );
     }
 
-    private _onrequest(rawRequest: JSONRPCRequest, extra?: MessageExtraInfo): void {
+    private _onrequest(rawRequest: JSONRPCRequest, extra?: MessageExtraInfo): void | Promise<void> {
         // Lift wire-only material before dispatch: handlers (including the
         // fallback handler and the per-method schema parse) see exactly the
         // 2025-era shape; the envelope and retry fields surface via ctx.
@@ -1010,7 +1043,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 id: request.id,
                 error: { code, message, ...(data !== undefined && { data }) }
             };
-            capturedTransport?.send(errorResponse).catch(error => this._onerror(new Error(`Failed to send an error response: ${error}`)));
+            return capturedTransport
+                ?.send(errorResponse)
+                .catch(error => this._onerror(new Error(`Failed to send an error response: ${error}`)));
         };
 
         // Edge→instance handoff check: a classification that disagrees with
@@ -1031,7 +1066,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 // only the fallback for classifications without an exact
                 // revision.
                 const requested = extra.classification.revision ?? classified;
-                sendErrorResponse(ProtocolErrorCode.UnsupportedProtocolVersion, `Unsupported protocol version: ${requested}`, {
+                return sendErrorResponse(ProtocolErrorCode.UnsupportedProtocolVersion, `Unsupported protocol version: ${requested}`, {
                     // Per spec, `supported` is the full list of protocol
                     // versions the receiver supports — not just the version
                     // this connection is on — so the peer can pick a mutually
@@ -1042,7 +1077,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     supported: this._supportedProtocolVersions,
                     requested
                 });
-                return;
             }
         }
 
@@ -1058,15 +1092,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
             !codec.hasRequestMethod(request.method) &&
             !(isExtensionReusedRequestMethod(request.method) && this._customSchemaRequestMethods.has(request.method))
         ) {
-            sendErrorResponse(ProtocolErrorCode.MethodNotFound, 'Method not found');
-            return;
+            return sendErrorResponse(ProtocolErrorCode.MethodNotFound, 'Method not found');
         }
 
         const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
 
         if (handler === undefined) {
-            sendErrorResponse(ProtocolErrorCode.MethodNotFound, 'Method not found');
-            return;
+            return sendErrorResponse(ProtocolErrorCode.MethodNotFound, 'Method not found');
         }
 
         // Envelope enforcement: the 2026 era requires the per-request `_meta`
@@ -1080,8 +1112,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // only the −32601-over-−32602 rule.)
         const envelopeError = codec.checkInboundEnvelope(lifted);
         if (envelopeError !== undefined) {
-            sendErrorResponse(ProtocolErrorCode.InvalidParams, envelopeError);
-            return;
+            return sendErrorResponse(ProtocolErrorCode.InvalidParams, envelopeError);
         }
 
         // Related sends resolve through the SAME instance era as every other
@@ -1151,7 +1182,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
             },
             http: extra?.authInfo ? { authInfo: extra.authInfo } : undefined
         };
-        const ctx = this.buildContext(baseCtx, extra);
 
         if (scope !== undefined) {
             abortController.signal.addEventListener('abort', () => scope.end(outcomeForAbort(abortController.signal.reason)), {
@@ -1161,7 +1191,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         // Only the handler runs in the instrumentation's context; encoding and sending do not need it.
-        runInScope(scope, () => Promise.resolve().then(() => handler(request, ctx)))
+        return runInScope(scope, () => Promise.resolve().then(() => handler(request, this.buildContext(baseCtx, extra))))
             .then(
                 async result => {
                     if (abortController.signal.aborted) {
@@ -1182,8 +1212,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         encoded = codec.encodeResult(request.method, result, this._outboundServerInfo());
                     } catch (error) {
                         this._onerror(new Error(`Failed to encode result for ${request.method}: ${error}`));
-                        sendErrorResponse(ProtocolErrorCode.InternalError, 'Internal error');
-                        return;
+                        return sendErrorResponse(ProtocolErrorCode.InternalError, 'Internal error');
                     }
 
                     scope?.end({ type: 'result', result: encoded });
@@ -1265,7 +1294,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * only what it owns and falls through to base dispatch for everything
      * else.
      */
-    protected _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
+    protected _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void | Promise<void> {
         const messageId = Number(response.id);
 
         const handler = this._responseHandlers.get(messageId);
@@ -1279,10 +1308,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
         this._progressHandlers.delete(messageId);
 
         if (isJSONRPCResultResponse(response)) {
-            handler(response);
+            return handler(response);
         } else {
             const error = ProtocolError.fromError(response.error.code, response.error.message, response.error.data);
-            handler(error);
+            return handler(error);
         }
     }
 
@@ -1624,15 +1653,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     };
                     // Embedded input requests are fulfilled in this leg's context, so their spans nest under it.
                     const inputRequired = decoded;
-                    return resolve(
+                    return (
                         runInScope(scope, () => this._resolveNonCompleteResult(inputRequired, flow)) as Promise<
                             StandardSchemaV1.InferOutput<T>
                         >
-                    );
+                    ).then(resolve, reject);
                 }
                 const result = decoded.result;
 
-                validateStandardSchema(resultSchema, result).then(
+                return validateStandardSchema(resultSchema, result).then(
                     parseResult => {
                         if (parseResult.success) {
                             scope?.end({ type: 'result', result: response.result });

@@ -2206,11 +2206,12 @@ export class Client extends Protocol<ClientContext> {
      * `setNotificationHandler` / `fallbackNotificationHandler` instead of
      * being silently swallowed.
      */
-    protected override _onnotification(raw: JSONRPCNotification, extra?: MessageExtraInfo): void {
+    protected override _onnotification(raw: JSONRPCNotification, extra?: MessageExtraInfo): void | Promise<void> {
+        const evictions: Promise<void>[] = [];
         // Response-cache invalidation: a `list_changed` notification means the
-        // matching cached list result is stale. Evict (do NOT refetch) before
-        // dispatch so a handler that reaches the cache observes the cleared
-        // entry. Runs regardless of whether the user
+        // matching cached list result is stale. Start eviction (do NOT refetch)
+        // before dispatch so synchronous stores are cleared when a handler runs.
+        // Runs regardless of whether the user
         // configured `listChanged` — derived views (the tool index, output
         // validators) must drop the stale entry either way. `raw.method` is
         // server-controlled; guard with `Object.hasOwn` so an inherited
@@ -2222,10 +2223,9 @@ export class Client extends Protocol<ClientContext> {
             // `resources/read` body for this URI is stale on receipt; drop it
             // from BOTH partitions so the next `readResource` for the same URI
             // refetches even within TTL (the documented subscribe → updated →
-            // re-read flow). Fire-and-forget like the `list_changed` path —
-            // dispatch must not block on an async store.
+            // re-read flow). Start eviction before dispatch and join both below.
             const uri = (raw.params as { uri?: unknown } | undefined)?.uri;
-            if (typeof uri === 'string') void this._cache.evictKey('resources/read', uri);
+            if (typeof uri === 'string') evictions.push(this._cache.evictKey('resources/read', uri));
         } else if (evicted !== undefined) {
             for (const method of evicted) {
                 // `evict()` bumps the generation FIRST and unconditionally
@@ -2235,9 +2235,9 @@ export class Client extends Protocol<ClientContext> {
                 // store keep their entries. Store failures are reported via
                 // `onerror` inside `evict()` and the call resolves, so
                 // dispatch (and the user's `listChanged` handler) runs
-                // regardless. Fire-and-forget — dispatch must not block on
-                // an async store.
-                void this._cache.evict(method);
+                // regardless. Dispatch starts immediately; completion joins
+                // the asynchronous store work below.
+                evictions.push(this._cache.evict(method));
             }
         }
         if (raw.method === 'notifications/subscriptions/acknowledged') {
@@ -2266,7 +2266,8 @@ export class Client extends Protocol<ClientContext> {
                 return;
             }
         }
-        super._onnotification(raw, extra);
+        const handled = super._onnotification(raw, extra);
+        return evictions.length === 0 ? handled : Promise.all([...evictions, handled]).then(() => {});
     }
 
     /**
@@ -2279,7 +2280,7 @@ export class Client extends Protocol<ClientContext> {
      * NUMBER and never holds a listen id, so passing a string-id response
      * through would surface as "unknown message ID" via `onerror`).
      */
-    protected override _onresponse(response: JSONRPCResponse): void {
+    protected override _onresponse(response: JSONRPCResponse): void | Promise<void> {
         const id = response.id;
         const entry = typeof id === 'string' ? this._listenState.get(id) : undefined;
         if (entry !== undefined) {
@@ -2308,7 +2309,7 @@ export class Client extends Protocol<ClientContext> {
             }
             return;
         }
-        super._onresponse(response);
+        return super._onresponse(response);
     }
 
     /**

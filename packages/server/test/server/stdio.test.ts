@@ -357,8 +357,8 @@ test('should swallow stdout errors that surface after close (late EPIPE from a p
 
     await server.start();
 
-    // Fast-path send: write() returns true, so the per-send 'error' listener is
-    // detached immediately — but the OS-level write may still be pending.
+    // The owned chunk callback has completed, so its per-send error listener
+    // is detached. The closed transport still swallows subsequent stream errors.
     await server.send({ jsonrpc: '2.0', id: 1, method: 'ping' });
 
     // The client hangs up: stdin EOF closes the transport.
@@ -465,4 +465,90 @@ test('should fire onerror and close when ReadBuffer overflows', async () => {
 
     expect(receivedError?.message).toMatch(/ReadBuffer exceeded maximum size/);
     expect(closeCount).toBe(1);
+});
+
+test('send remains pending after write accepts a chunk until its actual callback', async () => {
+    let complete!: () => void;
+    const held = new Writable({
+        write(_chunk, _encoding, callback) {
+            complete = callback;
+        }
+    });
+    const server = new StdioServerTransport(input, held);
+    await server.start();
+    let done = false;
+    const sending = server.send({ jsonrpc: '2.0', id: 1, result: {} });
+    void sending.then(() => {
+        done = true;
+    });
+    await Promise.resolve();
+    expect(done).toBe(false);
+    await server.close();
+    await Promise.resolve();
+    expect(done).toBe(false);
+    complete();
+    await sending;
+    expect(done).toBe(true);
+});
+
+test('send error also waits for the owned write callback', async () => {
+    let complete!: (error?: Error) => void;
+    const held = new Writable({
+        write(_chunk, _encoding, callback) {
+            complete = callback;
+        }
+    });
+    const server = new StdioServerTransport(input, held);
+    server.onerror = () => {};
+    await server.start();
+    let done = false;
+    const sending = server.send({ jsonrpc: '2.0', id: 1, result: {} });
+    const rejected = expect(sending).rejects.toThrow('held failure');
+    void sending.catch(() => {
+        done = true;
+    });
+    held.emit('error', new Error('held failure'));
+    await Promise.resolve();
+    expect(done).toBe(false);
+    complete(new Error('held failure'));
+    await rejected;
+    expect(done).toBe(true);
+});
+
+test('send rejects a destroyed writable after its callback without requiring an error event', async () => {
+    const held = new Writable({
+        write(_chunk, _encoding, callback) {
+            callback();
+        }
+    });
+    const server = new StdioServerTransport(input, held);
+    await server.start();
+    held.destroy();
+    await new Promise<void>(resolve => held.once('close', resolve));
+    await expect(server.send({ jsonrpc: '2.0', id: 1, result: {} })).rejects.toThrow();
+    await server.close();
+});
+
+test('send joins a final backpressured write without requiring drain after end', async () => {
+    let complete!: () => void;
+    const held = new Writable({
+        highWaterMark: 1,
+        write(_chunk, _encoding, callback) {
+            complete = callback;
+        }
+    });
+    const server = new StdioServerTransport(input, held);
+    await server.start();
+    let done = false;
+    const sending = server.send({ jsonrpc: '2.0', id: 1, result: {} });
+    void sending.then(() => {
+        done = true;
+    });
+    held.end();
+    await Promise.resolve();
+    expect(done).toBe(false);
+    complete();
+    await sending;
+    expect(done).toBe(true);
+    await server.close();
 });
