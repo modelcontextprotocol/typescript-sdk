@@ -478,7 +478,8 @@ function rewriteDynamicImports(
                     if (propertyName) {
                         element.getPropertyNameNode()!.replaceWithText(newName);
                     } else {
-                        element.replaceWithText(`${newName}: ${bindingName}`);
+                        const initializer = element.getInitializer();
+                        element.replaceWithText(`${newName}: ${bindingName}${initializer ? ` = ${initializer.getText()}` : ''}`);
                     }
                     changes++;
                 }
