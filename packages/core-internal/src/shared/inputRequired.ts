@@ -114,18 +114,22 @@ function buildInputRequired(spec: InputRequiredSpec): InputRequiredResult {
  * ```ts
  * server.registerTool('deploy', { inputSchema: z.object({ env: z.string() }) }, async ({ env }, ctx) => {
  *     const confirmationSchema = z.object({ confirm: z.boolean() });
- *     const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', confirmationSchema);
- *     if (confirmed?.confirm !== true) {
- *         return inputRequired({
- *             inputRequests: {
- *                 confirm: inputRequired.elicit({
- *                     message: `Deploy to ${env}?`,
- *                     requestedSchema: confirmationSchema
- *                 })
- *             }
- *         });
+ *     // An answer has arrived (accepted, declined or cancelled): finish either way.
+ *     // Returning inputRequired() again after a decline re-asks on every retry.
+ *     if (inputResponse(ctx.mcpReq.inputResponses, 'confirm').kind === 'elicit') {
+ *         const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', confirmationSchema);
+ *         return confirmed?.confirm === true
+ *             ? { content: [{ type: 'text', text: `deployed to ${env}` }] }
+ *             : { content: [{ type: 'text', text: 'deployment cancelled' }], isError: true };
  *     }
- *     return { content: [{ type: 'text', text: `deployed to ${env}` }] };
+ *     return inputRequired({
+ *         inputRequests: {
+ *             confirm: inputRequired.elicit({
+ *                 message: `Deploy to ${env}?`,
+ *                 requestedSchema: confirmationSchema
+ *             })
+ *         }
+ *     });
  * });
  * ```
  */

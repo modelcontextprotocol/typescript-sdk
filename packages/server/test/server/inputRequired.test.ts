@@ -33,6 +33,7 @@ import {
     CLIENT_INFO_META_KEY,
     InMemoryTransport,
     inputRequired,
+    inputResponse,
     LATEST_PROTOCOL_VERSION,
     PROTOCOL_VERSION_META_KEY,
     setNegotiatedProtocolVersion,
@@ -185,6 +186,67 @@ describe('input-required returns on the 2026-07-28 era', () => {
         );
         expect(second.resultType).toBe('complete');
         expect(second.structuredContent).toEqual({ deployed: true });
+
+        await close();
+    });
+
+    it('a declined confirmation ends the call on the retry when the handler reads the decline branch (no re-ask)', async () => {
+        const server = new McpServer({ name: 's', version: '1.0.0' }, { capabilities: { tools: {} } });
+        const confirmationSchema = z.object({ confirm: z.boolean() });
+        const entries: string[] = [];
+        server.registerTool('deploy', { inputSchema: z.object({ env: z.string() }) }, async ({ env }, ctx) => {
+            const view = inputResponse(ctx.mcpReq.inputResponses, 'confirm');
+            entries.push(view.kind === 'elicit' ? view.action : view.kind);
+            // The documented shape: an elicitation answer of any action is final.
+            if (view.kind === 'elicit') {
+                const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', confirmationSchema);
+                return confirmed?.confirm === true
+                    ? { content: [{ type: 'text', text: `deployed to ${env}` }] }
+                    : { content: [{ type: 'text', text: 'deployment cancelled' }], isError: true };
+            }
+            return inputRequired({
+                inputRequests: { confirm: inputRequired.elicit({ message: `Deploy to ${env}?`, requestedSchema: confirmationSchema }) }
+            });
+        });
+        const { request, close } = await wire(server, { era: 'modern' });
+        const capabilities = { elicitation: { form: {} } };
+
+        const first = resultOf(await request(modernToolCall(1, 'deploy', { env: 'prod' }, { clientCapabilities: capabilities })));
+        expect(first.resultType).toBe('input_required');
+
+        // The operator declines: the retry carries { action: 'decline' } and no content.
+        const declined = resultOf(
+            await request(
+                modernToolCall(
+                    2,
+                    'deploy',
+                    { env: 'prod' },
+                    { clientCapabilities: capabilities, extraParams: { inputResponses: { confirm: { action: 'decline' } } } }
+                )
+            )
+        );
+        expect(declined.resultType).toBe('complete');
+        expect(declined.isError).toBe(true);
+        expect(declined.content).toEqual([{ type: 'text', text: 'deployment cancelled' }]);
+
+        // A cancelled form is final in the same way.
+        const cancelled = resultOf(
+            await request(
+                modernToolCall(
+                    3,
+                    'deploy',
+                    { env: 'prod' },
+                    { clientCapabilities: capabilities, extraParams: { inputResponses: { confirm: { action: 'cancel' } } } }
+                )
+            )
+        );
+        expect(cancelled.resultType).toBe('complete');
+        expect(cancelled.isError).toBe(true);
+
+        // acceptedContent alone cannot tell a decline from a first entry: both read as undefined.
+        expect(entries).toEqual(['missing', 'decline', 'cancel']);
+        expect(acceptedContent({ confirm: { action: 'decline' } }, 'confirm', confirmationSchema)).toBeUndefined();
+        expect(acceptedContent(undefined, 'confirm', confirmationSchema)).toBeUndefined();
 
         await close();
     });
