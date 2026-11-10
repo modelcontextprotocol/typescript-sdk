@@ -27,15 +27,41 @@ interface AjvValidateFunction {
 /** `ajv-formats` default export, normalised through the CJS/ESM interop wrapper. */
 const addFormats = _addFormats as unknown as typeof _addFormats.default;
 
-function createDefaultAjvInstance(engineClass: typeof Ajv2020 | typeof Ajv2019 | typeof Draft7Ajv): AjvLike {
+function createDefaultAjvInstance(
+    engineClass: typeof Ajv2020 | typeof Ajv2019 | typeof Draft7Ajv,
+    options?: Record<string, unknown>
+): AjvLike {
     const ajv = new engineClass({
         strict: false,
         validateFormats: true,
         validateSchema: false,
-        allErrors: true
+        allErrors: true,
+        ...options
     });
     addFormats(ajv);
     return ajv;
+}
+
+/**
+ * Configuration options for {@link AjvJsonSchemaValidator}.
+ */
+export interface AjvJsonSchemaValidatorOptions {
+    /**
+     * Additional options passed to each dialect engine constructor (`Ajv2020`, `Ajv2019`, `Ajv`).
+     * Merged into the default options (`strict: false`, `validateFormats: true`, `validateSchema: false`, `allErrors: true`).
+     *
+     * When provided, dialect dispatch is preserved while applying these options to every engine created.
+     *
+     * @example Apply schema defaults during validation
+     * ```ts source="./ajvProvider.examples.ts#AjvJsonSchemaValidator_withOptions"
+     * const validator = new AjvJsonSchemaValidator({ options: { useDefaults: true } });
+     * ```
+     */
+    options?: Record<string, unknown>;
+}
+
+function isAjvLike(value: unknown): value is AjvLike {
+    return typeof value === 'object' && value !== null && 'compile' in value && typeof (value as AjvLike).compile === 'function';
 }
 
 /**
@@ -74,6 +100,11 @@ function createDefaultAjvInstance(engineClass: typeof Ajv2020 | typeof Ajv2019 |
  * addFormats(ajv);
  * const validator = new AjvJsonSchemaValidator(ajv);
  * ```
+ *
+ * @example Use with custom engine options (dialect dispatch preserved)
+ * ```ts source="./ajvProvider.examples.ts#AjvJsonSchemaValidator_withOptions"
+ * const validator = new AjvJsonSchemaValidator({ options: { useDefaults: true } });
+ * ```
  */
 export class AjvJsonSchemaValidator implements jsonSchemaValidator {
     private _ajv: AjvLike | undefined;
@@ -83,26 +114,35 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
     private _ajv2019: AjvLike | undefined;
     /** True iff the constructor received a caller-supplied engine; the `$schema` dispatch is skipped. */
     private readonly _userAjv: boolean;
+    /** Optional extra options passed to each per-dialect engine. */
+    private readonly _options: Record<string, unknown> | undefined;
 
     /**
-     * @param ajv - Optional pre-configured AJV-compatible instance. When supplied, this instance is
-     * used for **every** schema regardless of its declared `$schema` (the caller owns dialect
-     * choice). When omitted, the provider constructs per-dialect engines (`Ajv2020`, `Ajv2019`,
-     * and the classic draft-07 `Ajv` for draft-07/06-declared schemas) with
-     * `strict: false`, `validateFormats: true`, `validateSchema: false`, `allErrors: true`, and
-     * `ajv-formats` registered — **lazily, on the first {@linkcode getValidator} call needing each**, so
+     * @param ajvOrOptions - Optional pre-configured AJV-compatible instance or validator options.
+     * When an AJV instance is supplied, it is used for **every** schema regardless of its declared
+     * `$schema` (the caller owns dialect choice). When options (`{ options: { ... } }`) are supplied
+     * or when omitted, the provider constructs per-dialect engines (`Ajv2020`, `Ajv2019`,
+     * and the classic draft-07 `Ajv` for draft-07/06-declared schemas) with default options merged with
+     * `options`, and `ajv-formats` registered — **lazily, on the first {@linkcode getValidator} call needing each**, so
      * constructing the provider (e.g. as the default validator of a `Client`/`Server` that never
      * validates a JSON Schema) does not pay the ajv + ajv-formats instantiation cost. The parameter
      * is typed structurally so consumers who don't pass an instance need not have `ajv` installed.
      */
-    constructor(ajv?: AjvLike) {
-        this._userAjv = ajv !== undefined;
-        this._ajv = ajv;
+    constructor(ajvOrOptions?: AjvLike | AjvJsonSchemaValidatorOptions) {
+        if (isAjvLike(ajvOrOptions)) {
+            this._userAjv = true;
+            this._ajv = ajvOrOptions;
+            this._options = undefined;
+        } else {
+            this._userAjv = false;
+            this._ajv = undefined;
+            this._options = ajvOrOptions?.options;
+        }
     }
 
     /** The underlying 2020-12 engine — the default instance is created on first use. */
     private get ajv(): AjvLike {
-        return (this._ajv ??= createDefaultAjvInstance(Ajv2020));
+        return (this._ajv ??= createDefaultAjvInstance(Ajv2020, this._options));
     }
 
     /**
@@ -123,9 +163,9 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
             return this.ajv;
         }
         if (dialect === '2019-09') {
-            return (this._ajv2019 ??= createDefaultAjvInstance(Ajv2019));
+            return (this._ajv2019 ??= createDefaultAjvInstance(Ajv2019, this._options));
         }
-        return (this._ajvDraft7 ??= createDefaultAjvInstance(Draft7Ajv));
+        return (this._ajvDraft7 ??= createDefaultAjvInstance(Draft7Ajv, this._options));
     }
 
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
