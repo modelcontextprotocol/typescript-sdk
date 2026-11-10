@@ -7,6 +7,7 @@ import { defineConfig, type DefaultTheme } from 'vitepress';
 import { generateLlmsArtifacts } from './llms';
 import { guideSidebar } from './nav';
 import { githubSlug, rewriteSkillLink } from './skill';
+import { AUTH_INFO_INTERFACE_ANCHOR, correctAuthInfoTypeHref, isAuthInfoInterfacePage } from './authInfoLinks';
 
 const docsDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -44,11 +45,29 @@ export default defineConfig({
             const orig = md.renderer.rules.link_open ?? ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
             md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
                 const href = tokens[idx].attrGet('href');
+                if (href) {
+                    const corrected = correctAuthInfoTypeHref(href, tokens[idx + 1]?.content, env.relativePath);
+                    if (corrected !== href) tokens[idx].attrSet('href', corrected);
+                }
                 if (href?.startsWith('/specification/')) {
                     tokens[idx].attrSet('href', `https://modelcontextprotocol.io${href}`);
                 }
                 return orig(tokens, idx, options, env, self);
             };
+            // AuthInfo is a public interface, but earlier authInfo member headings win the
+            // auto-generated #authinfo slug. Keep all existing headings/links intact and
+            // give only the interface a stable second anchor.
+            md.core.ruler.push('authinfo_interface_anchor', state => {
+                if (!isAuthInfoInterfacePage(state.env.relativePath)) return;
+                const i = state.tokens.findIndex(
+                    (token, index) => token.type === 'heading_open' && state.tokens[index + 1]?.content === 'AuthInfo'
+                );
+                if (i < 0) return;
+                const anchor = new state.Token('html_block', '', 0);
+                anchor.content = `<a id="${AUTH_INFO_INTERFACE_ANCHOR}"></a>\n`;
+                state.tokens.splice(i, 0, anchor);
+            });
+
             // Resolve skill links on the assembled page, then GitHub-style anchors to VitePress's heading ids.
             md.core.ruler.push('page_links', state => {
                 const ids = new Set<string>();
