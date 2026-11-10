@@ -83,6 +83,14 @@ Declare the `logging` capability when you construct the server.
 const server = new McpServer({ name: 'file-processor', version: '1.0.0' }, { capabilities: { logging: {} } });
 ```
 
+The declaration is what enables delivery — leave it out and nothing fails at construction time; the gap only surfaces per message. `ctx.mcpReq.log` and `sendLoggingMessage` resolve without sending anything, and a raw `server.notification({ method: 'notifications/message', ... })` rejects when the send is attempted:
+
+```
+SdkError: Server does not support logging (required for notifications/message)
+```
+
+Because the check runs per message — never at startup — a fire-and-forget send whose rejection is swallowed leaves no trace on either side. When log notifications never reach the client, check for `capabilities: { logging: {} }` first.
+
 `ctx.mcpReq.log(level, data)` then sends a `notifications/message` from inside any handler — `data` is any JSON value.
 
 ```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#registerTool_logging"
@@ -221,6 +229,6 @@ Resolve an identifier against a fixed list, as `fetch-source` does. A tool that 
 
 - Every handler receives a context as its second argument; the request-scoped helpers live on `ctx.mcpReq`.
 - `ctx.mcpReq.notify` sends `notifications/progress` when the request carried a `progressToken`; `progress` must increase on each one.
-- `ctx.mcpReq.log(level, data)` sends `notifications/message` once the `logging` capability is declared; MCP logging is deprecated (SEP-2577).
+- `ctx.mcpReq.log(level, data)` sends `notifications/message` once the `logging` capability is declared; without it each message fails on its own — silently from `log`/`sendLoggingMessage`, as a send-time rejection from a raw notification; MCP logging is deprecated (SEP-2577).
 - Declaring `logging` also installs `logging/setLevel`; after `client.setLoggingLevel(level)` the SDK drops messages below that level for the session.
 - `ctx.mcpReq.signal` aborts on cancellation and disconnect — check it in long loops and forward it to your own I/O.
