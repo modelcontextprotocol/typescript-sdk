@@ -360,6 +360,9 @@ export class StreamableHTTPClientTransport implements Transport {
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private readonly _reconnectionScheduler?: ReconnectionScheduler;
     private _cancelReconnection?: () => void;
+    private _pendingAuthPromise?: Promise<void>;
+    private _authResolve?: () => void;
+    private _authReject?: (error: Error) => void;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -573,6 +576,9 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false, stepUpRetries = 0): Promise<void> {
+        if (this._pendingAuthPromise) {
+            await this._pendingAuthPromise;
+        }
         const { resumptionToken, requestSignal } = options;
         // Same guard as `_handleSseStream`: a resurrected listen stream (the
         // POST-SSE → GET reconnect path threads `requestSignal` through
@@ -624,6 +630,19 @@ export class StreamableHTTPClientTransport implements Transport {
                                 fetchFn: this._fetchWithInit
                             });
                         } catch (error) {
+                            if (error instanceof UnauthorizedError && this._oauthProvider) {
+                                if (!this._pendingAuthPromise) {
+                                    this._pendingAuthPromise = new Promise<void>((resolve, reject) => {
+                                        this._authResolve = resolve;
+                                        this._authReject = reject;
+                                    });
+                                    this._pendingAuthPromise.catch(() => {});
+                                }
+                                await this._pendingAuthPromise;
+                                await response.text?.().catch(() => {});
+                                // Purposely _not_ awaited, so we don't call onerror twice
+                                return this._startOrAuthSse(options, true, stepUpRetries);
+                            }
                             // Auth-seam stamp: covers the SDK's OAuth flow and
                             // custom onUnauthorized callbacks alike.
                             throw markAuthSeamEscape(error);
@@ -652,7 +671,17 @@ export class StreamableHTTPClientTransport implements Transport {
                             { scope, resourceMetadataUrl, errorDescription, statusText: response.statusText, text },
                             stepUpRetries
                         );
-                        if (result !== 'AUTHORIZED') {
+                        if (result === 'REDIRECT') {
+                            if (!this._pendingAuthPromise) {
+                                this._pendingAuthPromise = new Promise<void>((resolve, reject) => {
+                                    this._authResolve = resolve;
+                                    this._authReject = reject;
+                                });
+                                this._pendingAuthPromise.catch(() => {});
+                            }
+                            await this._pendingAuthPromise;
+                            return this._startOrAuthSse(options, isAuthRetry, stepUpRetries + 1);
+                        } else if (result !== 'AUTHORIZED') {
                             throw markAuthSeamEscape(new UnauthorizedError());
                         }
                         return this._startOrAuthSse(options, isAuthRetry, stepUpRetries + 1);
@@ -942,25 +971,44 @@ export class StreamableHTTPClientTransport implements Transport {
             throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
         }
 
-        const { authorizationCode, iss: issParam } = await resolveAuthorizationCallbackParams(
-            codeOrParams,
-            iss,
-            this._oauthProvider,
-            this._url,
-            { fetchFn: this._fetchWithInit, resourceMetadataUrl: this._resourceMetadataUrl }
-        );
+        if (!this._pendingAuthPromise) {
+            this._pendingAuthPromise = new Promise<void>((resolve, reject) => {
+                this._authResolve = resolve;
+                this._authReject = reject;
+            });
+            this._pendingAuthPromise.catch(() => {});
+        }
 
-        const result = await auth(this._oauthProvider, {
-            serverUrl: this._url,
-            authorizationCode,
-            iss: issParam,
-            resourceMetadataUrl: this._resourceMetadataUrl,
-            scope: this._scope,
-            fetchFn: this._fetchWithInit,
-            skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
-        });
-        if (result !== 'AUTHORIZED') {
-            throw new UnauthorizedError('Failed to authorize');
+        try {
+            const { authorizationCode, iss: issParam } = await resolveAuthorizationCallbackParams(
+                codeOrParams,
+                iss,
+                this._oauthProvider,
+                this._url,
+                { fetchFn: this._fetchWithInit, resourceMetadataUrl: this._resourceMetadataUrl }
+            );
+
+            const result = await auth(this._oauthProvider, {
+                serverUrl: this._url,
+                authorizationCode,
+                iss: issParam,
+                resourceMetadataUrl: this._resourceMetadataUrl,
+                scope: this._scope,
+                fetchFn: this._fetchWithInit,
+                skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
+            });
+            if (result !== 'AUTHORIZED') {
+                throw new UnauthorizedError('Failed to authorize');
+            }
+            this._authResolve?.();
+        } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            this._authReject?.(err);
+            throw error;
+        } finally {
+            this._pendingAuthPromise = undefined;
+            this._authResolve = undefined;
+            this._authReject = undefined;
         }
     }
 
@@ -970,6 +1018,14 @@ export class StreamableHTTPClientTransport implements Transport {
         } finally {
             this._cancelReconnection = undefined;
             this._abortController?.abort();
+
+            if (this._authReject) {
+                this._authReject(new Error('Transport closed'));
+                this._pendingAuthPromise = undefined;
+                this._authResolve = undefined;
+                this._authReject = undefined;
+            }
+
             this.onclose?.();
         }
     }
@@ -1001,6 +1057,9 @@ export class StreamableHTTPClientTransport implements Transport {
         isAuthRetry: boolean,
         stepUpRetries = 0
     ): Promise<void> {
+        if (this._pendingAuthPromise) {
+            await this._pendingAuthPromise;
+        }
         try {
             const { resumptionToken, onresumptiontoken } = options || {};
 
@@ -1087,6 +1146,19 @@ export class StreamableHTTPClientTransport implements Transport {
                                 fetchFn: this._fetchWithInit
                             });
                         } catch (error) {
+                            if (error instanceof UnauthorizedError && this._oauthProvider) {
+                                if (!this._pendingAuthPromise) {
+                                    this._pendingAuthPromise = new Promise<void>((resolve, reject) => {
+                                        this._authResolve = resolve;
+                                        this._authReject = reject;
+                                    });
+                                    this._pendingAuthPromise.catch(() => {});
+                                }
+                                await this._pendingAuthPromise;
+                                await response.text?.().catch(() => {});
+                                // Purposely _not_ awaited, so we don't call onerror twice
+                                return this._send(message, options, true, stepUpRetries);
+                            }
                             // Auth-seam stamp: covers the SDK's OAuth flow and
                             // custom onUnauthorized callbacks alike.
                             throw markAuthSeamEscape(error);
@@ -1117,7 +1189,17 @@ export class StreamableHTTPClientTransport implements Transport {
                             { scope, resourceMetadataUrl, errorDescription, statusText: response.statusText, text },
                             stepUpRetries
                         );
-                        if (result !== 'AUTHORIZED') {
+                        if (result === 'REDIRECT') {
+                            if (!this._pendingAuthPromise) {
+                                this._pendingAuthPromise = new Promise<void>((resolve, reject) => {
+                                    this._authResolve = resolve;
+                                    this._authReject = reject;
+                                });
+                                this._pendingAuthPromise.catch(() => {});
+                            }
+                            await this._pendingAuthPromise;
+                            return this._send(message, options, isAuthRetry, stepUpRetries + 1);
+                        } else if (result !== 'AUTHORIZED') {
                             throw markAuthSeamEscape(new UnauthorizedError());
                         }
                         return this._send(message, options, isAuthRetry, stepUpRetries + 1);
