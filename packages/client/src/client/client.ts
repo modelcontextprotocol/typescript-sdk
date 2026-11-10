@@ -1157,7 +1157,8 @@ export class Client extends Protocol<ClientContext> {
                 clientInfo: this._clientInfo,
                 capabilities: this._capabilities,
                 environment: detectProbeEnvironment(),
-                defaultTimeoutMs: options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC
+                defaultTimeoutMs: options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC,
+                signal: options?.signal
             };
             // The SDK's stdio transport probes on a disposable sibling process,
             // so the caller's transport spends its one child life on the
