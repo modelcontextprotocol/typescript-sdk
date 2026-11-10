@@ -959,10 +959,21 @@ export abstract class Protocol<ContextT extends BaseContext> {
             extra
         );
 
-        // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
-        runInScope(scope, () =>
-            Promise.resolve().then(() => (handler === undefined ? fallback!(notification) : handler(notification, codec)))
-        ).then(
+        const dispatch = () => (handler === undefined ? fallback!(notification) : handler(notification, codec));
+
+        // Progress is dispatched synchronously so a progress notification that
+        // shares a read with its request's response is not deferred past
+        // _onresponse, which deletes the matching progress handler (see #3018).
+        // Other notifications keep microtask dispatch so their handlers do not
+        // run inside the transport's onmessage stack. Either way, synchronous
+        // throws and async rejections both settle the promise below and route to _onerror.
+        const settled = runInScope(scope, () =>
+            notification.method === 'notifications/progress'
+                ? new Promise<void>(resolve => resolve(dispatch()))
+                : Promise.resolve().then(dispatch)
+        );
+
+        settled.then(
             () => scope?.end({ type: 'delivered' }),
             error => {
                 scope?.end({ type: 'failed', error });
