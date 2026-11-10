@@ -63,7 +63,7 @@ export function createPrivateKeyJwtAuth(options: {
         const alg = options.alg;
         let key: unknown;
         if (typeof options.privateKey === 'string') {
-            if (alg.startsWith('RS') || alg.startsWith('ES') || alg.startsWith('PS')) {
+            if (alg.startsWith('RS') || alg.startsWith('ES') || alg.startsWith('PS') || alg.startsWith('Ed')) {
                 key = await jose.importPKCS8(options.privateKey, alg);
             } else if (alg.startsWith('HS')) {
                 key = new TextEncoder().encode(options.privateKey);

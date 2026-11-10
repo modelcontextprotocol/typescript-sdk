@@ -393,6 +393,26 @@ describe('createPrivateKeyJwtAuth', () => {
         expect(parts).toHaveLength(3);
     });
 
+    it.each(['EdDSA', 'Ed25519'])('creates a verifiable JWT when using an Ed25519 PEM private key with alg %s', async alg => {
+        const jose = await import('jose');
+        const { privateKey, publicKey } = await jose.generateKeyPair(alg, { extractable: true });
+        const pem = await jose.exportPKCS8(privateKey);
+
+        const addClientAuth = createPrivateKeyJwtAuth({
+            issuer: 'client-id',
+            subject: 'client-id',
+            privateKey: pem,
+            alg
+        });
+
+        const params = new URLSearchParams();
+        await addClientAuth(new Headers(), params, 'https://auth.example.com/token', undefined);
+
+        const { payload, protectedHeader } = await jose.jwtVerify(params.get('client_assertion')!, publicKey);
+        expect(protectedHeader.alg).toBe(alg);
+        expect(payload.iss).toBe('client-id');
+    });
+
     it('uses metadata.issuer as audience when available', async () => {
         const addClientAuth = createPrivateKeyJwtAuth(baseOptions);
 
