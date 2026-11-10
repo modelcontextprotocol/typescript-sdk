@@ -150,7 +150,11 @@ A mismatch means the callback came from an authorization server you did not star
 
 ## Pin the resource indicator
 
-The SDK binds tokens to your server with the RFC 8707 `resource` parameter. Protected resource metadata (RFC 9728) must identify the requested server when discovered through a challenge or a path-specific well-known URL; a root well-known fallback must identify the root resource. Parent paths, different queries, and different trailing path slashes are rejected before the metadata is used. Valid resource identifiers are sent unchanged on the authorization redirect and every token request. Override `validateResourceURL` to select the value after metadata identity validation — return the URL to send, or `undefined` to omit the parameter. The hook cannot bypass metadata identity validation.
+The SDK binds tokens to your server with the RFC 8707 `resource` parameter. Protected resource metadata (RFC 9728) discovered through a challenge must identify the requested server. For well-known discovery, it must identify the resource used to construct that discovery URL. A root well-known fallback must therefore identify the root resource.
+
+Before using the metadata, the SDK rejects parent paths, different queries, and different trailing path slashes relative to that expected identifier. Valid resource identifiers are sent unchanged on the authorization redirect and every token request.
+
+Override `validateResourceURL` to select the value after metadata identity validation — return the URL to send, or `undefined` to omit the parameter. The hook cannot bypass metadata identity validation.
 
 Persist the complete `OAuthDiscoveryState` returned to `saveDiscoveryState`, including `resourceMetadataRootFallback`, so a valid root fallback can be restored after a redirect. Older root-resource caches without that marker are rediscovered before use.
 

@@ -53,6 +53,8 @@ describe('RFC 9728 protected resource identity (#3077)', () => {
         ['missing trailing slash', `${SERVER}/`, SERVER, true],
         ['dot segment', SERVER, `${ROOT}/mcp/./tenant`, true],
         ['encoded segment', SERVER, `${ROOT}/mcp/%74enant`, true],
+        ['challenge backslash in authority', SERVER, `${ROOT}\\other/mcp/tenant`, true],
+        ['path-aware backslash in authority', SERVER, `${ROOT}\\other/mcp/tenant`, false],
         ['fragment', SERVER, `${SERVER}#fragment`, true]
     ])('rejects %s before using metadata or invoking provider hooks', async (_, serverUrl, resource, challenge) => {
         const provider = { ...createProvider(), validateResourceURL: vi.fn().mockResolvedValue(new URL(SERVER)) };
@@ -124,6 +126,7 @@ describe('RFC 9728 protected resource identity (#3077)', () => {
 
     it.each([
         { resourceMetadata: metadata(`${ROOT}/mcp`) },
+        { resourceMetadata: metadata(`${ROOT}\\other/mcp/tenant`) },
         { resourceMetadata: metadata('https://other.example'), resourceMetadataRootFallback: true }
     ])('rejects invalid cached metadata before any network request', async cached => {
         const provider = createProvider({ authorizationServerUrl: ISSUER, ...cached });
@@ -196,6 +199,20 @@ describe('RFC 9728 protected resource identity (#3077)', () => {
     it('validates identity for direct selectResourceURL callers too', async () => {
         await expect(selectResourceURL(SERVER, createProvider(), metadata(`${ROOT}/mcp`))).rejects.toThrow('does not match expected');
         await expect(selectResourceURL(SERVER, createProvider(), metadata(SERVER))).resolves.toEqual(new URL(SERVER));
+    });
+
+    it.each([`${ROOT}\\other/mcp/tenant`, `${ROOT}\\/mcp/tenant`])(
+        'rejects ambiguous authority boundaries in direct resource selection: %s',
+        async resource => {
+            await expect(selectResourceURL(SERVER, createProvider(), metadata(resource))).rejects.toThrow('does not match expected');
+        }
+    );
+
+    it('accepts a pathless resource with a query without rewriting it', async () => {
+        const resource = 'HTTPS://RESOURCE.example?tenant=a';
+        const fetchFn = vi.fn<FetchLike>().mockResolvedValue(Response.json(metadata(resource)));
+        await expect(discoverOAuthProtectedResourceMetadata(`${ROOT}?tenant=a`, undefined, fetchFn)).resolves.toEqual(metadata(resource));
+        expect(String(fetchFn.mock.calls[0]![0])).toBe(`${PRM}?tenant=a`);
     });
 
     it('accepts authority case and the empty root path without rewriting the selected indicator', async () => {

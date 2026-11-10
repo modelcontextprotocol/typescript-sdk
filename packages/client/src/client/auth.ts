@@ -1577,10 +1577,10 @@ class ProtectedResourceMismatchError extends Error {
 
 function resourceMatches(expected: URL, resource: string): boolean {
     // Normalize the authority and empty root path, preserving path spelling, query and fragment.
-    const match = /^https?:\/\/[^/?#\s]+(.*)$/i.exec(resource);
+    const match = /^https?:\/\/[^/?#\\\s]+(.*)$/i.exec(resource);
     if (!match || match[0] !== resource) return false;
     const actual = new URL(resource);
-    if (actual.username || actual.password) return false;
+    if (actual.username || actual.password || actual.href !== expected.href) return false;
     const suffix = match[1]!;
     return `${actual.origin}${suffix.startsWith('/') ? suffix : `/${suffix}`}` === expected.href;
 }
