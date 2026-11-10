@@ -354,3 +354,16 @@ describe('updatePackageJson', () => {
         expect(deps['@modelcontextprotocol/express']).toBeDefined();
     });
 });
+
+describe('manifest line endings', () => {
+    it('preserves CRLF during dependency migration', () => {
+        const dir = createTempDir();
+        const manifestPath = path.join(dir, 'package.json');
+        writeFileSync(manifestPath, '{\r\n  "dependencies": {"@modelcontextprotocol/sdk": "^1"}\r\n}\r\n');
+        updatePackageJson(discoverManifests(dir), new Map([[manifestPath, new Set(['@modelcontextprotocol/client'])]]), false);
+        const output = readFileSync(manifestPath, 'utf8');
+        expect(output).toContain('\r\n');
+        expect(output.replaceAll('\r\n', '')).not.toContain('\n');
+        expect(output.endsWith('\r\n')).toBe(true);
+    });
+});
