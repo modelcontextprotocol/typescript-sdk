@@ -421,7 +421,7 @@ describe('toNodeHandler', () => {
 
 interface FakeNodeResponse extends NodeServerResponseLike {
     statusCode: number;
-    headers: Record<string, string> | undefined;
+    headers: Record<string, string | string[]> | undefined;
 }
 
 function nodeRequestResponse(body: unknown): {
@@ -454,7 +454,7 @@ function nodeRequestResponse(body: unknown): {
     const res: FakeNodeResponse = {
         statusCode: 0,
         headers: undefined,
-        writeHead(statusCode: number, headers?: Record<string, string>) {
+        writeHead(statusCode: number, headers?: Record<string, string | string[]>) {
             this.statusCode = statusCode;
             this.headers = headers;
             return this;
@@ -484,3 +484,15 @@ function nodeRequestResponse(body: unknown): {
         }
     };
 }
+
+describe('response cookies', () => {
+    it('passes each Set-Cookie field separately to Node', async () => {
+        const cookies = ['first=one; Path=/; HttpOnly', 'second=two; Path=/; HttpOnly'];
+        const response = new Response(null, { headers: cookies.map(cookie => ['set-cookie', cookie] as [string, string]) });
+        const writeHead = vi.fn();
+        const res: NodeServerResponseLike = { writeHead, on: vi.fn(), write: vi.fn(), end: vi.fn() };
+        const req = Object.assign(Readable.from([]), { method: 'GET', url: '/', headers: { host: 'localhost' } });
+        await toNodeHandler({ fetch: async () => response })(req, res);
+        expect(writeHead).toHaveBeenCalledWith(200, { 'set-cookie': cookies });
+    });
+});
