@@ -49,7 +49,8 @@ export const OAuthProtectedResourceMetadataSchema = z.looseObject({
  */
 export const OAuthMetadataSchema = z.looseObject({
     issuer: z.string(),
-    authorization_endpoint: SafeUrlSchema,
+    // RFC 8414 §2: client_credentials-only servers need no authorization endpoint.
+    authorization_endpoint: SafeUrlSchema.optional(),
     token_endpoint: SafeUrlSchema,
     registration_endpoint: SafeUrlSchema.optional(),
     scopes_supported: z.array(z.string()).optional(),
