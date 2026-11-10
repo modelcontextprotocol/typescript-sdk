@@ -18,12 +18,16 @@ try {
             "import { AjvJsonSchemaValidator } from '@modelcontextprotocol/client/validators/ajv';",
             "import { CfWorkerJsonSchemaValidator as ClientCf } from '@modelcontextprotocol/client/validators/cf-worker';",
             "import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';",
-            "import { McpServer } from '@modelcontextprotocol/server';",
+            "import { CLIENT_CAPABILITIES_META_KEY, McpServer } from '@modelcontextprotocol/server';",
+            "import type { ClientCapabilities, RequestMetaEnvelope } from '@modelcontextprotocol/server';",
             "import { AjvJsonSchemaValidator as ServerAjv } from '@modelcontextprotocol/server/validators/ajv';",
             "import { CfWorkerJsonSchemaValidator as ServerCf } from '@modelcontextprotocol/server/validators/cf-worker';",
             "import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';",
             "export const c = new Client({ name: 'smoke', version: '1.0.0' });",
             "export const s = new McpServer({ name: 'smoke', version: '1.0.0' });",
+            'declare const envelope: Partial<RequestMetaEnvelope> | undefined;',
+            'const capabilities = envelope?.[CLIENT_CAPABILITIES_META_KEY];',
+            'export const _caps: ClientCapabilities | undefined = capabilities;',
             'export type T = ClientSchema;',
             'export { AjvJsonSchemaValidator, ServerAjv, ClientCf, ServerCf, StdioClientTransport, StdioServerTransport };',
             ''
@@ -77,10 +81,14 @@ try {
         [
             "import { Client } from '@modelcontextprotocol/client';",
             "import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';",
-            "import { McpServer } from '@modelcontextprotocol/server';",
+            "import { CLIENT_CAPABILITIES_META_KEY, McpServer } from '@modelcontextprotocol/server';",
+            "import type { ClientCapabilities, RequestMetaEnvelope } from '@modelcontextprotocol/server';",
             "import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';",
             "export const c = new Client({ name: 'smoke', version: '1.0.0' });",
             "export const s = new McpServer({ name: 'smoke', version: '1.0.0' });",
+            'declare const envelope: Partial<RequestMetaEnvelope> | undefined;',
+            'const capabilities = envelope?.[CLIENT_CAPABILITIES_META_KEY];',
+            'export const _caps: ClientCapabilities | undefined = capabilities;',
             'export { StdioClientTransport, StdioServerTransport };',
             ''
         ].join('\n')
