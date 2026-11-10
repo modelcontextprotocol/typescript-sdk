@@ -45,6 +45,9 @@ export { isJsonContentType } from '../../shared/mediaType';
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils';
 
+// Logging
+export type { SdkLogger } from '../../shared/logger';
+
 // Protocol types and the Protocol base class
 export type {
     BaseContext,
