@@ -993,6 +993,57 @@ describe('protocol tests', () => {
                 expect(cancelledSent(sent)).toHaveLength(1);
             });
         });
+
+        // The canceller SHOULD ignore a later response; abort and timeout reach cancel() by different routes.
+        describe('a response that arrives after cancellation is ignored', () => {
+            const requestIdOf = (sent: JSONRPCMessage[]) => (sent.find(m => 'method' in m && m.method === 'example') as JSONRPCRequest).id;
+
+            test('after the caller aborts', async () => {
+                // ARRANGE
+                const { proto, sent } = await connectSingleChannel('2025-11-25');
+                const errors: Error[] = [];
+                proto.onerror = err => errors.push(err);
+                const ac = new AbortController();
+                const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { signal: ac.signal });
+                ac.abort('user cancel');
+                await expect(pending).rejects.toThrow();
+
+                // ACT
+                proto.transport?.onmessage?.({ jsonrpc: '2.0', id: requestIdOf(sent), result: {} });
+
+                // ASSERT
+                expect(errors).toEqual([]);
+            });
+
+            test('after the request times out', async () => {
+                // ARRANGE
+                const { proto, sent } = await connectSingleChannel('2025-11-25');
+                const errors: Error[] = [];
+                proto.onerror = err => errors.push(err);
+                const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { timeout: 0 });
+                await expect(pending).rejects.toThrow();
+
+                // ACT
+                proto.transport?.onmessage?.({ jsonrpc: '2.0', id: requestIdOf(sent), result: {} });
+
+                // ASSERT
+                expect(errors).toEqual([]);
+            });
+
+            test('a response for an id that was never cancelled still raises onerror (regression guard)', async () => {
+                // ARRANGE
+                const { proto } = await connectSingleChannel('2025-11-25');
+                const errors: Error[] = [];
+                proto.onerror = err => errors.push(err);
+
+                // ACT
+                proto.transport?.onmessage?.({ jsonrpc: '2.0', id: 99_999, result: {} });
+
+                // ASSERT
+                expect(errors).toHaveLength(1);
+                expect(errors[0]!.message).toContain('Received a response for an unknown message ID');
+            });
+        });
     });
 });
 
