@@ -250,7 +250,13 @@ function isProvablyObjectShapedRoot(schema: Record<string, unknown>, root = sche
         return true;
     }
     const ref = typeof schema.$ref === 'string' && LOCAL_DEFINITION_REF.exec(schema.$ref);
-    if (ref && (root[ref[1]!] as Record<string, { type?: unknown } | undefined> | undefined)?.[ref[2]!]?.type === 'object') {
+    const target = ref ? (root[ref[1]!] as Record<string, unknown> | undefined)?.[ref[2]!] : undefined;
+    if (
+        target !== null &&
+        typeof target === 'object' &&
+        ((target as Record<string, unknown>).type === 'object' ||
+            isProvablyObjectShapedRoot(target as Record<string, unknown>, {}))
+    ) {
         return true;
     }
     for (const key of ['oneOf', 'anyOf', 'allOf'] as const) {
