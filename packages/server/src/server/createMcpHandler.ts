@@ -66,7 +66,7 @@ import type { PerRequestResponseMode } from './perRequestTransport';
 import { DEFAULT_MAX_REQUEST_BODY_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody';
 import { createScopeChallengeResponse, findScopeChallenge, scopeChallengeResourceMetadataUrl } from './scopeChallenge';
 import type { Server } from './server';
-import { installModernOnlyHandlers, seedClientIdentityFromEnvelope, serverIdentityOf } from './server';
+import { installModernOnlyHandlers, preflightHooksOf, seedClientIdentityFromEnvelope, serverIdentityOf } from './server';
 import type { ServerEventBus, ServerNotifier } from './serverEventBus';
 import { createServerNotifier, InMemoryServerEventBus } from './serverEventBus';
 import { DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
@@ -820,14 +820,15 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // declaration against the request's `Mcp-Param-{Name}` headers and the
         // body `arguments`. A mismatch (or a missing header for a present body
         // value, or an invalid Base64 sentinel) emits the same `400` /
-        // `-32020` (`HeaderMismatch`) shape the edge cross-checks use. Only
-        // applied when the factory returns an `McpServer` (the registry is the
-        // schema source); a low-level `Server` factory has no registry, so
-        // there is nothing to validate against.
-        if (route.messageKind === 'request' && route.message.method === 'tools/call' && product instanceof McpServer) {
+        // `-32020` (`HeaderMismatch`) shape the edge cross-checks use. The
+        // schema source is the instance's tool input schema resolver:
+        // `McpServer` sets it from its registry, a low-level `Server` through
+        // `setToolInputSchemaResolver`; without one there is nothing to check.
+        const preflight = preflightHooksOf(server);
+        if (route.messageKind === 'request' && route.message.method === 'tools/call' && preflight.toolInputSchema !== undefined) {
             const callParams = route.message.params as { name?: string; arguments?: Record<string, unknown> } | undefined;
             const toolName = typeof callParams?.name === 'string' ? callParams.name : undefined;
-            const inputSchema = toolName === undefined ? undefined : product.toolInputSchemaJson(toolName);
+            const inputSchema = toolName === undefined ? undefined : preflight.toolInputSchema(toolName);
             if (inputSchema !== undefined) {
                 const scan = scanXMcpHeaderDeclarations(inputSchema);
                 // A tool that is invalid only for a `number`-typed declaration is still checked.
@@ -843,14 +844,17 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         }
 
         // Run scope preflight after Mcp-Param headers have been checked against
-        // the body. Active whenever the factory's instance registers a
-        // per-primitive scopeChallenge callback — no handler-level
+        // the body. Active whenever the factory's instance has a scope
+        // challenge handler — `McpServer` sets one that consults its
+        // per-primitive scopeChallenge callbacks, a low-level `Server` sets its
+        // own through `setScopeChallengeHandler`; no handler-level
         // configuration exists: the challenge's resource_metadata parameter is
         // derived from the verified AuthInfo (stamped by the bearer-auth gate,
         // or the token's RFC 8707 resource identifier) and omitted otherwise.
-        if (route.messageKind === 'request' && product instanceof McpServer) {
+        const scopeChallenge = preflight.scopeChallenge;
+        if (route.messageKind === 'request' && scopeChallenge !== undefined) {
             try {
-                const challenge = await findScopeChallenge([route.message], authInfo, context => product.resolveScopeChallenge(context));
+                const challenge = await findScopeChallenge([route.message], authInfo, scopeChallenge);
                 if (challenge !== undefined) {
                     void product.close().catch(reportError);
                     return createScopeChallengeResponse(challenge, scopeChallengeResourceMetadataUrl(authInfo));

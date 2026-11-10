@@ -9,6 +9,7 @@ import { McpServer } from '../../src/server/mcp';
 import { requireBearerAuth } from '../../src/server/middleware/bearerAuth';
 import type { ScopeChallengeHandler } from '../../src/server/scopeChallenge';
 import { requireScopes } from '../../src/server/scopeChallenge';
+import { Server } from '../../src/server/server';
 
 const MODERN = '2026-07-28';
 const RESOURCE_METADATA_URL = 'https://auth.example.com/.well-known/oauth-protected-resource';
@@ -201,6 +202,32 @@ describe('createMcpHandler scope preflight', () => {
         expect(promptResponse.headers.get('WWW-Authenticate')).toContain('scope="prompt:read"');
         expect(onRead).not.toHaveBeenCalled();
         expect(onPrompt).not.toHaveBeenCalled();
+    });
+});
+
+describe('createMcpHandler scope preflight for a low-level Server', () => {
+    it('challenges through the handler set with setScopeChallengeHandler', async () => {
+        const onCall = vi.fn();
+        const handler = createMcpHandler(() => {
+            const server = new Server({ name: 'modern-scope', version: '1.0.0' }, { capabilities: { tools: {} } });
+            server.setRequestHandler('tools/call', async () => {
+                onCall();
+                return { content: [] };
+            });
+            server.setScopeChallengeHandler(requireScopes('repo:write'));
+            return server;
+        });
+
+        const denied = await handler.fetch(call('operate', {}), { authInfo: auth(['repo:read']) });
+        expect(denied.status).toBe(403);
+        expect(denied.headers.get('WWW-Authenticate')).toBe(
+            'Bearer error="insufficient_scope", error_description="Insufficient scope", scope="repo:write"'
+        );
+        expect(onCall).not.toHaveBeenCalled();
+
+        const allowed = await handler.fetch(call('operate', {}), { authInfo: auth(['repo:write']) });
+        expect(allowed.status).toBe(200);
+        expect(onCall).toHaveBeenCalledTimes(1);
     });
 });
 

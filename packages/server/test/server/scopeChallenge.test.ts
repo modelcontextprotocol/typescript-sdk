@@ -7,6 +7,7 @@ import * as z from 'zod/v4';
 import { McpServer } from '../../src/server/mcp';
 import type { ScopeChallengeHandler } from '../../src/server/scopeChallenge';
 import { createScopeChallengeResponse, requireScopes } from '../../src/server/scopeChallenge';
+import { Server } from '../../src/server/server';
 import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp';
 
 const RESOURCE_METADATA_URL = 'https://auth.example.com/.well-known/oauth-protected-resource';
@@ -288,5 +289,76 @@ describe('legacy Streamable HTTP scope preflight', () => {
         expect(response.status).toBe(403);
         expect(response.headers.get('WWW-Authenticate')).not.toContain('resource_metadata');
         await harness.transport.close();
+    });
+
+    async function lowLevelCall(handler: 'before connect' | 'after connect' | 'none') {
+        const calls = vi.fn();
+        const server = new Server({ name: 'scope-test', version: '1.0.0' }, { capabilities: { tools: {} } });
+        server.setRequestHandler('tools/call', async () => {
+            calls();
+            return { content: [] };
+        });
+        const transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            enableJsonResponse: true
+        });
+        if (handler === 'before connect') server.setScopeChallengeHandler(requireScopes('repo:write'));
+        await server.connect(transport);
+        if (handler === 'after connect') server.setScopeChallengeHandler(requireScopes('repo:write'));
+        const sessionId = await initializeLegacy(transport);
+        const response = await transport.handleRequest(legacyRequest(toolCall('operate'), sessionId), { authInfo: auth(['repo:read']) });
+        await transport.close();
+        return { response, calls };
+    }
+
+    it.each(['before connect', 'after connect'] as const)(
+        'challenges a low-level Server whose scope challenge handler is set %s',
+        async handler => {
+            const { response, calls } = await lowLevelCall(handler);
+            expect(response.status).toBe(403);
+            expect(response.headers.get('WWW-Authenticate')).toContain('scope="repo:write"');
+            expect(calls).not.toHaveBeenCalled();
+        }
+    );
+
+    it('applies a replaced scope challenge handler to later requests on an open session', async () => {
+        const server = new Server({ name: 'scope-test', version: '1.0.0' }, { capabilities: { tools: {} } });
+        server.setRequestHandler('tools/call', async () => ({ content: [] }));
+        server.setScopeChallengeHandler(requireScopes('repo:write'));
+        const transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            enableJsonResponse: true
+        });
+        await server.connect(transport);
+        const sessionId = await initializeLegacy(transport);
+        const call = () => transport.handleRequest(legacyRequest(toolCall('operate'), sessionId), { authInfo: auth(['repo:read']) });
+
+        expect((await call()).status).toBe(403);
+        server.setScopeChallengeHandler(requireScopes('repo:read'));
+        expect((await call()).status).toBe(200);
+        await transport.close();
+    });
+
+    it('keeps a resolver set directly on the transport when a low-level Server has no handler', async () => {
+        const server = new Server({ name: 'scope-test', version: '1.0.0' }, { capabilities: { tools: {} } });
+        server.setRequestHandler('tools/call', async () => ({ content: [] }));
+        const transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            enableJsonResponse: true
+        });
+        transport.setScopeChallengeResolver(requireScopes('repo:write'));
+        await server.connect(transport);
+        const sessionId = await initializeLegacy(transport);
+
+        const response = await transport.handleRequest(legacyRequest(toolCall('operate'), sessionId), { authInfo: auth(['repo:read']) });
+
+        expect(response.status).toBe(403);
+        await transport.close();
+    });
+
+    it('dispatches to a low-level Server without a scope challenge handler', async () => {
+        const { response, calls } = await lowLevelCall('none');
+        expect(response.status).toBe(200);
+        expect(calls).toHaveBeenCalledTimes(1);
     });
 });
