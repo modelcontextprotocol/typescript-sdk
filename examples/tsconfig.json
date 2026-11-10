@@ -28,13 +28,16 @@
             ],
             "@modelcontextprotocol/core/internal": ["./node_modules/@modelcontextprotocol/core/src/internal.ts"],
             "@modelcontextprotocol/core/ext/skills": ["./node_modules/@modelcontextprotocol/core/src/ext/skills/index.ts"],
+            "@modelcontextprotocol/core/ext/tasks": ["./node_modules/@modelcontextprotocol/core/src/ext/tasks/index.ts"],
             "@modelcontextprotocol/core-internal/public": [
                 "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core-internal/src/exports/public/index.ts"
             ],
             "@modelcontextprotocol/core-internal/ext/skills": [
                 "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core-internal/src/ext/skills/index.ts"
             ],
-            "@mcp-examples/shared": ["./node_modules/@mcp-examples/shared/src/index.ts"]
+            "@mcp-examples/shared": ["./node_modules/@mcp-examples/shared/src/index.ts"],
+            "@modelcontextprotocol/server/ext/tasks": ["./node_modules/@modelcontextprotocol/server/src/ext/tasks/index.ts"],
+            "@modelcontextprotocol/client/ext/tasks": ["./node_modules/@modelcontextprotocol/client/src/ext/tasks/index.ts"]
         }
     }
 }
