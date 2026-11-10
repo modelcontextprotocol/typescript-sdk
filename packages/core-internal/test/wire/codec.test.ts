@@ -36,7 +36,7 @@ describe('codecForVersion era resolution', () => {
     });
 
     test('every legacy revision and undefined resolve to the 2025-era codec', () => {
-        for (const v of ['2024-10-07', '2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25', undefined]) {
+        for (const v of ['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25', undefined]) {
             expect(codecForVersion(v).era).toBe('2025-11-25');
             expect(codecForVersion(v).outboundEnvelope(MATERIAL)).toBeUndefined();
         }

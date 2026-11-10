@@ -179,7 +179,7 @@ describe('row: 400 + -32000 "Unsupported protocol version" literal (deployed TS-
         // Q10-L1 frozen literal, consumed here as a fixture only.
         const body = httpErrorBody(
             -32_000,
-            `Bad Request: Unsupported protocol version: ${MODERN} (supported versions: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05, 2024-10-07)`
+            `Bad Request: Unsupported protocol version: ${MODERN} (supported versions: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05)`
         );
         expect(classify({ kind: 'http-error', status: 400, body })).toEqual({ kind: 'legacy' });
     });
