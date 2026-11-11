@@ -93,6 +93,27 @@ async function readSSEEvent(response: Response): Promise<string> {
     return new TextDecoder().decode(value);
 }
 
+// Reads until the predicate holds, the stream ends or the timeout fires; SSE events can span chunks (#2661).
+async function readSSEUntil(response: Response, predicate: (text: string) => boolean, timeoutMs = 2000): Promise<string> {
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    const timeout = setTimeout(() => void reader.cancel(), timeoutMs);
+    try {
+        while (!predicate(text)) {
+            const { value, done } = await reader.read();
+            if (done) {
+                break;
+            }
+            text += decoder.decode(value, { stream: true });
+        }
+    } finally {
+        clearTimeout(timeout);
+        reader.releaseLock();
+    }
+    return text;
+}
+
 /**
  * Helper to send JSON-RPC request
  */
@@ -657,11 +678,8 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(response.status).toBe(200);
             expect(response.headers.get('content-type')).toBe('text/event-stream');
 
-            const reader = response.body?.getReader();
-
-            // The responses may come in any order or together in one chunk
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
+            // The responses may come in any order and in separate chunks
+            const text = await readSSEUntil(response, t => t.includes('"id":"req-1"') && t.includes('"id":"req-2"'));
 
             // Check that both responses were sent on the same stream
             expect(text).toContain('"id":"req-1"');
@@ -1413,9 +1431,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'First notification from MCP server' });
 
             // Read the notification from the SSE stream
-            const reader = sseResponse.body?.getReader();
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
+            const text = await readSSEUntil(sseResponse, t => t.includes('First notification from MCP server'));
 
             // Verify the notification was sent with an event ID
             expect(text).toContain('id: ');
@@ -1430,7 +1446,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Second notification from MCP server' });
 
             // Close the first SSE stream to simulate a disconnect
-            await reader!.cancel();
+            await sseResponse.body!.cancel();
 
             // Reconnect with the Last-Event-ID to get missed messages
             const reconnectResponse = await fetch(baseUrl, {
@@ -1446,9 +1462,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(reconnectResponse.status).toBe(200);
 
             // Read the replayed notification
-            const reconnectReader = reconnectResponse.body?.getReader();
-            const reconnectData = await reconnectReader!.read();
-            const reconnectText = new TextDecoder().decode(reconnectData.value);
+            const reconnectText = await readSSEUntil(reconnectResponse, t => t.includes('Second notification from MCP server'));
 
             // Verify we received the second notification that was sent after our stored eventId
             expect(reconnectText).toContain('Second notification from MCP server');
