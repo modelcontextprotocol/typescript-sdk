@@ -284,8 +284,11 @@ export async function validateStandardSchema<T extends StandardSchemaV1>(
     data: unknown
 ): Promise<StandardSchemaValidationResult<StandardSchemaV1.InferOutput<T>>> {
     const result = await schema['~standard'].validate(data);
-    if (result.issues && result.issues.length > 0) {
-        return { success: false, error: result.issues.map(i => formatIssue(i)).join(', ') };
+    if (result.issues) {
+        // A present but empty `issues` array is still a failure, so fall back to a
+        // non-empty message: callers that surface `error` must not report it as success.
+        const message = result.issues.map(i => formatIssue(i)).join(', ');
+        return { success: false, error: message || 'validation failed' };
     }
     return { success: true, data: (result as StandardSchemaV1.SuccessResult<unknown>).value as StandardSchemaV1.InferOutput<T> };
 }
