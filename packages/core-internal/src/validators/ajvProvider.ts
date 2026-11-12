@@ -83,6 +83,8 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
     private _ajv2019: AjvLike | undefined;
     /** True iff the constructor received a caller-supplied engine; the `$schema` dispatch is skipped. */
     private readonly _userAjv: boolean;
+    /** Compiled validators per engine, keyed by serialised schema — see {@linkcode getValidator}. */
+    private readonly _validatorCache = new WeakMap<AjvLike, Map<string, AjvValidateFunction>>();
 
     /**
      * @param ajv - Optional pre-configured AJV-compatible instance. When supplied, this instance is
@@ -128,12 +130,31 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
         return (this._ajvDraft7 ??= createDefaultAjvInstance(Draft7Ajv));
     }
 
+    /**
+     * Compile `schema`, reusing the validator from a previous identical call.
+     *
+     * Ajv adds every compiled validator to the engine's scope and holds it for the engine's
+     * lifetime, so recompiling the same schema grows the heap without bound. Schemas arrive
+     * freshly parsed on every `tools/list`, so object identity never repeats and Ajv's own
+     * `$id` cache misses for the common case of a schema without `$id` — hence keying on the
+     * serialised schema, which is stable for a given server's output. (#2605)
+     */
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
         const engine = this._engineFor(schema);
-        const ajvValidator =
-            '$id' in schema && typeof schema.$id === 'string'
-                ? (engine.getSchema(schema.$id) ?? engine.compile(schema))
-                : engine.compile(schema);
+        let cache = this._validatorCache.get(engine);
+        if (!cache) {
+            cache = new Map();
+            this._validatorCache.set(engine, cache);
+        }
+        const key = JSON.stringify(schema);
+        let ajvValidator = cache.get(key);
+        if (!ajvValidator) {
+            ajvValidator =
+                '$id' in schema && typeof schema.$id === 'string'
+                    ? (engine.getSchema(schema.$id) ?? engine.compile(schema))
+                    : engine.compile(schema);
+            cache.set(key, ajvValidator);
+        }
 
         return (input: unknown): JsonSchemaValidatorResult<T> => {
             const valid = ajvValidator(input);
