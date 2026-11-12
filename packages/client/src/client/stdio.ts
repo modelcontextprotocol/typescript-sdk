@@ -77,6 +77,44 @@ export const DEFAULT_INHERITED_ENV_VARS =
           ['HOME', 'LOGNAME', 'PATH', 'SHELL', 'TERM', 'USER'];
 
 /**
+ * Merges the inherited default environment with the caller-supplied one.
+ *
+ * Windows environment variables are case-insensitive, but an object spread is not:
+ * the `PATH` produced by {@linkcode getDefaultEnvironment} and a caller's `Path`
+ * survive as two separate keys. Node's `child_process` then resolves the duplicate
+ * by taking the first in sorted order, so the inherited `PATH` reaches the child and
+ * the caller's value is silently dropped. `Path` is the casing Windows itself uses,
+ * so callers hit this without doing anything unusual.
+ *
+ * On Windows an inherited default is therefore dropped when the caller supplied the
+ * same variable under any casing. Elsewhere the two names are genuinely different
+ * variables and both are kept.
+ */
+export function mergeDefaultEnvironment(
+    defaultEnv: Record<string, string>,
+    env: Record<string, string> | undefined
+): Record<string, string> {
+    if (env === undefined) {
+        return { ...defaultEnv };
+    }
+
+    if (process.platform !== 'win32') {
+        return { ...defaultEnv, ...env };
+    }
+
+    const overridden = new Set(Object.keys(env).map(key => key.toUpperCase()));
+    const merged: Record<string, string> = {};
+
+    for (const [key, value] of Object.entries(defaultEnv)) {
+        if (!overridden.has(key.toUpperCase())) {
+            merged[key] = value;
+        }
+    }
+
+    return { ...merged, ...env };
+}
+
+/**
  * Returns a default environment object including only environment variables deemed safe to inherit.
  */
 export function getDefaultEnvironment(): Record<string, string> {
@@ -135,10 +173,7 @@ export class StdioClientTransport implements Transport {
         return new Promise((resolve, reject) => {
             this._process = spawn(this._serverParams.command, this._serverParams.args ?? [], {
                 // merge default env with server env because mcp server needs some env vars
-                env: {
-                    ...getDefaultEnvironment(),
-                    ...this._serverParams.env
-                },
+                env: mergeDefaultEnvironment(getDefaultEnvironment(), this._serverParams.env),
                 stdio: ['pipe', 'pipe', this._serverParams.stderr ?? 'inherit'],
                 shell: false,
                 windowsHide: process.platform === 'win32',

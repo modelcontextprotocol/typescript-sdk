@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
 
 import type { StdioServerParameters } from '../../src/client/stdio';
-import { DEFAULT_INHERITED_ENV_VARS, StdioClientTransport } from '../../src/client/stdio';
+import { DEFAULT_INHERITED_ENV_VARS, mergeDefaultEnvironment, StdioClientTransport } from '../../src/client/stdio';
 
 // Configure default server parameters based on OS
 // Uses 'more' command for Windows and 'tee' command for Unix/Linux
@@ -180,4 +180,56 @@ test('DEFAULT_INHERITED_ENV_VARS matches the host platform', () => {
     } else {
         expect(DEFAULT_INHERITED_ENV_VARS).toEqual(['HOME', 'LOGNAME', 'PATH', 'SHELL', 'TERM', 'USER']);
     }
+});
+
+describe('mergeDefaultEnvironment', () => {
+    const originalPlatform = process.platform;
+
+    const setPlatform = (value: NodeJS.Platform) => {
+        Object.defineProperty(process, 'platform', { value });
+    };
+
+    afterEach(() => {
+        Object.defineProperty(process, 'platform', { value: originalPlatform });
+    });
+
+    test('returns a copy of the defaults when no environment is given', () => {
+        setPlatform('win32');
+        const defaults = { PATH: 'C:\\inherited' };
+
+        const merged = mergeDefaultEnvironment(defaults, undefined);
+
+        expect(merged).toEqual(defaults);
+        expect(merged).not.toBe(defaults);
+    });
+
+    test('on Windows, an explicit Path replaces the inherited PATH', () => {
+        setPlatform('win32');
+
+        const merged = mergeDefaultEnvironment({ PATH: 'C:\\inherited', SYSTEMROOT: 'C:\\Windows' }, { Path: 'C:\\explicit-only' });
+
+        // Both keys surviving is the bug: Node resolves the duplicate by sorted
+        // order, so the inherited PATH would win and the caller's Path is dropped.
+        expect(Object.keys(merged).filter(key => key.toUpperCase() === 'PATH')).toEqual(['Path']);
+        expect(merged.Path).toBe('C:\\explicit-only');
+        expect(merged.SYSTEMROOT).toBe('C:\\Windows');
+    });
+
+    test('on Windows, an exact-case override still wins and defaults are otherwise kept', () => {
+        setPlatform('win32');
+
+        const merged = mergeDefaultEnvironment({ PATH: 'C:\\inherited', TEMP: 'C:\\Temp' }, { PATH: 'C:\\explicit', EXTRA: '1' });
+
+        expect(merged).toEqual({ PATH: 'C:\\explicit', TEMP: 'C:\\Temp', EXTRA: '1' });
+    });
+
+    test('off Windows, names differing only in case stay separate variables', () => {
+        setPlatform('linux');
+
+        const merged = mergeDefaultEnvironment({ PATH: '/inherited' }, { Path: '/explicit' });
+
+        // POSIX environment variables are case-sensitive, so these are two
+        // different variables and dropping either would be wrong.
+        expect(merged).toEqual({ PATH: '/inherited', Path: '/explicit' });
+    });
 });
