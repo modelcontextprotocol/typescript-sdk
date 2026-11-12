@@ -1231,6 +1231,13 @@ test('should handle request timeout', async () => {
     await expect(client.listResources(undefined, { timeout: 0 })).rejects.toMatchObject({
         code: SdkErrorCode.RequestTimeout
     });
+
+    // Request cancelled with AbortSignal should reject with RequestAborted
+    const controller = new AbortController();
+    controller.abort('user aborted');
+    await expect(client.listResources(undefined, { signal: controller.signal })).rejects.toMatchObject({
+        code: SdkErrorCode.RequestAborted
+    });
 });
 
 /***

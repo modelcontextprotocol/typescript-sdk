@@ -297,10 +297,31 @@ describe('driver loop', () => {
         });
         // Abort while the loop is in the 250 ms pacing sleep — the call must
         // settle without waiting it out.
-        const aborted = new SdkError(SdkErrorCode.RequestTimeout, 'aborted');
+        const aborted = new SdkError(SdkErrorCode.RequestAborted, 'aborted');
         controller.abort(aborted);
         const start = Date.now();
         await expect(outcome).rejects.toBe(aborted);
         expect(Date.now() - start).toBeLessThan(REQUEST_STATE_ONLY_LEG_PACING_MS);
+    });
+
+    test('the requestState-only pacing sleep wraps a non-SdkError abort in RequestAborted', async () => {
+        const controller = new AbortController();
+        const outcome = runInputRequiredDriver({
+            config: { autoFulfill: true, maxRounds: 5 },
+            method: 'test',
+            originalParams: undefined,
+            firstPayload: { inputRequests: {}, requestState: 'opaque' },
+            requestOptions: {},
+            signal: controller.signal,
+            hooks: {
+                dispatchInputRequest: () => Promise.resolve({}),
+                retry: () => Promise.resolve({ content: [] })
+            }
+        });
+        controller.abort('user cancelled pacing');
+        const rejection = await outcome.catch(error => error);
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.RequestAborted);
+        expect((rejection as SdkError).message).toContain('user cancelled pacing');
     });
 });
