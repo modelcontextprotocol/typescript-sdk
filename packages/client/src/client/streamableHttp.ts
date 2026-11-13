@@ -1141,7 +1141,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 // claim stays true and existing
                 // `e instanceof SdkHttpError && e.status === 400` callers do
                 // not silently stop matching.
-                // An unimplemented method is answered with 404 and a -32601 body, which is handled the same way.
+                // A 404 with a matching JSON-RPC error body (an unimplemented method answers -32601) is handled the same way.
                 if (
                     (response.status === 400 || response.status === 404) &&
                     typeof text === 'string' &&
