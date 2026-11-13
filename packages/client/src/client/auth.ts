@@ -187,8 +187,16 @@ export async function handleOAuthUnauthorized(
     ctx: UnauthorizedContext,
     extraAuthOptions?: Pick<AuthOptions, 'skipIssuerMetadataValidation'>
 ): Promise<void> {
+    return retryAfterUnauthorized(provider, ctx, extraAuthOptions);
+}
+
+async function retryAfterUnauthorized(
+    provider: OAuthClientProvider,
+    ctx: UnauthorizedContext,
+    extraAuthOptions?: Pick<InternalAuthOptions, 'skipIssuerMetadataValidation' | 'rejectedAccessToken'>
+): Promise<void> {
     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(ctx.response);
-    const result = await auth(provider, {
+    const result = await runAuth(provider, {
         serverUrl: ctx.serverUrl,
         resourceMetadataUrl,
         scope,
@@ -225,12 +233,14 @@ export function adaptOAuthProvider(
     provider: OAuthClientProvider,
     extraAuthOptions?: Pick<AuthOptions, 'skipIssuerMetadataValidation'>
 ): AuthProvider {
+    let lastAccessToken: string | undefined;
     return {
         token: async () => {
             const tokens = await provider.tokens();
-            return tokens?.access_token;
+            lastAccessToken = tokens?.access_token;
+            return lastAccessToken;
         },
-        onUnauthorized: async ctx => handleOAuthUnauthorized(provider, ctx, extraAuthOptions)
+        onUnauthorized: async ctx => retryAfterUnauthorized(provider, ctx, { ...extraAuthOptions, rejectedAccessToken: lastAccessToken })
     };
 }
 
@@ -246,6 +256,21 @@ export function adaptOAuthProvider(
  * No changes are needed to existing implementations.
  */
 export interface OAuthClientProvider {
+    /**
+     * Optionally runs a complete {@linkcode auth} operation inside a host-managed
+     * credential transaction (for example, a cross-process lock). The operation
+     * includes credential reads, writes, invalidation, and recovery retries.
+     * Authorization-code exchanges and forced reauthorization also use this hook,
+     * but are never deduplicated by the SDK.
+     *
+     * Implementations must invoke and await `operation`, returning its result and
+     * releasing any lock in `finally`. Do not release the lock when an outer wait
+     * is cancelled while the underlying operation is still running. The operation
+     * returns `REDIRECT` after initiating authorization; it does not hold a lock
+     * across the human/browser authorization wait.
+     */
+    withAuthTransaction?(operation: () => Promise<AuthResult>): Promise<AuthResult>;
+
     /**
      * The URL to redirect the user agent to after authorization.
      * Return `undefined` for non-interactive flows that don't require user interaction
@@ -993,7 +1018,19 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
     const body = input instanceof Response ? await input.text() : input;
 
     try {
-        const result = OAuthErrorResponseSchema.parse(JSON.parse(body));
+        const parsed: unknown = JSON.parse(body);
+        // Some servers send null for an absent description. Normalize only at the
+        // wire boundary; the public schema and all other fields remain strict.
+        if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            !Array.isArray(parsed) &&
+            'error_description' in parsed &&
+            parsed.error_description === null
+        ) {
+            delete parsed.error_description;
+        }
+        const result = OAuthErrorResponseSchema.parse(parsed);
         return OAuthError.fromResponse(result);
     } catch (error) {
         // Not a valid OAuth error response, but try to inform the user of the raw data anyway
@@ -1081,12 +1118,61 @@ function warnCredentialInvalidation(provider: OAuthClientProvider, error: OAuthE
 }
 
 /**
+ * {@linkcode AuthOptions} plus the access token a resource server rejected with `401`, which only
+ * the transport adapter knows. Kept out of the public options.
+ */
+type InternalAuthOptions = AuthOptions & { rejectedAccessToken?: string };
+
+const pendingAuthRequests = new WeakMap<OAuthClientProvider, { options: InternalAuthOptions; request: Promise<AuthResult> }>();
+
+function equivalentAuthOptions(a: InternalAuthOptions, b: InternalAuthOptions): boolean {
+    return (
+        String(a.serverUrl) === String(b.serverUrl) &&
+        a.resourceMetadataUrl?.toString() === b.resourceMetadataUrl?.toString() &&
+        a.scope === b.scope &&
+        (a.skipIssuerMetadataValidation ?? false) === (b.skipIssuerMetadataValidation ?? false) &&
+        a.fetchFn === b.fetchFn &&
+        a.rejectedAccessToken === b.rejectedAccessToken
+    );
+}
+
+/**
  * Orchestrates the full auth flow with a server.
  *
  * This can be used as a single entry point for all authorization functionality,
  * instead of linking together the other lower-level functions in this module.
  */
 export async function auth(provider: OAuthClientProvider, options: AuthOptions): Promise<AuthResult> {
+    return runAuth(provider, options);
+}
+
+async function runAuth(provider: OAuthClientProvider, options: InternalAuthOptions): Promise<AuthResult> {
+    const execute = (): Promise<AuthResult> => {
+        const operation = (): Promise<AuthResult> => authWithErrorHandling(provider, options);
+        return provider.withAuthTransaction ? provider.withAuthTransaction(operation) : operation();
+    };
+    if (options.authorizationCode !== undefined || options.forceReauthorization === true) {
+        return execute();
+    }
+
+    const pending = pendingAuthRequests.get(provider);
+    if (pending && equivalentAuthOptions(pending.options, options)) return pending.request;
+
+    // Incompatible ordinary calls must use their own options and read credentials
+    // after the previous operation settles, even if it failed. Track the queue tail
+    // so equivalent callers can also share an operation that has not started yet.
+    const request = pending ? pending.request.then(execute, execute) : Promise.resolve().then(execute);
+    pendingAuthRequests.set(provider, { options, request });
+    try {
+        return await request;
+    } finally {
+        if (pendingAuthRequests.get(provider)?.request === request) {
+            pendingAuthRequests.delete(provider);
+        }
+    }
+}
+
+async function authWithErrorHandling(provider: OAuthClientProvider, options: InternalAuthOptions): Promise<AuthResult> {
     try {
         return await authInternal(provider, options);
     } catch (error) {
@@ -1160,8 +1246,9 @@ async function authInternal(
         resourceMetadataUrl,
         fetchFn,
         skipIssuerMetadataValidation,
-        forceReauthorization
-    }: AuthOptions
+        forceReauthorization,
+        rejectedAccessToken
+    }: InternalAuthOptions
 ): Promise<AuthResult> {
     // SEP-837 / SEP-2207: resolve spec defaults for the DCR body. determineScope()
     // intentionally reads the raw provider.clientMetadata instead.
@@ -1399,6 +1486,11 @@ async function authInternal(
     // SEP-2352: a refresh_token stamped for a different authorization server reads back
     // as `undefined`, so it is never POSTed to this AS's token endpoint.
     let tokens = discardIfIssuerMismatch(await provider.tokens(infoCtx), issuer);
+    // Another flow already replaced the token this 401 rejected while we waited for the
+    // transaction, so refreshing again would spend a refresh token that may have rotated.
+    if (rejectedAccessToken !== undefined && tokens && tokens.access_token !== rejectedAccessToken) {
+        return 'AUTHORIZED';
+    }
     if (tokens && tokens.issuer === undefined) {
         // SEP-2352 back-stamp: bind a legacy unstamped token set to the first-resolved AS
         // so the stamp check is effective from the next call onward.
