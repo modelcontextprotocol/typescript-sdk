@@ -375,6 +375,15 @@ export function buildProbeRequest(
     };
 }
 
+/** True for what the transport throws when the probe was answered 2xx without a usable reply. */
+function isUnusableReplyError(error: unknown): boolean {
+    if (error instanceof SdkError && error.code === SdkErrorCode.ClientHttpUnexpectedContent) {
+        return true;
+    }
+    // Matched by name: this is what response.json() throws for a body that is not JSON.
+    return error instanceof Error && error.name === 'SyntaxError';
+}
+
 function normalizeReply(reply: RawProbeReply, timeoutMs: number): ProbeOutcome {
     switch (reply.kind) {
         case 'response': {
@@ -408,6 +417,9 @@ function normalizeReply(reply: RawProbeReply, timeoutMs: number): ProbeOutcome {
                     body: typeof text === 'string' ? text : undefined,
                     statusText: error.data.statusText
                 };
+            }
+            if (isUnusableReplyError(error)) {
+                return { kind: 'unusable-reply', error };
             }
             return { kind: 'network-error', error };
         }

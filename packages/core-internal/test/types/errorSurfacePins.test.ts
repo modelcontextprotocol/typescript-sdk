@@ -205,6 +205,48 @@ describe('SdkError', () => {
         expect(error.code).toBe('CLIENT_HTTP_FAILED_TO_OPEN_STREAM');
         expect(error.data).toMatchObject({ status: 404 });
     });
+
+    // Cause plumbing (#2657): a wrapped error travels on the standard `Error.cause`
+    // chain via `ErrorOptions`, never through the opaque `data` payload, so pino /
+    // Sentry / `util.inspect` reach the root failure without SDK-specific handling.
+    test('forwards ErrorOptions.cause onto Error.cause without touching data', () => {
+        const root = new TypeError('fetch failed');
+        const error = new SdkError(SdkErrorCode.EraNegotiationFailed, 'Version negotiation probe failed', undefined, {
+            cause: root
+        });
+        expect(error.cause).toBe(root);
+        expect(error.data).toBeUndefined();
+        // Same non-enumerable own property the native Error constructor installs,
+        // so serializers that copy enumerable fields do not emit it twice.
+        expect(Object.getOwnPropertyDescriptor(error, 'cause')?.enumerable).toBe(false);
+    });
+
+    test('does not promote a `cause` key inside data to Error.cause', () => {
+        const root = new Error('boom');
+        const error = new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout: 60_000, cause: root });
+        expect(error.cause).toBeUndefined();
+        expect(error.data).toEqual({ timeout: 60_000, cause: root });
+    });
+
+    test('carries data and cause independently when both are passed', () => {
+        const root = new Error('boom');
+        const error = new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout: 60_000 }, { cause: root });
+        expect(error.cause).toBe(root);
+        expect(error.data).toEqual({ timeout: 60_000 });
+    });
+
+    test('SdkHttpError forwards ErrorOptions.cause and keeps the HTTP status', () => {
+        const root = new Error('socket hang up');
+        const error = new SdkHttpError(
+            SdkErrorCode.ClientHttpFailedToOpenStream,
+            'Failed to open SSE stream: Bad Gateway',
+            { status: 502, statusText: 'Bad Gateway' },
+            { cause: root }
+        );
+        expect(error.cause).toBe(root);
+        expect(error.status).toBe(502);
+        expect(error.statusText).toBe('Bad Gateway');
+    });
 });
 
 describe('protocol version constants', () => {

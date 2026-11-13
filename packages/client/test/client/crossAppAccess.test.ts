@@ -458,6 +458,24 @@ describe('crossAppAccess', () => {
             ).rejects.toThrow('JWT grant exchange failed: invalid_grant - JWT signature verification failed');
         });
 
+        it('does not return an issuer from the token response', async () => {
+            const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
+                ok: true,
+                json: async () => ({ access_token: 'at', token_type: 'Bearer', issuer: 'https://other.example.com' })
+            } as Response);
+
+            const tokens = await exchangeJwtAuthGrant({
+                tokenEndpoint: 'https://auth.chat.example/token',
+                jwtAuthGrant: 'jwt',
+                clientId: 'client',
+                clientSecret: 'secret',
+                fetchFn: mockFetch
+            });
+
+            expect(tokens).toEqual({ access_token: 'at', token_type: 'Bearer' });
+            expect(tokens).not.toHaveProperty('issuer');
+        });
+
         it('validates token response with schema', async () => {
             const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
                 ok: true,

@@ -33,6 +33,11 @@ export interface CreateMcpExpressAppOptions {
      * binds (the same condition as host validation): requests without an `Origin`
      * header pass, while a present `Origin` whose hostname is not localhost-class
      * is rejected with `403`.
+     *
+     * A client that runs as a browser extension sends its extension ID as the origin
+     * hostname: list that ID to admit one extension. A lowercase entry of the form
+     * `<scheme>://*` (e.g. `'moz-extension://*'`) admits every extension of that browser.
+     * `http://*` and `https://*` are not honoured.
      */
     allowedOrigins?: string[];
 
@@ -76,7 +81,6 @@ export function createMcpExpressApp(options: CreateMcpExpressAppOptions = {}): E
     const { host = '127.0.0.1', allowedHosts, allowedOrigins, jsonLimit } = options;
 
     const app = express();
-    app.use(express.json(jsonLimit ? { limit: jsonLimit } : undefined));
 
     // If allowedHosts is explicitly provided, use that for validation
     if (allowedHosts) {
@@ -105,6 +109,10 @@ export function createMcpExpressApp(options: CreateMcpExpressAppOptions = {}): E
     } else if (['127.0.0.1', 'localhost', '::1'].includes(host)) {
         app.use(localhostOriginValidation());
     }
+
+    // The JSON body parser runs after the Host/Origin validation, so a request
+    // from a disallowed origin is answered 403 without its body being read.
+    app.use(express.json(jsonLimit ? { limit: jsonLimit } : undefined));
 
     return app;
 }

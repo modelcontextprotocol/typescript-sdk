@@ -30,12 +30,14 @@ npm install @modelcontextprotocol/server @modelcontextprotocol/hono hono
 import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { createMcpHonoApp } from '@modelcontextprotocol/hono';
 
-const server = new McpServer({ name: 'my-server', version: '1.0.0' });
-const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-await server.connect(transport);
-
 const app = createMcpHonoApp();
-app.all('/mcp', c => transport.handleRequest(c.req.raw, { parsedBody: c.get('parsedBody') }));
+app.all('/mcp', async c => {
+    // Stateless example: create a server and a transport per request.
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    await server.connect(transport);
+    return transport.handleRequest(c.req.raw, { parsedBody: c.get('parsedBody') });
+});
 ```
 
 ### Host header validation (DNS rebinding protection)

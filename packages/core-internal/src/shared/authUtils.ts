@@ -14,6 +14,14 @@ export function resourceUrlFromServerUrl(url: URL | string): URL {
     return resourceURL;
 }
 
+/** Returns an authorization-server response body without `issuer`, which only the client sets, when it stores a value (SEP-2352). */
+export function withoutIssuer(body: unknown): unknown {
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) return body;
+    const copy: Record<string, unknown> = { ...body };
+    delete copy.issuer;
+    return copy;
+}
+
 /**
  * Checks if a requested resource URL matches a configured resource URL.
  * A requested resource matches if it has the same scheme, domain, port,

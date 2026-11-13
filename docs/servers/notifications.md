@@ -102,6 +102,8 @@ const shared = createMcpHandler(() => buildJobsServer(), { bus });
 
 The in-memory bus never leaves the process, so one process needs nothing more. Run more than one and you implement the two-method `ServerEventBus` interface — `publish` and `subscribe` — over your own pub/sub backend, then pass the same instance to every handler; see [Sessions, state, and scaling](../serving/sessions-state-scaling.md).
 
+When forwarding another server's notifications, include their params on the event: `bus.publish({ kind: 'tools_list_changed', params: notification.params })`. The router preserves custom `_meta` and extension params while replacing the subscription ID with the receiving stream's ID. For `resource_updated`, the event's `uri` controls both filtering and the delivered URI.
+
 ## Recap
 
 - `sendToolListChanged()`, `sendPromptListChanged()`, and `sendResourceListChanged()` push a list-changed notification to connected clients.

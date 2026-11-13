@@ -32,6 +32,8 @@ import {
     RegistrationRejectedError,
     resolveClientMetadata,
     SdkError,
+    SdkErrorCode,
+    SdkHttpError,
     SSEClientTransport,
     SseError,
     startAuthorization,
@@ -1038,7 +1040,7 @@ verifies('client-auth:client-credentials', async (_args: TestArgs) => {
         return baseFetch(url, init);
     };
 
-    const provider = new ClientCredentialsProvider({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET });
+    const provider = new ClientCredentialsProvider({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, expectedIssuer: ISSUER });
 
     const client = new Client({ name: 'c', version: '0' });
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
@@ -1276,7 +1278,12 @@ verifies('client-auth:private-key-jwt', async (_args: TestArgs) => {
     const privateKeyPem = keyPair.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
     const publicKeyPem = keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
 
-    const provider = new PrivateKeyJwtProvider({ clientId: CLIENT_ID, privateKey: privateKeyPem, algorithm: 'RS256' });
+    const provider = new PrivateKeyJwtProvider({
+        clientId: CLIENT_ID,
+        privateKey: privateKeyPem,
+        algorithm: 'RS256',
+        expectedIssuer: ISSUER
+    });
 
     const client = new Client({ name: 'c', version: '0' });
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
@@ -1475,6 +1482,95 @@ verifies('client-auth:refresh:transparent', async (_args: TestArgs) => {
     } finally {
         await client.close();
         await mcpHost.close();
+    }
+});
+
+/** An authorization server that rejects a refresh without `scope`, and an MCP host whose access tokens can be expired. */
+function createScopeRequiringWorld() {
+    const as = createMockAuthorizationServer();
+    const mcpHost = hostPerSession(() => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('probe', { inputSchema: z.object({}) }, () => ({ content: [{ type: 'text', text: 'ok' }] }));
+        return s;
+    });
+    const refreshBodies: string[] = [];
+    const liveTokens = new Set(['access-0']);
+    const fetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+        const urlObj = new URL(url);
+        if (urlObj.href === `${ISSUER}/token`) {
+            const body = String(init?.body);
+            refreshBodies.push(body);
+            if (!new URLSearchParams(body).has('scope')) {
+                return Response.json({ error: 'invalid_request', error_description: 'scope is required' }, { status: 400 });
+            }
+            const accessToken = `access-${refreshBodies.length}`;
+            liveTokens.add(accessToken);
+            // RFC 6749 §5.1 and §6: neither `scope` nor `refresh_token` has to be repeated.
+            return Response.json({ access_token: accessToken, token_type: 'Bearer' });
+        }
+        if (urlObj.origin === ISSUER || urlObj.pathname.includes('/.well-known/')) {
+            return as.handleRequest(new Request(url, init));
+        }
+        if (!liveTokens.has(new Headers(init?.headers).get('authorization')?.replace('Bearer ', '') ?? '')) {
+            return new Response(null, { status: 401 });
+        }
+        return mcpHost.handleRequest(new Request(url, init));
+    };
+    const signedIn = {
+        tokens: { access_token: 'access-0', token_type: 'Bearer', refresh_token: 'rt', scope: 'mcp:read mcp:write' },
+        clientInformation: { client_id: 'refresh-client' }
+    };
+    return { fetch, mcpHost, refreshBodies, signedIn, expireAccessTokens: () => liveTokens.clear() };
+}
+
+verifies('client-auth:refresh:no-scope-by-default', async (_args: TestArgs) => {
+    const world = createScopeRequiringWorld();
+    const provider = new RecordingOAuthClientProvider(world.signedIn);
+    const client = new Client({ name: 'c', version: '0' });
+
+    try {
+        await client.connect(new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: world.fetch }));
+        world.expireAccessTokens();
+
+        await expect(client.callTool({ name: 'probe', arguments: {} })).rejects.toMatchObject({ code: OAuthErrorCode.InvalidRequest });
+
+        // A Set: the standalone GET stream may meet the same 401 and refresh too.
+        expect(new Set(world.refreshBodies)).toEqual(
+            new Set(['grant_type=refresh_token&refresh_token=rt&resource=http%3A%2F%2Fin-process%2Fmcp&client_id=refresh-client'])
+        );
+    } finally {
+        await client.close();
+        await world.mcpHost.close();
+    }
+});
+
+verifies('client-auth:refresh:scope-opt-in', async (_args: TestArgs) => {
+    class ScopeOnRefreshProvider extends RecordingOAuthClientProvider {
+        scopeForRefresh(tokens: StoredOAuthTokens) {
+            return tokens.scope;
+        }
+    }
+    const world = createScopeRequiringWorld();
+    const provider = new ScopeOnRefreshProvider(world.signedIn);
+    const client = new Client({ name: 'c', version: '0' });
+
+    try {
+        await client.connect(new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: world.fetch }));
+
+        // Two expiries: the second refresh depends on the scope kept from the first, whose response had none.
+        for (let expiry = 1; expiry <= 2; expiry++) {
+            world.expireAccessTokens();
+            const result = await client.callTool({ name: 'probe', arguments: {} });
+            expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
+            expect(provider.saved.tokens).toMatchObject({ refresh_token: 'rt', scope: 'mcp:read mcp:write' });
+            expect(world.refreshBodies.length).toBeGreaterThanOrEqual(expiry);
+        }
+
+        expect(new Set(world.refreshBodies.map(body => new URLSearchParams(body).get('scope')))).toEqual(new Set(['mcp:read mcp:write']));
+        expect(provider.redirectedTo).toHaveLength(0);
+    } finally {
+        await client.close();
+        await world.mcpHost.close();
     }
 });
 
@@ -1722,7 +1818,8 @@ verifies('client-auth:private-key-jwt:static-assertion', async (_args: TestArgs)
 
     const provider = new StaticPrivateKeyJwtProvider({
         clientId: CLIENT_ID,
-        jwtBearerAssertion: preBuiltJwt
+        jwtBearerAssertion: preBuiltJwt,
+        expectedIssuer: ISSUER
     });
 
     const client = new Client({ name: 'c', version: '0' });
@@ -2066,6 +2163,73 @@ verifies('client-auth:authprovider:token-attached', async (_args: TestArgs) => {
     }
 });
 
+verifies('client-auth:authprovider:token-overrides-requestinit', async (_args: TestArgs) => {
+    const TOKEN = 'provider-bearer-token';
+    const STALE = 'stale-configured-token';
+
+    // Minimal AuthProvider: token() only. Mirrors a config that pins a static API key in
+    // requestInit.headers but must defer to the provider once it has a token (#2208).
+    const authProvider: AuthProvider = {
+        token: async () => TOKEN
+    };
+
+    const seenByServer: Array<{ authorization: string | null; custom: string | null }> = [];
+    const mcpHost = hostPerSession(() => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('probe', { inputSchema: z.object({}) }, (_a, ctx) => {
+            seenByServer.push({
+                authorization: ctx.http?.req?.headers.get('authorization') ?? null,
+                custom: ctx.http?.req?.headers.get('x-caller-header') ?? null
+            });
+            return { content: [{ type: 'text', text: 'ok' }] };
+        });
+        return s;
+    });
+
+    const requests: Array<{ method: string; authorization: string | null; custom: string | null }> = [];
+    const recordingFetch = async (url: URL | string, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        requests.push({
+            method: init?.method ?? 'GET',
+            authorization: headers.get('authorization'),
+            custom: headers.get('x-caller-header')
+        });
+        return mcpHost.handleRequest(new Request(url, init));
+    };
+
+    const client = new Client({ name: 'c', version: '0' });
+    const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), {
+        authProvider,
+        fetch: recordingFetch,
+        requestInit: { headers: { Authorization: `Bearer ${STALE}`, 'X-Caller-Header': 'preserved' } }
+    });
+
+    try {
+        await client.connect(transport);
+        const result = await client.callTool({ name: 'probe', arguments: {} });
+        expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
+
+        // The standalone SSE GET is opened fire-and-forget after initialize; wait for it so it is checked too.
+        await vi.waitFor(() => expect(requests.some(r => r.method === 'GET')).toBe(true));
+
+        // Exactly three POSTs (initialize, notifications/initialized, tools/call) plus the standalone SSE GET,
+        // every one carrying the provider token rather than the configured placeholder, with the other
+        // configured header passing through untouched.
+        expect(requests.filter(r => r.method === 'POST')).toHaveLength(3);
+        expect(requests.filter(r => r.method === 'GET')).toHaveLength(1);
+        for (const req of requests) {
+            expect(req.authorization).toBe(`Bearer ${TOKEN}`);
+            expect(req.custom).toBe('preserved');
+        }
+
+        // The provider token, not the placeholder, is what reached the server on tools/call.
+        expect(seenByServer).toEqual([{ authorization: `Bearer ${TOKEN}`, custom: 'preserved' }]);
+    } finally {
+        await client.close();
+        await mcpHost.close();
+    }
+});
+
 verifies('client-auth:authprovider:onunauthorized-retry', async (_args: TestArgs) => {
     const STALE = 'stale-bearer-token';
     const FRESH = 'fresh-bearer-token';
@@ -2148,7 +2312,7 @@ verifies(
         const STALE = 'stale-bearer-token';
         const ROTATED = 'rotated-but-still-rejected-token';
 
-        // The provider refreshes on 401 but the resource keeps rejecting: the retry's 401 must surface as UnauthorizedError.
+        // The provider refreshes on 401 but the resource keeps rejecting: the retry's 401 must reject with SdkHttpError (ClientHttpAuthentication).
         let currentToken = STALE;
         let unauthorizedCalls = 0;
         const provider: AuthProvider = {
@@ -2171,7 +2335,9 @@ verifies(
         const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: alwaysUnauthorizedFetch });
 
         try {
-            await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+            const connectPromise = client.connect(transport);
+            await expect(connectPromise).rejects.toBeInstanceOf(SdkHttpError);
+            await expect(connectPromise).rejects.toMatchObject({ code: SdkErrorCode.ClientHttpAuthentication, status: 401 });
 
             // onUnauthorized ran once and the transport retried exactly once before giving up.
             expect(unauthorizedCalls).toBe(1);
@@ -2180,7 +2346,7 @@ verifies(
             await client.close();
         }
     },
-    { title: 'second 401 after retry surfaces as UnauthorizedError' }
+    { title: 'second 401 after retry rejects with SdkHttpError' }
 );
 
 verifies('client-auth:authprovider:oauth-provider-adapted', async (_args: TestArgs) => {

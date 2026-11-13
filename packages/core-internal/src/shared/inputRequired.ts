@@ -113,13 +113,14 @@ function buildInputRequired(spec: InputRequiredSpec): InputRequiredResult {
  * @example Write-once tool requesting confirmation
  * ```ts
  * server.registerTool('deploy', { inputSchema: z.object({ env: z.string() }) }, async ({ env }, ctx) => {
- *     const confirmed = acceptedContent<{ confirm: boolean }>(ctx.mcpReq.inputResponses, 'confirm');
- *     if (!confirmed) {
+ *     const confirmationSchema = z.object({ confirm: z.boolean() });
+ *     const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', confirmationSchema);
+ *     if (confirmed?.confirm !== true) {
  *         return inputRequired({
  *             inputRequests: {
  *                 confirm: inputRequired.elicit({
  *                     message: `Deploy to ${env}?`,
- *                     requestedSchema: { type: 'object', properties: { confirm: { type: 'boolean' } }, required: ['confirm'] }
+ *                     requestedSchema: confirmationSchema
  *                 })
  *             }
  *         });

@@ -62,8 +62,7 @@ function recordingFetch() {
 
 const NEGOTIATION_HEADERS = ['mcp-protocol-version', 'mcp-method', 'mcp-name'] as const;
 
-async function setupLegacyServer(stateful: boolean) {
-    const httpServer: Server = createServer();
+async function connectLegacyPair(stateful: boolean) {
     const mcpServer = new McpServer({ name: 'deployed-2025-server', version: '1.0.0' }, { capabilities: { tools: {} } });
     mcpServer.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
         content: [{ type: 'text', text }]
@@ -72,7 +71,22 @@ async function setupLegacyServer(stateful: boolean) {
         sessionIdGenerator: stateful ? () => randomUUID() : undefined
     });
     await mcpServer.connect(serverTransport);
-    httpServer.on('request', (req, res) => void serverTransport.handleRequest(req, res));
+    return { mcpServer, serverTransport };
+}
+
+async function setupLegacyServer(stateful: boolean) {
+    const httpServer: Server = createServer();
+    const { mcpServer, serverTransport } = await connectLegacyPair(stateful);
+    httpServer.on('request', async (req, res) => {
+        if (stateful) {
+            await serverTransport.handleRequest(req, res);
+            return;
+        }
+        // A stateless transport serves one request: connect a new pair for each.
+        const pair = await connectLegacyPair(false);
+        res.on('close', () => void pair.mcpServer.close());
+        await pair.serverTransport.handleRequest(req, res);
+    });
     const baseUrl = await listenOnRandomPort(httpServer);
     return { httpServer, mcpServer, serverTransport, baseUrl };
 }

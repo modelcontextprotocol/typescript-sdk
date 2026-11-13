@@ -1,6 +1,6 @@
 ---
 shape: how-to
-description: 'Require a bearer token on a server you run: verification, protected-resource metadata, and per-tool scopes.'
+description: 'Require a bearer token on a server you run: verification, protected-resource metadata, and per-operation scopes.'
 ---
 
 # Require authorization
@@ -21,7 +21,8 @@ import {
 } from '@modelcontextprotocol/express';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import type { AuthInfo, OAuthMetadata } from '@modelcontextprotocol/server';
-import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import { createMcpHandler, McpServer, requireScopes } from '@modelcontextprotocol/server';
+import * as z from 'zod/v4';
 
 const mcpServerUrl = new URL('https://api.example.com/mcp');
 const verifier: OAuthTokenVerifier = { verifyAccessToken };
@@ -29,7 +30,8 @@ const verifier: OAuthTokenVerifier = { verifyAccessToken };
 const auth = requireBearerAuth({
     verifier,
     requiredScopes: ['mcp'],
-    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
+    expectedResource: mcpServerUrl
 });
 
 const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['api.example.com'] });
@@ -48,7 +50,7 @@ The Authorization Server helpers (`mcpAuthRouter`, `ProxyOAuthServerProvider`, �
 On hosts whose HTTP surface is a `fetch(request)` handler — Cloudflare Workers, Deno, Bun, Hono — the gate is `requireBearerAuth` from `@modelcontextprotocol/server`: no framework, only web-standard `Request` and `Response`.
 
 ```ts source="../../examples/guides/serving/authorization.web.examples.ts#requireBearerAuth_webStandard"
-const gate = requireBearerAuth({ verifier, requiredScopes: ['mcp'] });
+const gate = requireBearerAuth({ verifier, requiredScopes: ['mcp'], expectedResource: mcpServerUrl });
 const handler = createMcpHandler(buildServer);
 
 export default {
@@ -69,7 +71,10 @@ The gate resolves to the verified `AuthInfo` — pass it to the handler as `{ au
 ```ts source="../../examples/guides/serving/authorization.examples.ts#tokenVerifier_basic"
 async function verifyAccessToken(token: string): Promise<AuthInfo> {
     const payload = await verifyJwt(token);
-    return { token, clientId: payload.sub, scopes: payload.scopes, expiresAt: payload.exp };
+    // `aud` is one value, a list, or absent: report the entry on this server's origin, if any, and let `expectedResource` compare it.
+    const audience = [payload.aud ?? []].flat().find(aud => URL.canParse(aud) && new URL(aud).origin === mcpServerUrl.origin);
+    const resource = audience ? new URL(audience) : undefined;
+    return { token, clientId: payload.sub, scopes: payload.scopes, expiresAt: payload.exp, resource };
 }
 ```
 
@@ -78,6 +83,10 @@ Throw an `OAuthError` with `OAuthErrorCode.InvalidToken` (both from `@modelconte
 ::: warning
 `requireBearerAuth` also answers `401 invalid_token` for a token whose `expiresAt` is unset. Always populate it — from the JWT `exp` claim or the introspection response's `exp` field.
 :::
+
+`expectedResource` makes `requireBearerAuth` accept only tokens issued for this resource (the token's audience). Set it to the value your authorization server puts into tokens meant for this server, usually the server's URL. When it is set, `requireBearerAuth` accepts a token only if your verifier reports that value in `AuthInfo.resource` (one trailing slash aside) and answers `401 invalid_token` for a token reported for another value or for none, so populate `resource` from the JWT `aud` claim or the introspection response's `aud` field. `aud` can be a list or absent: report this server's entry, and leave `resource` unset when there is none. When `expectedResource` is not set, `AuthInfo.resource` is not compared with anything.
+
+With Express, `@modelcontextprotocol/express` has to be upgraded together with `@modelcontextprotocol/server`: `@modelcontextprotocol/express` 2.0.1 does not pass `expectedResource` on, so nothing is compared. Its options type does not have the option, so TypeScript reports an `expectedResource` written in a call to its `requireBearerAuth` as an error.
 
 ## Publish protected resource metadata
 
@@ -116,23 +125,49 @@ server.registerTool('whoami', { description: 'Report the authenticated caller' }
 The per-request factory itself receives the same value as `ctx.authInfo`, so it can register a different tool set per caller before any handler runs.
 :::
 
-## Enforce per-tool scopes
+## Enforce per-operation scopes
 
-`requiredScopes` gates the whole endpoint. For a scope only some tools need, check inside the handler — the handler is the only place that knows which tool is executing.
+`requiredScopes` gates the whole endpoint. For scope step-up on an individual tool call, resource read, or prompt retrieval, set `scopeChallenge` on its registration — no handler or transport configuration is needed. The callback receives the full parsed request and verified `authInfo`. Return `undefined` to continue, or return the exact, complete scope set to send `403 insufficient_scope` before invocation or SSE. Throwing or rejecting fails closed.
 
-```ts source="../../examples/guides/serving/authorization.examples.ts#perToolScopes_handler"
-server.registerTool('purge-notes', { description: 'Delete every note' }, async ctx => {
-    if (!ctx.http?.authInfo?.scopes.includes('notes:write')) {
-        return { content: [{ type: 'text', text: 'insufficient_scope: purge-notes requires notes:write' }], isError: true };
-    }
-    return { content: [{ type: 'text', text: 'All notes deleted' }] };
-});
+The challenge uses the same OAuth `insufficient_scope` JSON body and `WWW-Authenticate` formatter as `requireBearerAuth`'s own `403` answer. Its `resource_metadata` parameter comes from the verified `AuthInfo`: the gate stamps its configured `resourceMetadataUrl` onto the `AuthInfo` it returns, so the metadata URL is configured exactly once — on `requireBearerAuth`. Without a stamped value the parameter falls back to the well-known location for the token's RFC 8707 `resource` identifier, or is omitted.
+
+Use `requireScopes` for a static exact all-of check. Use a callback when the required scope set depends on the request:
+
+```ts source="../../examples/guides/serving/authorization.examples.ts#perOperationScopes_challenge"
+server.registerTool('purge-notes', { scopeChallenge: requireScopes('notes:write') }, async () => ({
+    content: [{ type: 'text', text: 'All notes deleted' }]
+}));
+
+server.registerResource('private-notes', 'notes://private', { scopeChallenge: requireScopes('notes:read') }, async uri => ({
+    contents: [{ uri: uri.href, text: 'Private notes' }]
+}));
+
+server.registerPrompt('summarize-notes', { scopeChallenge: requireScopes('notes:read') }, async () => ({
+    messages: [{ role: 'user', content: { type: 'text', text: 'Summarize my private notes' } }]
+}));
+
+server.registerTool(
+    'read-repository',
+    {
+        inputSchema: z.object({ visibility: z.enum(['public', 'private']) }),
+        scopeChallenge: ({ request, authInfo }) => {
+            const visibility = (request.params as { arguments?: { visibility?: unknown } }).arguments?.visibility;
+            if (visibility !== 'public' && visibility !== 'private') return;
+
+            const scopes = visibility === 'private' ? (['repo:read'] as const) : (['public_repo'] as const);
+            return scopes.every(scope => authInfo?.scopes.includes(scope))
+                ? undefined
+                : { scopes, errorDescription: `${visibility} repository access is required` };
+        }
+    },
+    async ({ visibility }) => ({ content: [{ type: 'text', text: `Read ${visibility} repository` }] })
+);
 ```
 
-A caller holding only `mcp` gets an ordinary tool result with `isError: true`, so the model reads the refusal and moves on instead of losing the connection.
+Scope interpretation belongs to your callback; the SDK does not infer hierarchies, alternatives, or missing scopes. Challenged primitives remain visible in their list operations.
 
-::: info
-Responding `403 insufficient_scope` at the HTTP layer instead triggers the client transport's automatic scope step-up (SEP-2350) — see [Authenticate a user with OAuth](../clients/oauth.md).
+::: warning
+The callback runs before the primitive's input schema is validated or transformed. Its `request` contains the JSON-parsed wire values, so dynamic authorization should validate or canonicalize any value whose schema changes its meaning before handler invocation. Scope names must follow the OAuth `scope-token` grammar; `errorDescription`, when provided, must follow RFC 6750's `error-description` grammar.
 :::
 
 ## Recap
@@ -141,5 +176,5 @@ Responding `403 insufficient_scope` at the HTTP layer instead triggers the clien
 - `requireBearerAuth` plus a `verifyAccessToken` you write turn an Express-mounted MCP route into an OAuth resource server; the SDK never issues tokens.
 - Missing, invalid, or expired tokens get `401 invalid_token`; a token missing a `requiredScopes` entry gets `403 insufficient_scope`; both carry a `WWW-Authenticate: Bearer` challenge.
 - `mcpAuthMetadataRouter` publishes the RFC 9728 document that challenge points at, plus a mirror of the AS metadata.
-- Verified auth flows `req.auth` → `ctx.http.authInfo`; per-tool scopes are a check inside the handler that returns `isError: true`.
+- Verified auth flows `req.auth` → `ctx.http.authInfo`; per-operation callbacks can trigger HTTP `403` scope step-up before invocation, advertising the metadata URL the gate stamped onto `AuthInfo`.
 - The v1 Authorization Server helpers are frozen in `@modelcontextprotocol/server-legacy/auth`.

@@ -9,7 +9,13 @@
  */
 
 import type { FetchLike } from '@modelcontextprotocol/core-internal';
-import { IdJagTokenExchangeResponseSchema, OAuthErrorResponseSchema, OAuthTokensSchema } from '@modelcontextprotocol/core-internal';
+import {
+    fetchWithinOrigin,
+    IdJagTokenExchangeResponseSchema,
+    OAuthErrorResponseSchema,
+    OAuthTokensSchema,
+    withoutIssuer
+} from '@modelcontextprotocol/core-internal';
 
 import type { ClientAuthMethod } from './auth';
 import { applyClientAuthentication, assertSecureTokenEndpoint, discoverAuthorizationServerMetadata } from './auth';
@@ -147,7 +153,7 @@ export async function requestJwtAuthorizationGrant(options: RequestJwtAuthGrantO
         params.set('scope', scope);
     }
 
-    const response = await fetchFn(tokenUrl, {
+    const response = await fetchWithinOrigin(fetchFn)(tokenUrl, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded'
@@ -276,7 +282,7 @@ export async function exchangeJwtAuthGrant(options: {
 
     applyClientAuthentication(authMethod, { client_id: clientId, client_secret: clientSecret }, headers, params);
 
-    const response = await fetchFn(tokenUrl, {
+    const response = await fetchWithinOrigin(fetchFn)(tokenUrl, {
         method: 'POST',
         headers,
         body: params.toString()
@@ -298,7 +304,7 @@ export async function exchangeJwtAuthGrant(options: {
     const responseBody = await response.json();
 
     // Validate response using core schema
-    const parseResult = OAuthTokensSchema.safeParse(responseBody);
+    const parseResult = OAuthTokensSchema.safeParse(withoutIssuer(responseBody));
     if (!parseResult.success) {
         throw new Error(`Invalid token response: ${parseResult.error.message}`);
     }

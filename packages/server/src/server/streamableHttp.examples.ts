@@ -43,9 +43,13 @@ declare const app: { all(path: string, handler: (c: { req: { raw: Request } }) =
 /**
  * Example: Using with Hono.js.
  */
-function WebStandardStreamableHTTPServerTransport_hono(transport: WebStandardStreamableHTTPServerTransport) {
+function WebStandardStreamableHTTPServerTransport_hono() {
     //#region WebStandardStreamableHTTPServerTransport_hono
     app.all('/mcp', async c => {
+        // Stateless example: create a server and a transport per request.
+        const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+        await server.connect(transport);
         return transport.handleRequest(c.req.raw);
     });
     //#endregion WebStandardStreamableHTTPServerTransport_hono
@@ -54,10 +58,14 @@ function WebStandardStreamableHTTPServerTransport_hono(transport: WebStandardStr
 /**
  * Example: Using with Cloudflare Workers.
  */
-function WebStandardStreamableHTTPServerTransport_workers(transport: WebStandardStreamableHTTPServerTransport) {
+function WebStandardStreamableHTTPServerTransport_workers() {
     //#region WebStandardStreamableHTTPServerTransport_workers
     const worker = {
         async fetch(request: Request): Promise<Response> {
+            // Stateless example: create a server and a transport per request.
+            const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await server.connect(transport);
             return transport.handleRequest(request);
         }
     };

@@ -433,6 +433,35 @@ verifies('2025:jsonschema:wrap-follows-schema-not-value', async ({ transport }: 
     expect(str.content).toContainEqual({ type: 'text', text: '"x"' });
 });
 
+verifies('2025:jsonschema:ref-to-object-not-wrapped', async ({ transport }: TestArgs) => {
+    const $defs = {
+        Note: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+        Text: { type: 'string' }
+    };
+    const makeServer = () => {
+        const s = new McpServer({ name: 't', version: '0' });
+        const note = async () => ({ content: [], structuredContent: { id: 'n1' } });
+        s.registerTool('named', { outputSchema: fromJsonSchema<{ id: string }>({ $ref: '#/$defs/Note', $defs }) }, note);
+        s.registerTool('union', { outputSchema: fromJsonSchema<{ id: string }>({ anyOf: [{ $ref: '#/$defs/Note' }], $defs }) }, note);
+        s.registerTool('text', { outputSchema: fromJsonSchema<string>({ $ref: '#/$defs/Text', $defs }) }, async () => ({
+            content: [],
+            structuredContent: 'x'
+        }));
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+
+    const { tools } = await client.listTools();
+    expect(tools.find(t => t.name === 'named')?.outputSchema).toMatchObject({ type: 'object', $ref: '#/$defs/Note' });
+    for (const name of ['named', 'union']) {
+        const note = await client.callTool({ name });
+        expect(note.structuredContent).toEqual({ id: 'n1' });
+    }
+    const text = await client.callTool({ name: 'text' });
+    expect(text.structuredContent).toEqual({ result: 'x' });
+});
+
 verifies('server:jsonschema:union-output-natural', async ({ transport }: TestArgs) => {
     const client = newClient();
     await using _ = await wire(transport, unionOutputServer, client);

@@ -33,10 +33,11 @@ import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 
-const server = new McpServer({ name: 'my-server', version: '1.0.0' });
 const app = createMcpExpressApp();
 
 app.post('/mcp', async (req, res) => {
+    // Stateless example: create a server and a transport per request.
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' });
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await server.connect(transport);
 
@@ -59,13 +60,12 @@ import { createServer } from 'node:http';
 import { localhostHostValidation, localhostOriginValidation, NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 
-const server = new McpServer({ name: 'my-server', version: '1.0.0' });
-
 const validateHost = localhostHostValidation();
 const validateOrigin = localhostOriginValidation();
 
 createServer(async (req, res) => {
     if (!validateHost(req, res) || !validateOrigin(req, res)) return;
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' });
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await server.connect(transport);
     await transport.handleRequest(req, res);

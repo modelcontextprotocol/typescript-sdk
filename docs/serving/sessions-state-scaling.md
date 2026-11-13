@@ -23,19 +23,36 @@ The transport answers `initialize` with the generated id in an `Mcp-Session-Id` 
 One transport instance is one session, so a sessionful deployment keeps a map: build a transport when `initialize` arrives, store it in `onsessioninitialized`, and route every later request to the transport that owns its `Mcp-Session-Id`. This Express route handles all three verbs — `POST`, the `GET` notification stream, and `DELETE` ([Serve with Express](./express.md) covers the app itself).
 
 ```ts source="../../examples/guides/serving/sessions-state-scaling.examples.ts#sessions_routing"
-const sessions = new Map<string, NodeStreamableHTTPServerTransport>();
+const IDLE_MS = 30 * 60_000;
+const MAX_SESSIONS = 1000;
+
+type Session = { transport: NodeStreamableHTTPServerTransport; open: number; lastActive: number };
+const sessions = new Map<string, Session>();
 
 const route = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (sessionId && sessions.has(sessionId)) {
-        await sessions.get(sessionId)!.handleRequest(req, res, req.body);
+    const session = sessionId ? sessions.get(sessionId) : undefined;
+    if (session) {
+        // Count open responses so a long-running request or a listening stream is not treated as idle.
+        if (res.socket && !res.destroyed) {
+            session.open++;
+            res.on('close', () => {
+                session.open--;
+                session.lastActive = Date.now();
+            });
+        }
+        await session.transport.handleRequest(req, res, req.body);
         return;
     }
     if (!sessionId && isInitializeRequest(req.body)) {
+        if (sessions.size >= MAX_SESSIONS) {
+            res.status(503).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Too many open sessions' }, id: null });
+            return;
+        }
         const transport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: id => {
-                sessions.set(id, transport);
+                sessions.set(id, { transport, open: 0, lastActive: Date.now() });
             }
         });
         transport.onclose = () => {
@@ -57,12 +74,20 @@ const route = async (req: Request, res: Response) => {
 app.post('/mcp', route);
 app.get('/mcp', route);
 app.delete('/mcp', route);
+
+// Close sessions with nothing open and no activity for IDLE_MS.
+setInterval(() => {
+    const cutoff = Date.now() - IDLE_MS;
+    for (const { transport, open, lastActive } of sessions.values()) {
+        if (open === 0 && lastActive < cutoff) transport.close().catch(console.error);
+    }
+}, 60_000).unref();
 ```
 
-The map cleans itself up: `transport.onclose` fires when the session ends, whether the client sent `DELETE` or you called `transport.close()`. A request with an unknown `Mcp-Session-Id` gets the `404` above, which tells the client to start a new session; a request with no session header at all gets the `400`, which tells it to re-send the id it already has instead of re-initializing.
+`transport.onclose` removes an entry when the client sends `DELETE`, you call `transport.close()`, or the timer closes a session idle for `IDLE_MS`. At `MAX_SESSIONS`, `initialize` gets a `503`. The limit is shared by all clients and an unused session holds its place for `IDLE_MS`, so pick a `MAX_SESSIONS` that fits in memory, and on a server anyone can reach put authentication or a per-client limit in front of `initialize`. An expired id gets the `404` above, which tells the client to start a new session; a request with no session header at all gets the `400`, which tells it to re-send the id it already has instead of re-initializing.
 
 ::: tip
-On shutdown, close every stored transport — `for (const [, transport] of sessions) await transport.close()` — before exiting; `close()` ends the session's SSE streams and rejects its pending requests.
+On shutdown, close every stored transport — `for (const { transport } of sessions.values()) await transport.close()` — before exiting; `close()` ends the session's SSE streams and rejects its pending requests.
 :::
 
 ## Resume a dropped stream
@@ -102,6 +127,6 @@ Now `handler.notify.resourceUpdated(uri)` on any node publishes through the shar
 
 - `createMcpHandler` builds a fresh server per request and holds nothing between requests, so stateless nodes scale behind any load balancer with no session affinity.
 - Sessions belong to the hand-wired 2025-era transport: `sessionIdGenerator` turns them on, and responses carry `Mcp-Session-Id`.
-- A sessionful deployment keeps one transport per session and routes every request to it by that header; unknown ids get a `404`.
+- A sessionful deployment keeps one transport per session and routes every request to it by that header; it closes idle sessions, caps how many are open, and answers unknown ids with a `404`.
 - An `eventStore` makes a dropped SSE stream resumable: the client reconnects with `Last-Event-ID` and the transport replays what it missed.
 - `subscriptions/listen` scales across nodes by handing every node's `createMcpHandler` the same `ServerEventBus`.

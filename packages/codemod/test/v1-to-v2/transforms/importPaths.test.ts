@@ -204,6 +204,135 @@ describe('import-paths transform', () => {
         expect(result).toContain('@modelcontextprotocol/server');
     });
 
+    it('keeps a license header above the rewritten import, with its blank line intact', () => {
+        // #2575: the header survived in the text but the re-emitted import was inserted above it, so
+        // the header stopped being the first thing in the file (breaking eslint-plugin-header /
+        // SPDX scanners) and the blank line separating it from the code was consumed, turning the
+        // header into a doc comment for the next declaration. Content-only assertions miss both.
+        const input = [
+            `// Copyright (c) 2026 Example Corp.`,
+            `// SPDX-License-Identifier: Apache-2.0`,
+            ``,
+            `import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';`,
+            ``,
+            `export const ok = (): CallToolResult => ({ content: [] });`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+        const lines = result.split('\n');
+
+        expect(lines[0]).toBe('// Copyright (c) 2026 Example Corp.');
+        expect(lines[1]).toBe('// SPDX-License-Identifier: Apache-2.0');
+        // the blank line between header and code must survive, or the header reads as a doc comment
+        expect(lines[2]).toBe('');
+        expect(lines.findIndex(l => l.startsWith('import'))).toBeGreaterThan(1);
+        expect(result).toContain('@modelcontextprotocol/server');
+        expect(result).toBe(input.replace(`'@modelcontextprotocol/sdk/types.js'`, `"@modelcontextprotocol/server"`));
+    });
+
+    it('does not split a multi-line header run when the SDK import is not the first import', () => {
+        // #2575, second shape: the rewritten import was inserted *inside* the leading `//` run,
+        // stranding line 1 above an unrelated import.
+        const input = [
+            `// page_to_markdown tool: fetches a URL and returns clean Markdown.`,
+            `// Uses @page2ai/core under the hood - inherits SSRF protection and a 10MB cap.`,
+            `// Static tab discovery emits per-tab sections for docs sites.`,
+            ``,
+            `import { fetchAndConvert } from '@page2ai/core';`,
+            `import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';`,
+            ``,
+            `export const x = (r: CallToolResult) => fetchAndConvert(r);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+        const lines = result.split('\n');
+
+        // the three header lines stay contiguous at the top of the file
+        expect(lines[0]).toContain('page_to_markdown tool');
+        expect(lines[1]).toContain('@page2ai/core under the hood');
+        expect(lines[2]).toContain('Static tab discovery');
+        expect(lines.findIndex(l => l.startsWith('import'))).toBeGreaterThan(2);
+        expect(result).toContain('@modelcontextprotocol/server');
+        expect(result).toBe(input.replace(`'@modelcontextprotocol/sdk/types.js'`, `"@modelcontextprotocol/server"`));
+    });
+
+    it('leaves a comment above a mid-file import attached to that import', () => {
+        // A comment above a later import documents that import: it stays directly above it.
+        const input = [
+            `import { fetchAndConvert } from '@page2ai/core';`,
+            ``,
+            `// Result type returned to the caller.`,
+            `import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';`,
+            ``,
+            `export const x = (r: CallToolResult) => fetchAndConvert(r);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+
+        expect(result.split('// Result type returned to the caller.').length - 1).toBe(1);
+        expect(result.indexOf('// Result type returned to the caller.')).toBeGreaterThan(result.indexOf('@page2ai/core'));
+        expect(result).toBe(input.replace(`'@modelcontextprotocol/sdk/types.js'`, `"@modelcontextprotocol/server"`));
+    });
+
+    it(`keeps a 'use client' directive above the rewritten import`, () => {
+        const input = [
+            `'use client';`,
+            ``,
+            `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+            `import { useState } from 'react';`,
+            ''
+        ].join('\n');
+        const expected = input.replace(`'@modelcontextprotocol/sdk/client/index.js'`, `"@modelcontextprotocol/client"`);
+        expect(applyTransform(input)).toBe(expected);
+    });
+
+    it('keeps the blank line below a JSDoc-style license header', () => {
+        const input = [
+            `/**`,
+            ` * @license Apache-2.0`,
+            ` */`,
+            ``,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            ``,
+            `export const server = new McpServer({ name: 'x', version: '1.0.0' });`,
+            ''
+        ].join('\n');
+        const expected = input.replace(`'@modelcontextprotocol/sdk/server/mcp.js'`, `"@modelcontextprotocol/server"`);
+        expect(applyTransform(input)).toBe(expected);
+    });
+
+    it('does not duplicate a license header that is followed by a JSDoc block', () => {
+        const input = [
+            `// Copyright (c) 2026 Example Corp.`,
+            ``,
+            `/**`,
+            ` * What this file does.`,
+            ` */`,
+            ``,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            ``,
+            `export const server = new McpServer({ name: 'x', version: '1.0.0' });`,
+            ''
+        ].join('\n');
+        const expected = input.replace(`'@modelcontextprotocol/sdk/server/mcp.js'`, `"@modelcontextprotocol/server"`);
+        expect(applyTransform(input)).toBe(expected);
+    });
+
+    it('puts new imports below a namespace import that is rewritten in place, not above the header', () => {
+        const input = [
+            `/** @license Apache-2.0 */`,
+            ``,
+            `import * as types from '@modelcontextprotocol/sdk/types.js';`,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            ''
+        ].join('\n');
+        const lines = applyTransform(input, { projectType: 'server' }).split('\n');
+        expect(lines[0]).toBe(`/** @license Apache-2.0 */`);
+        expect(lines[1]).toBe('');
+        expect(lines[2]).toContain('* as types');
+        expect(lines[3]).toBe(`import { McpServer } from "@modelcontextprotocol/server";`);
+    });
+
     it('routes OAuth *Schema from sdk/shared/auth.js to core; the TYPE resolves by context', () => {
         // OAuthTokensSchema is a Zod schema re-exported by core (AUTH_SCHEMA_NAMES), so route it
         // there — `OAuthTokensSchema.parse(...)` keeps working. OAuthTokens (the type) has no schema-name
@@ -766,6 +895,29 @@ describe('import-paths transform', () => {
         const output = sourceFile.getFullText();
         expect(output).toContain('@modelcontextprotocol/client');
         expect(output).not.toContain('@modelcontextprotocol/sdk');
+        const lines = output.split('\n');
+        expect(lines[0]).toBe(`import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';`);
+        expect(lines[1]).toBe(`import type { Tool } from "@modelcontextprotocol/client";`);
+        expect(lines.findLastIndex(line => line.startsWith('import '))).toBeLessThan(lines.findIndex(line => line.startsWith('const c')));
+    });
+
+    it('keeps the type import with the imports when the value import merges into an existing v2 import', () => {
+        const input = [
+            `// Copyright (c) 2026 Example Corp.`,
+            `// SPDX-License-Identifier: Apache-2.0`,
+            ``,
+            `import { Client } from '@modelcontextprotocol/client';`,
+            `import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';`,
+            `import type { Tool } from '@modelcontextprotocol/sdk/types.js';`,
+            ``,
+            `const c = new Client({});`,
+            ''
+        ].join('\n');
+        const lines = applyTransform(input, { projectType: 'client' }).split('\n');
+        expect(lines.slice(0, 3)).toEqual(['// Copyright (c) 2026 Example Corp.', '// SPDX-License-Identifier: Apache-2.0', '']);
+        expect(lines[3]).toBe(`import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';`);
+        expect(lines[4]).toBe(`import type { Tool } from "@modelcontextprotocol/client";`);
+        expect(lines.findLastIndex(line => line.startsWith('import '))).toBeLessThan(lines.findIndex(line => line.startsWith('const c')));
     });
 
     it('applies SIMPLE_RENAMES to re-export specifiers', () => {

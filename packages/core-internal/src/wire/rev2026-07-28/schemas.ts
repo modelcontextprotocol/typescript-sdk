@@ -156,3 +156,4 @@ export const ListResourceTemplatesResultResponseSchema = s.ListResourceTemplates
 export const ReadResourceResultResponseSchema = s.ReadResourceResultResponseSchema;
 export const CompleteResultResponseSchema = s.CompleteResultResponseSchema;
 export const DiscoverResultResponseSchema = s.DiscoverResultResponseSchema;
+export const SubscriptionsListenResultResponseSchema = s.SubscriptionsListenResultResponseSchema;

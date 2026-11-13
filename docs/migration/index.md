@@ -43,9 +43,13 @@ wire-only members (`resultType`, envelope keys) directly.
 
 ## Using an LLM agent to migrate
 
-[upgrade-to-v2.md](./upgrade-to-v2.md) is the agent skill — it carries skill
-frontmatter and is structured for mechanical application. Point the agent at
-the codemod first; the guide is the codemod's companion for what's left.
+[upgrade-to-v2.md](./upgrade-to-v2.md) is also published as an agent skill, with
+one reference file per subsystem so the agent reads only what your code needs. It
+runs the codemod first and uses the guide for what's left:
+
+```bash
+npx skills add modelcontextprotocol/typescript-sdk --skill mcp-typescript-sdk-upgrade-to-v2
+```
 
 ## See also
 

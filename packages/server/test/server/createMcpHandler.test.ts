@@ -48,8 +48,9 @@ function modernToolsCall(name: string, args: Record<string, unknown>, envelope: 
 function bodyDerivedStandardHeaders(body: unknown): Record<string, string> {
     if (body === null || typeof body !== 'object' || Array.isArray(body)) return {};
     const b = body as { method?: unknown; params?: { name?: unknown; uri?: unknown; _meta?: Record<string, unknown> } };
-    if (typeof b.params?._meta?.[PROTOCOL_VERSION_META_KEY] !== 'string') return {};
-    const out: Record<string, string> = {};
+    const claimedVersion = b.params?._meta?.[PROTOCOL_VERSION_META_KEY];
+    if (b.params === undefined || typeof claimedVersion !== 'string') return {};
+    const out: Record<string, string> = { 'mcp-protocol-version': claimedVersion };
     if (typeof b.method === 'string') out['mcp-method'] = b.method;
     const name = b.method === 'resources/read' ? b.params.uri : b.params.name;
     if (typeof name === 'string') out['mcp-name'] = name;
@@ -271,6 +272,53 @@ describe('createMcpHandler — modern path', () => {
         expect(body.error.code).toBe(-32_603);
         expect(body.id).toBe(1);
         expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'factory exploded' }));
+    });
+
+    it('restores a reused server onclose handler after each modern exchange', async () => {
+        const reused = new McpServer({ name: 'entry-test-server', version: '1.0.0' });
+        reused.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, async ({ text }) => ({
+            content: [{ type: 'text', text }]
+        }));
+
+        const originalOnClose = vi.fn();
+        reused.server.onclose = originalOnClose;
+
+        const handler = createMcpHandler(() => reused);
+
+        for (let i = 0; i < 3; i++) {
+            const response = await handler.fetch(postRequest(modernToolsCall('echo', { text: `hello-${i}` })));
+            expect(response.status).toBe(200);
+            await response.text();
+            expect(reused.server.onclose).toBe(originalOnClose);
+        }
+
+        expect(originalOnClose).toHaveBeenCalledTimes(3);
+    });
+
+    it('keeps an onclose handler that was installed during the exchange', async () => {
+        const reused = new McpServer({ name: 'entry-test-server', version: '1.0.0' });
+        const installedDuringExchange = vi.fn();
+        let chained: (() => void) | undefined;
+        reused.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, async ({ text }) => {
+            if (chained === undefined) {
+                const previous = reused.server.onclose;
+                chained = () => {
+                    installedDuringExchange();
+                    previous?.();
+                };
+                reused.server.onclose = chained;
+            }
+            return { content: [{ type: 'text', text }] };
+        });
+
+        const handler = createMcpHandler(() => reused);
+
+        const response = await handler.fetch(postRequest(modernToolsCall('echo', { text: 'hello' })));
+        expect(response.status).toBe(200);
+        await response.text();
+
+        expect(reused.server.onclose).toBe(chained);
+        expect(installedDuringExchange).toHaveBeenCalledTimes(1);
     });
 
     it('closes and releases the per-request instance when a modern exchange fails internally', async () => {
@@ -498,6 +546,7 @@ describe('createMcpHandler — stateless legacy fallback (the default)', () => {
         for (const method of ['GET', 'DELETE']) {
             const response = await handler.fetch(new Request('http://localhost/mcp', { method }));
             expect(response.status).toBe(405);
+            expect(response.headers.get('Allow')).toBe('POST');
             const body = (await response.json()) as JSONRPCErrorBody;
             expect(body.error.code).toBe(-32_000);
             expect(body.error.message).toBe('Method not allowed.');
@@ -535,6 +584,44 @@ describe('createMcpHandler — stateless legacy fallback (the default)', () => {
         expect(response.status).toBe(400);
         const body = (await response.json()) as JSONRPCErrorBody;
         expect(body.error.code).toBe(-32_700);
+    });
+
+    it('answers 413 for a request body over the size limit before creating a server', async () => {
+        const { factory, state } = testFactory();
+        const handler = createMcpHandler(factory);
+
+        const streamed = postRequest('x'.repeat(4 * 1024 * 1024 + 1));
+        const declared = postRequest('{}', { 'Content-Length': String(4 * 1024 * 1024 + 1) });
+        for (const request of [streamed, declared]) {
+            const response = await handler.fetch(request);
+            expect(response.status).toBe(413);
+            expect(((await response.json()) as JSONRPCErrorBody).error.code).toBe(-32_000);
+        }
+        expect(state.contexts).toHaveLength(0);
+    });
+
+    it('maxRequestBodySize moves the bound for the entry, its stateless legacy leg, and isLegacyRequest', async () => {
+        const { factory, state } = testFactory();
+        const paddedPing = { jsonrpc: '2.0', id: 1, method: 'ping', params: { pad: 'x'.repeat(5 * 1024 * 1024) } };
+
+        const roomy = createMcpHandler(factory, { maxRequestBodySize: 8 * 1024 * 1024 });
+        const served = await roomy.fetch(postRequest(paddedPing));
+        expect(served.status).toBe(200);
+        expect(await served.text()).toContain('"result":{}');
+        expect(state.contexts).toHaveLength(1);
+
+        const strict = createMcpHandler(factory, { maxRequestBodySize: 1024 });
+        const refused = await strict.fetch(postRequest('x'.repeat(1025)));
+        expect(refused.status).toBe(413);
+        expect(((await refused.json()) as JSONRPCErrorBody).error.message).toMatch(/must not exceed 1024 bytes/);
+        expect(state.contexts).toHaveLength(1);
+
+        expect(await isLegacyRequest(postRequest(paddedPing))).toBe(false);
+        expect(await isLegacyRequest(postRequest(paddedPing), undefined, { maxRequestBodySize: 8 * 1024 * 1024 })).toBe(true);
+
+        for (const invalid of [0, -1, Number.NaN]) {
+            expect(() => createMcpHandler(factory, { maxRequestBodySize: invalid })).toThrow(RangeError);
+        }
     });
 
     it('still serves the modern path on the same endpoint (one factory, both legs)', async () => {
@@ -872,5 +959,132 @@ describe('createMcpHandler — keepAliveMs', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+});
+
+describe('createMcpHandler — a factory that returns the same instance for every request', () => {
+    /** One instance whose `report` tool holds the call named `first` until released, then notifies and answers with its own text. */
+    function heldInstance(): { instance: McpServer; started: Promise<void>; release: () => void } {
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => {
+            release = resolve;
+        });
+        let markStarted!: () => void;
+        const started = new Promise<void>(resolve => {
+            markStarted = resolve;
+        });
+        const instance = new McpServer({ name: 'entry-test-server', version: '1.0.0' });
+        instance.registerTool('report', { inputSchema: z.object({ text: z.string() }) }, async ({ text }, ctx) => {
+            if (text === 'first') {
+                markStarted();
+                await gate;
+            }
+            await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'tok', progress: 1, message: text } });
+            return { content: [{ type: 'text', text: `result for ${text}` }] };
+        });
+        return { instance, started, release };
+    }
+
+    const modernCall = (text: string, clientName = 'entry-test-client'): Request =>
+        postRequest(
+            modernToolsCall(
+                'report',
+                { text },
+                { ...ENVELOPE, [CLIENT_INFO_META_KEY]: { name: clientName, version: '1.0.0' }, progressToken: 'tok' }
+            )
+        );
+    const legacyCall = (text: string): Request =>
+        postRequest({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: { name: 'report', arguments: { text }, _meta: { progressToken: 'tok' } }
+        });
+    const legs = [
+        { leg: 'modern', call: modernCall, reported: 'still serving another request' },
+        { leg: 'legacy', call: legacyCall, reported: 'already connected to a transport' }
+    ];
+
+    it.each(legs)('answers 500 to an overlapping request and completes the one in progress ($leg)', async ({ call, reported }) => {
+        const { instance, started, release } = heldInstance();
+        const onerror = vi.fn();
+        const handler = createMcpHandler(() => instance, { onerror });
+
+        const inProgress = handler.fetch(call('first'));
+        await started;
+
+        const overlapping = await handler.fetch(call('second'));
+        expect(overlapping.status).toBe(500);
+        expect(((await overlapping.json()) as JSONRPCErrorBody).error).toEqual({ code: -32_603, message: 'Internal server error' });
+        expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining(reported) }));
+
+        release();
+        const response = await inProgress;
+        expect(response.status).toBe(200);
+        const text = await response.text();
+        expect(text).toContain('"message":"first"');
+        expect(text).toContain('result for first');
+        expect(text).not.toContain('second');
+    });
+
+    it.each(legs)('serves one of two requests that reach an async factory together ($leg)', async ({ call }) => {
+        const { instance } = heldInstance();
+        let ready: Promise<void> | undefined;
+        const handler = createMcpHandler(async () => {
+            ready ??= new Promise(resolve => setTimeout(resolve, 10));
+            await ready;
+            return instance;
+        });
+
+        const responses = await Promise.all([handler.fetch(call('one')), handler.fetch(call('two'))]);
+        expect(responses.filter(response => response.status === 200)).toHaveLength(1);
+        expect(responses.filter(response => response.status === 500)).toHaveLength(1);
+
+        const [own, other] = responses[0]!.status === 200 ? ['one', 'two'] : ['two', 'one'];
+        const text = await responses.find(response => response.status === 200)!.text();
+        expect(text).toContain(`result for ${own}`);
+        expect(text).not.toContain(other);
+    });
+
+    it('keeps the client identity of the request in progress when an overlapping request is answered 500', async () => {
+        const { instance, started, release } = heldInstance();
+        const handler = createMcpHandler(() => instance);
+
+        const inProgress = handler.fetch(modernCall('first', 'client-of-first'));
+        await started;
+        const overlapping = await handler.fetch(modernCall('second', 'client-of-second'));
+        expect(overlapping.status).toBe(500);
+        expect(instance.server.getClientVersion()?.name).toBe('client-of-first');
+
+        release();
+        expect((await inProgress).status).toBe(200);
+    });
+
+    it('answers 500 to an overlapping subscriptions/listen and completes the request in progress', async () => {
+        const { instance, started, release } = heldInstance();
+        const handler = createMcpHandler(() => instance);
+
+        const inProgress = handler.fetch(modernCall('first'));
+        await started;
+        const listen = { jsonrpc: '2.0', id: 1, method: 'subscriptions/listen', params: { _meta: ENVELOPE, notifications: {} } };
+        expect((await handler.fetch(postRequest(listen))).status).toBe(500);
+
+        release();
+        const response = await inProgress;
+        expect(response.status).toBe(200);
+        expect(await response.text()).toContain('result for first');
+    });
+
+    it.each(legs)('serves requests that arrive one after the other ($leg)', async ({ call }) => {
+        const { instance } = heldInstance();
+        const onerror = vi.fn();
+        const handler = createMcpHandler(() => instance, { onerror });
+
+        for (const text of ['one', 'two', 'three']) {
+            const response = await handler.fetch(call(text));
+            expect(response.status).toBe(200);
+            expect(await response.text()).toContain(`result for ${text}`);
+        }
+        expect(onerror).not.toHaveBeenCalled();
     });
 });

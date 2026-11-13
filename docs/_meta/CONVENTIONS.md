@@ -198,7 +198,7 @@ So a page at `docs/get-started/first-server.md` whose companion is
 source="../../examples/guides/get-started/firstServer.examples.ts#<region>"
 ```
 
-The sync script scans `docs/**/*.md`.
+The sync script scans `docs/**/*.md` and `skills/**/*.md`.
 
 ### 4. How example files are typechecked
 
@@ -230,7 +230,7 @@ pnpm sync:snippets --check
 ```
 
 NEVER run bare `pnpm sync:snippets` — it rewrites every fenced block in `docs/` and
-`docs/` in place, and concurrent mutating runs from parallel agents race and clobber
+`skills/` in place, and concurrent mutating runs from parallel agents race and clobber
 each other. Hand-write the fence body to match the region exactly; `--check` confirms.
 
 Verified outputs from prep (2026-06-29):

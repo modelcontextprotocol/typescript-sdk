@@ -752,6 +752,19 @@ export interface AuthInfo {
     resource?: URL;
 
     /**
+     * URL of the RFC 9728 Protected Resource Metadata document for the
+     * resource server that accepted this token.
+     *
+     * The bearer-auth helpers stamp their configured `resourceMetadataUrl`
+     * here when verification succeeds, so challenge responses built after
+     * authentication (for example per-operation `insufficient_scope` scope
+     * challenges) can advertise the same document as the authentication
+     * gate's own challenges without separate configuration. Verifiers may
+     * also populate it directly; a verifier-set value wins.
+     */
+    resourceMetadataUrl?: string;
+
+    /**
      * Additional data associated with the token.
      * This field should be used for any additional data that needs to be attached to the auth info.
      */

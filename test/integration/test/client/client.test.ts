@@ -73,7 +73,8 @@ test('should initialize with matching protocol version', async () => {
  * Test: Initialize with Supported Older Protocol Version
  */
 test('should initialize with supported older protocol version', async () => {
-    const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
+    // Index 1 is always present; `noUncheckedIndexedAccess` cannot see that.
+    const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1]!;
     const clientTransport: Transport = {
         start: vi.fn().mockResolvedValue(undefined),
         close: vi.fn().mockResolvedValue(undefined),
@@ -277,7 +278,8 @@ test('should reject unsupported protocol version', async () => {
  * Test: Connect New Client to Old Supported Server Version
  */
 test('should connect new client to old, supported server version', async () => {
-    const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
+    // Index 1 is always present; `noUncheckedIndexedAccess` cannot see that.
+    const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1]!;
     const server = new Server(
         {
             name: 'test server',
@@ -725,7 +727,7 @@ test('should only allow setRequestHandler for declared capabilities', () => {
 
     // This should throw because roots listing is not a declared capability
     expect(() => {
-        client.setRequestHandler('roots/list', () => ({}));
+        client.setRequestHandler('roots/list', () => ({ roots: [] }));
     }).toThrow('Client does not support roots capability');
 });
 

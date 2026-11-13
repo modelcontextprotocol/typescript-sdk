@@ -213,7 +213,8 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
     if (io === 'output') {
         // SEP-2106: outputSchema may have any JSON Schema root. An explicit `type` (object or
         // not) is returned as-is. A typeless root only gets `type:'object'` defaulted when it is
-        // PROVABLY object-shaped — either it carries object keywords at the root, or every
+        // PROVABLY object-shaped — it carries object keywords at the root, it is a `$ref` to a
+        // `type:'object'` definition, or every
         // member of a root `oneOf`/`anyOf`/`allOf` is itself `type:'object'` (the
         // `z.discriminatedUnion(...)`, `z.union([z.object(...), ...])`, `z.intersection(...)`
         // cases). Those pre-SEP schemas were valid 2025 wire data via the unconditional stamp,
@@ -234,25 +235,34 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
     return { type: 'object', ...result };
 }
 
+const LOCAL_DEFINITION_REF = /^#\/(\$defs|definitions)\/([^/~%]+)$/;
+
 /**
  * A typeless JSON Schema root is "provably object-shaped" when either it carries object keywords
  * directly (`properties`/`patternProperties`/`additionalProperties`/`required`), or it is a
  * composition (`oneOf`/`anyOf`/`allOf`) whose every member is itself `type:'object'` or recursively
- * provably object-shaped (e.g. a nested `discriminatedUnion`). `$ref` is not followed. Used to
+ * provably object-shaped (e.g. a nested `discriminatedUnion`). A `$ref` is followed one hop, to an
+ * entry of the root's `$defs`/`definitions` that is itself `type:'object'`. Used to
  * decide whether stamping `type:'object'` is safe (redundant-but-valid) versus self-contradictory.
  */
-function isProvablyObjectShapedRoot(schema: Record<string, unknown>): boolean {
+function isProvablyObjectShapedRoot(schema: Record<string, unknown>, root = schema): boolean {
     if ('properties' in schema || 'patternProperties' in schema || 'additionalProperties' in schema || 'required' in schema) {
+        return true;
+    }
+    const ref = typeof schema.$ref === 'string' && LOCAL_DEFINITION_REF.exec(schema.$ref);
+    if (ref && (root[ref[1]!] as Record<string, { type?: unknown } | undefined> | undefined)?.[ref[2]!]?.type === 'object') {
         return true;
     }
     for (const key of ['oneOf', 'anyOf', 'allOf'] as const) {
         const members = schema[key];
         if (Array.isArray(members) && members.length > 0) {
+            // A member with its own `$id` may rebase `#/…`, so its refs are not followed.
             return members.every(
                 m =>
                     m !== null &&
                     typeof m === 'object' &&
-                    ((m as Record<string, unknown>).type === 'object' || isProvablyObjectShapedRoot(m as Record<string, unknown>))
+                    ((m as Record<string, unknown>).type === 'object' ||
+                        isProvablyObjectShapedRoot(m as Record<string, unknown>, '$id' in m ? {} : root))
             );
         }
     }

@@ -39,6 +39,7 @@ verifies('typescript:hosting:entry:method-405', async ({ transport }: TestArgs) 
     for (const method of ['GET', 'DELETE', 'PUT', 'PATCH']) {
         const response = await wired.fetch!(wired.url!, { method });
         expect(response.status).toBe(405);
+        expect(response.headers.get('allow')).toBe('POST');
         const body = (await response.json()) as { jsonrpc: string; error: { code: number; message: string } };
         expect(body.jsonrpc).toBe('2.0');
         expect(body.error.code).toBe(-32_000);

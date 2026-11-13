@@ -91,7 +91,40 @@ Behind an Express body parser the Node stream is already drained: build the `Req
 
 The v2 server never serves the HTTP+SSE transport. An SSE server moving to v2 moves to Streamable HTTP — `createMcpHandler` above — as part of the [v2 upgrade](../migration/upgrade-to-v2.md).
 
-The client side keeps `SSEClientTransport`, so a v2 `Client` still reaches old SSE servers. For a server deployment that cannot move yet, a frozen v1 copy of the transport ships as `@modelcontextprotocol/server-legacy/sse` (deprecated).
+The client side keeps `SSEClientTransport`, so a v2 `Client` still reaches old SSE servers. For a server deployment that cannot move yet, a frozen v1 copy of the transport ships as `@modelcontextprotocol/server-legacy/sse` (deprecated, planned for removal in v3).
+
+Mount the frozen transport on two Express routes: `GET /sse` opens the stream and `POST /messages` delivers each client message to the session its `sessionId` query names. `createMcpExpressApp` takes the same options as on the [Express](./express.md) page: binding beyond localhost drops the default `Host`/`Origin` validation, so name the hosts you serve in `allowedHosts`, and raise `jsonLimit` above Express's 100kb default, since the SSE transport itself accepts messages up to 4mb.
+
+```ts source="../../examples/guides/serving/legacy-clients.examples.ts#SSEServerTransport_express"
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
+
+const sessions = new Map<string, SSEServerTransport>();
+const sseApp = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['sse.example.com'], jsonLimit: '4mb' });
+
+sseApp.get('/sse', async (_req, res) => {
+    const transport = new SSEServerTransport('/messages', res);
+    sessions.set(transport.sessionId, transport);
+    transport.onclose = () => sessions.delete(transport.sessionId);
+    await buildServer().connect(transport);
+});
+
+sseApp.post('/messages', async (req, res) => {
+    const sessionId = req.query.sessionId;
+    if (typeof sessionId !== 'string') {
+        res.status(400).send('Missing sessionId parameter');
+        return;
+    }
+    const transport = sessions.get(sessionId);
+    if (!transport) {
+        res.status(404).send('Session not found');
+        return;
+    }
+    await transport.handlePostMessage(req, res, req.body);
+});
+```
+
+Each `GET /sse` connects a fresh instance from `buildServer` and answers with an `endpoint` event naming `/messages?sessionId=…`; the client POSTs every JSON-RPC message there and reads responses off the stream.
 
 ## Recap
 
@@ -99,4 +132,4 @@ The client side keeps `SSEClientTransport`, so a v2 `Client` still reaches old S
 - The default HTTP posture is per request and stateless: legacy `GET` and `DELETE` session operations answer `405`.
 - `serveStdio` decides the era once per connection; its default is `'serve'`.
 - `isLegacyRequest` in front of a strict handler keeps an existing sessionful 2025 deployment serving its clients.
-- The v2 server never serves SSE; the frozen v1 transport is `@modelcontextprotocol/server-legacy/sse`, and the client keeps `SSEClientTransport`.
+- The v2 server never serves SSE; the frozen v1 `SSEServerTransport` in `@modelcontextprotocol/server-legacy/sse` mounts on `GET /sse` + `POST /messages`, and the client keeps `SSEClientTransport`.

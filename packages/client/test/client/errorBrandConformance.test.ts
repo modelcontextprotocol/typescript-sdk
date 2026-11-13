@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import * as skills from '../../src/ext/skills/index';
 import * as barrel from '../../src/index';
+
+/** Every public entry that can export an error class: the root and the skills extension's subpath. */
+const SURFACES: ReadonlyArray<Record<string, unknown>> = [barrel, skills];
 
 /**
  * Enforces the cross-bundle branding participation criterion from
@@ -17,22 +21,26 @@ import * as barrel from '../../src/index';
 /** Error classes exported on purpose without a brand. Justify every entry. */
 const UNBRANDED_ALLOWLIST: ReadonlySet<string> = new Set();
 
-function exportedErrorClasses(mod: Record<string, unknown>): Array<[string, Function]> {
-    return Object.entries(mod)
-        .filter((entry): entry is [string, Function] => {
-            const v = entry[1];
-            return typeof v === 'function' && v !== Error && v.prototype instanceof Error;
-        })
-        .sort(([a], [b]) => a.localeCompare(b));
+function exportedErrorClasses(surfaces: ReadonlyArray<Record<string, unknown>>): Array<[string, Function]> {
+    const found = new Map<string, Function>();
+    for (const surface of surfaces) {
+        for (const [name, v] of Object.entries(surface)) {
+            if (typeof v !== 'function' || v === Error || !(v.prototype instanceof Error)) continue;
+            if (found.has(name) && found.get(name) !== v) throw new Error(`two entries export different error classes named ${name}`);
+            found.set(name, v);
+        }
+    }
+    return [...found].sort(([a], [b]) => a.localeCompare(b));
 }
 
 describe('error brand conformance (client export surface)', () => {
-    const classes = exportedErrorClasses(barrel as Record<string, unknown>);
+    const classes = exportedErrorClasses(SURFACES);
 
     it('finds the export surface (guards against a broken walker)', () => {
         expect(classes.length).toBeGreaterThanOrEqual(15);
         expect(classes.map(([n]) => n)).toContain('ProtocolError');
         expect(classes.map(([n]) => n)).toContain('OAuthClientFlowError');
+        expect(classes.map(([n]) => n)).toContain('SkillVerificationError');
     });
 
     it('every exported error class is branded (or explicitly allowlisted)', () => {
@@ -81,6 +89,7 @@ describe('error brand conformance (client export surface)', () => {
             IssuerMismatchError: 'mcp.IssuerMismatchError',
             OAuthClientFlowError: 'mcp.OAuthClientFlowError',
             RegistrationRejectedError: 'mcp.RegistrationRejectedError',
+            SkillVerificationError: 'mcp.SkillVerificationError',
             SseError: 'mcp.SseError',
             UnauthorizedError: 'mcp.UnauthorizedError'
         });

@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import * as skills from '../../src/ext/skills/index';
+import * as skillsNode from '../../src/ext/skills/node';
 import * as barrel from '../../src/index';
+
+/** Every public entry that can export an error class: the root and the skills extension's subpaths. */
+const SURFACES: ReadonlyArray<Record<string, unknown>> = [barrel, skills, skillsNode];
 
 /**
  * Server-side twin of the client's errorBrandConformance test: every error
@@ -15,21 +20,25 @@ import * as barrel from '../../src/index';
 /** Error classes exported on purpose without a brand. Justify every entry. */
 const UNBRANDED_ALLOWLIST: ReadonlySet<string> = new Set([]);
 
-function exportedErrorClasses(mod: Record<string, unknown>): Array<[string, Function]> {
-    return Object.entries(mod)
-        .filter((entry): entry is [string, Function] => {
-            const v = entry[1];
-            return typeof v === 'function' && v !== Error && v.prototype instanceof Error;
-        })
-        .sort(([a], [b]) => a.localeCompare(b));
+function exportedErrorClasses(surfaces: ReadonlyArray<Record<string, unknown>>): Array<[string, Function]> {
+    const found = new Map<string, Function>();
+    for (const surface of surfaces) {
+        for (const [name, v] of Object.entries(surface)) {
+            if (typeof v !== 'function' || v === Error || !(v.prototype instanceof Error)) continue;
+            if (found.has(name) && found.get(name) !== v) throw new Error(`two entries export different error classes named ${name}`);
+            found.set(name, v);
+        }
+    }
+    return [...found].sort(([a], [b]) => a.localeCompare(b));
 }
 
 describe('error brand conformance (server export surface)', () => {
-    const classes = exportedErrorClasses(barrel as Record<string, unknown>);
+    const classes = exportedErrorClasses(SURFACES);
 
     it('finds the export surface (guards against a broken walker)', () => {
         expect(classes.length).toBeGreaterThanOrEqual(5);
         expect(classes.map(([n]) => n)).toContain('ProtocolError');
+        expect(classes.map(([n]) => n)).toContain('SkillCatalogError');
     });
 
     it('every exported error class is branded (or explicitly allowlisted)', () => {
@@ -76,7 +85,7 @@ describe('error brand conformance (server export surface)', () => {
         'UnsupportedProtocolVersionError',
         'UrlElicitationRequiredError'
     ]);
-    const SERVER_LOCAL_BRANDS: Record<string, string> = {};
+    const SERVER_LOCAL_BRANDS: Record<string, string> = { SkillCatalogError: 'mcp.SkillCatalogError' };
 
     it('pins every server-local brand string (add new entries here — renames must be deliberate)', () => {
         const brands = Object.fromEntries(
@@ -85,5 +94,17 @@ describe('error brand conformance (server export surface)', () => {
                 .map(([name, cls]) => [name, (cls as never as { mcpBrand: string }).mcpBrand])
         );
         expect(brands).toEqual(SERVER_LOCAL_BRANDS);
+    });
+
+    it('SkillCatalogError matches across module copies', async () => {
+        vi.resetModules();
+        const foreign = await import('../../src/ext/skills/errors');
+        // Guard the premise: a cached module would make the checks pass through prototype identity.
+        expect(foreign.SkillCatalogError).not.toBe(skills.SkillCatalogError);
+        const error = new foreign.SkillCatalogError([{ path: 'git-workflow/SKILL.md', message: 'invalid' }]);
+        expect(error instanceof skills.SkillCatalogError).toBe(true);
+        expect(skills.SkillCatalogError.isInstance(error)).toBe(true);
+        expect(error.name).toBe('SkillCatalogError');
+        expect(new Error('plain') instanceof skills.SkillCatalogError).toBe(false);
     });
 });

@@ -10,7 +10,9 @@ export type { CompletableSchema, CompleteCallback } from './server/completable';
 export { completable, isCompletable } from './server/completable';
 export type {
     CreateMcpHandlerOptions,
+    IsLegacyRequestOptions,
     LegacyHttpHandler,
+    LegacyStatelessFallbackOptions,
     McpHandlerRequestOptions,
     McpHttpHandler,
     McpRequestContext,
@@ -22,6 +24,7 @@ export type {
     BaseToolCallback,
     CompleteResourceTemplateCallback,
     ListResourcesCallback,
+    McpServerOptions,
     PromptCallback,
     ReadResourceCallback,
     ReadResourceTemplateCallback,
@@ -35,7 +38,7 @@ export type {
 export { McpServer, ResourceTemplate } from './server/mcp';
 // Runtime-neutral Bearer authentication for web-standard hosts; the Express
 // middleware in @modelcontextprotocol/express adapts the same core.
-export type { BearerAuthOptions, OAuthTokenVerifier } from './server/middleware/bearerAuth';
+export type { BearerAuthOptions, OAuthTokenVerifier, VerifyBearerTokenOptions } from './server/middleware/bearerAuth';
 export { bearerAuthChallengeResponse, requireBearerAuth, verifyBearerToken } from './server/middleware/bearerAuth';
 export type { HostHeaderValidationResult } from './server/middleware/hostHeaderValidation';
 export { hostHeaderValidationResponse, localhostAllowedHostnames, validateHostHeader } from './server/middleware/hostHeaderValidation';
@@ -63,6 +66,8 @@ export { InMemoryServerEventBus } from './server/serverEventBus';
 // StdioServerTransport and the serveStdio entry are exported from the './stdio' subpath — server stdio
 // has only type-level Node imports (erased at compile time), but matching the client's `./stdio` subpath
 // gives consumers a consistent shape across packages.
+export type { ScopeChallenge, ScopeChallengeHandler } from './server/scopeChallenge';
+export { requireScopes } from './server/scopeChallenge';
 export type {
     EventId,
     EventStore,
@@ -71,6 +76,9 @@ export type {
     WebStandardStreamableHTTPServerTransportOptions
 } from './server/streamableHttp';
 export { WebStandardStreamableHTTPServerTransport } from './server/streamableHttp';
+// Request-body bound shared by the HTTP entry points; the reader is exported for
+// adapter authors that pre-parse bodies (the way isJsonContentType is).
+export { DEFAULT_MAX_REQUEST_BODY_SIZE, readRequestBody } from './server/requestBody';
 
 // runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
 export { fromJsonSchema } from './fromJsonSchema';

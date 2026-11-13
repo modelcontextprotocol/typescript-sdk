@@ -37,6 +37,11 @@ const INVALID_TOOL: Tool = {
     inputSchema: { type: 'object', properties: { a: { type: 'object', 'x-mcp-header': 'Data' } } }
 };
 
+const NUMBER_TOOL: Tool = {
+    name: 'score',
+    inputSchema: { type: 'object', properties: { score: { type: 'number', 'x-mcp-header': 'Score' } } }
+};
+
 interface Scripted {
     clientTx: InMemoryTransport;
     serverTx: InMemoryTransport;
@@ -139,6 +144,18 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
         // has no carve-out for paginated reads).
         const page = await client.listTools({ cursor: '0' });
         expect(page.tools.map(t => t.name)).toEqual(['route']);
+        warn.mockRestore();
+    });
+
+    it('listTools() excludes a tool that puts x-mcp-header on a number-typed parameter and warns', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const { clientTx } = await scriptedModernServer([[REGION_TOOL, NUMBER_TOOL]]);
+        const client = modernClient();
+        await client.connect(clientTx);
+
+        const { tools } = await client.listTools();
+        expect(tools.map(t => t.name)).toEqual(['route']);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("excluding tool 'score'"));
         warn.mockRestore();
     });
 
@@ -475,6 +492,23 @@ describe('SEP-2243 Streamable HTTP transport seams', () => {
         // ASCII-safe values pass through unchanged.
         await tx.send(modernRequest('tools/call', { name: 'route', arguments: {} }));
         expect(sent().get('mcp-name')).toBe('route');
+    });
+
+    it('Mcp-Name mirrors params.taskId on tasks/get, tasks/update, and tasks/cancel (SEP-2663)', async () => {
+        const { tx, sent } = transportWithCapture();
+        await tx.start();
+        for (const method of ['tasks/get', 'tasks/update', 'tasks/cancel']) {
+            await tx.send(modernRequest(method, { taskId: 'task-123' }));
+            expect(sent().get('mcp-method')).toBe(method);
+            expect(sent().get('mcp-name')).toBe('task-123');
+        }
+        // tasks/list carries no routing name — off the source table, no header.
+        await tx.send(modernRequest('tasks/list', {}));
+        expect(sent().get('mcp-name')).toBeNull();
+        // A non-string params.taskId has nothing to mirror — no header, so the
+        // server's later rungs (not -32020) answer the malformed body.
+        await tx.send(modernRequest('tasks/get', { taskId: 42 }));
+        expect(sent().get('mcp-name')).toBeNull();
     });
 
     it('per-request TransportSendOptions.headers cannot override reserved standard/auth headers', async () => {

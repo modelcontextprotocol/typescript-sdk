@@ -13,9 +13,9 @@ import * as z from 'zod/v4';
 
 describe('MCP on Bun', () => {
     let httpServer: ReturnType<typeof Bun.serve>;
-    let transport: WebStandardStreamableHTTPServerTransport;
 
-    beforeAll(async () => {
+    // A stateless transport serves one request: connect a new pair for each.
+    async function connectPair(): Promise<WebStandardStreamableHTTPServerTransport> {
         const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
 
         mcpServer.registerTool(
@@ -29,17 +29,22 @@ describe('MCP on Bun', () => {
             })
         );
 
-        transport = new WebStandardStreamableHTTPServerTransport();
+        const transport = new WebStandardStreamableHTTPServerTransport();
         await mcpServer.connect(transport);
+        return transport;
+    }
 
+    beforeAll(() => {
         httpServer = Bun.serve({
             port: 0,
-            fetch: req => transport.handleRequest(req)
+            fetch: async req => {
+                const transport = await connectPair();
+                return transport.handleRequest(req);
+            }
         });
     });
 
-    afterAll(async () => {
-        await transport?.close();
+    afterAll(() => {
         httpServer?.stop();
     });
 

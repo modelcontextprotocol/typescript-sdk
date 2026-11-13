@@ -242,4 +242,30 @@ describe('Server', () => {
             expect(result.structuredContent).toEqual({ ok: true });
         });
     });
+
+    describe('connect', () => {
+        it('rejects while the instance is connected to a transport and leaves that connection in place', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
+            const [, first] = InMemoryTransport.createLinkedPair();
+            const [, second] = InMemoryTransport.createLinkedPair();
+            await server.connect(first);
+
+            await expect(server.connect(second)).rejects.toMatchObject({
+                code: 'ALREADY_CONNECTED',
+                message:
+                    'Use a separate Server instance per connection: this instance is already connected to a transport. To connect it to a new transport, call close() first.'
+            });
+
+            expect(server.transport).toBe(first);
+            expect(second.onmessage).toBeUndefined();
+        });
+
+        it('connects again after close()', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
+            for (const requestedVersion of [LATEST_PROTOCOL_VERSION, OLDER_SUPPORTED_VERSION]) {
+                expect(await initializeServer(server, requestedVersion)).toBe(requestedVersion);
+                await server.close();
+            }
+        });
+    });
 });

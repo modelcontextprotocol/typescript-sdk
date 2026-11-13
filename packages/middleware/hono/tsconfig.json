@@ -13,8 +13,14 @@
             "@modelcontextprotocol/core/internal": [
                 "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core/src/internal.ts"
             ],
+            "@modelcontextprotocol/core/ext/skills": [
+                "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core/src/ext/skills/index.ts"
+            ],
             "@modelcontextprotocol/core-internal/public": [
                 "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core-internal/src/exports/public/index.ts"
+            ],
+            "@modelcontextprotocol/core-internal/ext/skills": [
+                "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core-internal/src/ext/skills/index.ts"
             ]
         }
     }

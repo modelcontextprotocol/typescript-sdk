@@ -1,0 +1,10 @@
+{
+  "jsonrpc": "2.0",
+  "id": "listen-1",
+  "result": {
+    "resultType": "complete",
+    "_meta": {
+      "io.modelcontextprotocol/subscriptionId": "listen-1"
+    }
+  }
+}

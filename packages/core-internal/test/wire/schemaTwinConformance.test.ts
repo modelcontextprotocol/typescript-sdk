@@ -32,8 +32,8 @@ const FIXTURES_ROOT = join(__dirname, '../corpus/fixtures');
 const TWINS_ROOT = join(__dirname, '../corpus/schema-twins');
 
 interface TwinManifest {
-    source: { repository: string; commit: string };
-    files: Record<string, { sha256: string; bytes: number; upstreamPath: string }>;
+    source: { repository: string };
+    files: Record<string, { sourceCommit: string; sha256: string; bytes: number; upstreamPath: string }>;
 }
 
 const TWIN_MANIFEST = JSON.parse(readFileSync(join(TWINS_ROOT, 'manifest.json'), 'utf8')) as TwinManifest;
@@ -47,6 +47,7 @@ describe('twin provenance integrity (the manifest lock)', () => {
     // fetched bytes), atomically with the matching spec.types anchor.
     test.each(Object.keys(TWIN_MANIFEST.files))('%s twin is byte-identical to the upstream artifact pinned in the manifest', revision => {
         const entry = TWIN_MANIFEST.files[revision]!;
+        expect(entry.sourceCommit).toMatch(/^[0-9a-f]{40}$/);
         const raw = readFileSync(join(TWINS_ROOT, `${revision}.schema.json`));
         expect(raw.byteLength, `byte size drifted for ${revision} — the vendored twin was rewritten`).toBe(entry.bytes);
         expect(

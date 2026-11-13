@@ -94,6 +94,83 @@ describe('verifyBearerToken', () => {
     });
 });
 
+describe('verifyBearerToken with expectedResource', () => {
+    const expectedResource = new URL('https://api.example.com/mcp');
+    const notIssuedForThisResource = { code: OAuthErrorCode.InvalidToken, message: 'Token was not issued for this resource' };
+
+    function verifierReporting(resource: string | undefined): OAuthTokenVerifier {
+        return verifierReturning(resource === undefined ? validAuthInfo : { ...validAuthInfo, resource: new URL(resource) });
+    }
+
+    it('compares AuthInfo.resource only when expectedResource is set', async () => {
+        const verifier = verifierReporting('https://other.example.com/mcp');
+        await expect(verifyBearerToken('Bearer t', { verifier })).resolves.toMatchObject({ token: 'valid-token' });
+        await expect(verifyBearerToken('Bearer t', { verifier, expectedResource })).rejects.toMatchObject(notIssuedForThisResource);
+    });
+
+    it('rejects a token without a reported resource only when expectedResource is set', async () => {
+        const verifier = verifierReporting(undefined);
+        await expect(verifyBearerToken('Bearer t', { verifier })).resolves.toEqual(validAuthInfo);
+        await expect(verifyBearerToken('Bearer t', { verifier, expectedResource })).rejects.toMatchObject(notIssuedForThisResource);
+    });
+
+    it('accepts a token reported for expectedResource, one trailing slash aside on either value', async () => {
+        for (const [reported, expected] of [
+            ['https://api.example.com/mcp', 'https://api.example.com/mcp'],
+            ['https://api.example.com/mcp/', 'https://api.example.com/mcp'],
+            ['https://api.example.com/mcp', 'https://api.example.com/mcp/'],
+            ['HTTPS://API.example.com:443/mcp', 'https://api.example.com/mcp']
+        ] as const) {
+            const options = { verifier: verifierReporting(reported), expectedResource: new URL(expected) };
+            await expect(verifyBearerToken('Bearer t', options)).resolves.toMatchObject({ token: 'valid-token' });
+        }
+        const twoSlashes = { verifier: verifierReporting('https://api.example.com/mcp//'), expectedResource };
+        await expect(verifyBearerToken('Bearer t', twoSlashes)).rejects.toMatchObject(notIssuedForThisResource);
+    });
+
+    it('ignores a fragment on either value', async () => {
+        for (const [reported, expected] of [
+            ['https://api.example.com/mcp#section', 'https://api.example.com/mcp'],
+            ['https://api.example.com/mcp', 'https://api.example.com/mcp#section'],
+            ['https://api.example.com/mcp/#section', 'https://api.example.com/mcp']
+        ] as const) {
+            const options = { verifier: verifierReporting(reported), expectedResource: new URL(expected) };
+            await expect(verifyBearerToken('Bearer t', options)).resolves.toMatchObject({ token: 'valid-token' });
+        }
+        const otherPath = { verifier: verifierReporting('https://api.example.com/other#section'), expectedResource };
+        await expect(verifyBearerToken('Bearer t', otherPath)).rejects.toMatchObject(notIssuedForThisResource);
+    });
+
+    it.each([
+        'https://other.example.com/mcp',
+        'http://api.example.com/mcp',
+        'https://api.example.com:8443/mcp',
+        'https://api.example.com/',
+        'https://api.example.com/mcp/tools',
+        'https://api.example.com/mcp?tenant=a'
+    ])('rejects a token reported for %s', async resource => {
+        const verifier = verifierReporting(resource);
+        await expect(verifyBearerToken('Bearer t', { verifier, expectedResource })).rejects.toMatchObject(notIssuedForThisResource);
+    });
+
+    it('rejects a token reported for another resource before checking scopes', async () => {
+        const verifier = verifierReturning({ ...validAuthInfo, scopes: [], resource: new URL('https://other.example.com/mcp') });
+        await expect(verifyBearerToken('Bearer t', { verifier, requiredScopes: ['read'], expectedResource })).rejects.toMatchObject(
+            notIssuedForThisResource
+        );
+    });
+
+    it('compares an identifier that is not an http URL the same way', async () => {
+        const identifier = new URL('api://0b5e1c2a-notes');
+        await expect(
+            verifyBearerToken('Bearer t', { verifier: verifierReporting('api://0b5e1c2a-notes'), expectedResource: identifier })
+        ).resolves.toMatchObject({ token: 'valid-token' });
+        await expect(
+            verifyBearerToken('Bearer t', { verifier: verifierReporting('api://0b5e1c2a-other'), expectedResource: identifier })
+        ).rejects.toMatchObject(notIssuedForThisResource);
+    });
+});
+
 describe('bearerAuthChallengeResponse', () => {
     it('answers 401 invalid_token with the WWW-Authenticate challenge, resource_metadata last', async () => {
         const response = bearerAuthChallengeResponse(new OAuthError(OAuthErrorCode.InvalidToken, 'Token has expired'), {
@@ -163,6 +240,24 @@ describe('requireBearerAuth (web-standard)', () => {
         });
         const result = await gate(new Request('https://api.example.com/mcp', { headers: { authorization: 'Bearer t' } }));
         expect((result as Response).status).toBe(403);
+    });
+
+    it('passes expectedResource through to the token check', async () => {
+        const expectedResource = new URL('https://api.example.com/mcp');
+        const request = () => new Request('https://api.example.com/mcp', { headers: { authorization: 'Bearer t' } });
+
+        const sameResource = { ...validAuthInfo, resource: new URL('https://api.example.com/mcp') };
+        expect(await requireBearerAuth({ verifier: verifierReturning(sameResource), expectedResource })(request())).toEqual(sameResource);
+
+        const otherResource = { ...validAuthInfo, resource: new URL('https://other.example.com/mcp') };
+        const result = await requireBearerAuth({ verifier: verifierReturning(otherResource), expectedResource })(request());
+        expect(result).toBeInstanceOf(Response);
+        const response = result as Response;
+        expect(response.status).toBe(401);
+        expect(response.headers.get('WWW-Authenticate')).toBe(
+            'Bearer error="invalid_token", error_description="Token was not issued for this resource"'
+        );
+        expect(await response.json()).toEqual({ error: 'invalid_token', error_description: 'Token was not issued for this resource' });
     });
 });
 

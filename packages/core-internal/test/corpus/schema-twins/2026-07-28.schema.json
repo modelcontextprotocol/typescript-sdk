@@ -3400,7 +3400,7 @@
             "description": "The response to a {@link SubscriptionsListenRequestsubscriptions/listen}\nrequest, signalling that the subscription has ended gracefully (for example,\nduring server shutdown). Because the listen stream is long-lived, this result\nis sent only when the server tears the subscription down; an abrupt transport\nclose carries no response. The result body is otherwise empty.",
             "properties": {
                 "_meta": {
-                    "$ref": "#/$defs/SubscriptionsListenResultMeta"
+                    "$ref": "#/$defs/SubscriptionsListenResultMetaObject"
                 },
                 "resultType": {
                     "description": "Indicates the type of the result, which allows the client to determine\nhow to parse the result object.\n\nServers implementing this protocol version MUST include this field.\nFor backward compatibility, when a client receives a result from a\nserver implementing an earlier protocol version (which does not include\n`resultType`), the client MUST treat the absent field as `\"complete\"`.",
@@ -3413,7 +3413,7 @@
             ],
             "type": "object"
         },
-        "SubscriptionsListenResultMeta": {
+        "SubscriptionsListenResultMetaObject": {
             "description": "Extends {@link ResultMetaObject} with the subscription-stream identifier carried by a\n{@link SubscriptionsListenResult}. All key naming rules from `MetaObject` apply.",
             "properties": {
                 "io.modelcontextprotocol/serverInfo": {
@@ -3427,6 +3427,27 @@
             },
             "required": [
                 "io.modelcontextprotocol/subscriptionId"
+            ],
+            "type": "object"
+        },
+        "SubscriptionsListenResultResponse": {
+            "description": "A successful response from the server for a {@link SubscriptionsListenRequestsubscriptions/listen}\nrequest, sent when the server tears the subscription down gracefully.",
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/RequestId"
+                },
+                "jsonrpc": {
+                    "const": "2.0",
+                    "type": "string"
+                },
+                "result": {
+                    "$ref": "#/$defs/SubscriptionsListenResult"
+                }
+            },
+            "required": [
+                "id",
+                "jsonrpc",
+                "result"
             ],
             "type": "object"
         },

@@ -1,5 +1,46 @@
 # @modelcontextprotocol/core
 
+## 2.4.0
+
+### Minor Changes
+
+- [#3047](https://github.com/modelcontextprotocol/typescript-sdk/pull/3047) [`46d9c99`](https://github.com/modelcontextprotocol/typescript-sdk/commit/46d9c9921b6542e813c1ecc5f9fc964085e8e3bb) Thanks [@KKonstantinov](https://github.com/KKonstantinov), [@tobi-oye](https://github.com/tobi-oye), [@mattzcarey](https://github.com/mattzcarey)! - Add the Skills extension (SEP-2640), reachable through new `ext/skills` subpaths; package root exports are unchanged.
+    - `@modelcontextprotocol/server/ext/skills`: `SkillsExtension` (`attach(server)` serves `skills/list`, `skills/get`, `resources/directory/read` and a `skill://{+path}` resource template), `SkillsExtension.load(files)` returning a `SkillCatalog` with `entries` and `reload()`, the `SkillFiles` storage adapter with `memorySkillFiles`, `SkillSource` for generated catalogs, `skillEntry`, and `SkillCatalogError`. Invalid skills are skipped with a warning (`onWarning`), or fail under `strict`. A file whose bytes are valid UTF-8 is served as `text`, whatever its MIME type; any other file as a base64 `blob`.
+    - `@modelcontextprotocol/server/ext/skills/node`: `loadSkills(folder)` and `nodeSkillFiles(folder)`.
+    - `@modelcontextprotocol/client/ext/skills`: `SkillsClient` with `list()` (throws on an invalid entry; `skipInvalid: true` keeps the valid ones and returns the rest in `invalid`), `get()`, `read(skill, path?)` (size, digest and `SKILL.md` frontmatter verified, `SkillVerificationError` on a mismatch; a copy from the response cache that fails a check is fetched once more with `cacheMode: 'refresh'` first) and `readDirectory()`.
+    - `@modelcontextprotocol/core/ext/skills`: schemas, types and constants, including `SKILL_LIMITS`. The result schemas follow the stable spec, so `ttlMs` and `cacheScope` are required.
+
+    `SkillsExtension.attach` is `@experimental`: how an extension is wired to a server may change in a minor release. The rest of the Skills API is stable.
+
+    Works on 2025-11-25 and 2026-07-28. On 2026-07-28 only, the server sends the caching fields (`ttlMs`, `cacheScope`), and `SkillsClient` requires them and returns them from `list()`, `get()` and `readDirectory()`.
+
+## 2.3.1
+
+## 2.3.0
+
+### Patch Changes
+
+- [#2908](https://github.com/modelcontextprotocol/typescript-sdk/pull/2908) [`633dd3e`](https://github.com/modelcontextprotocol/typescript-sdk/commit/633dd3e12bff6869c932c4a526341622320912b1) Thanks [@claude](https://github.com/apps/claude)! - The `license` field of the package manifests is now `Apache-2.0`; the `LICENSE` file shipped in each package carries the full terms, including the MIT text for earlier contributions. No code change.
+
+## 2.2.0
+
+### Minor Changes
+
+- [#2887](https://github.com/modelcontextprotocol/typescript-sdk/pull/2887) [`edd12e2`](https://github.com/modelcontextprotocol/typescript-sdk/commit/edd12e282620ebf770d67316f19cf91d4112a1bd) Thanks [@maxisbey](https://github.com/maxisbey)! - Constructing `ClientCredentialsProvider`, `PrivateKeyJwtProvider`, `StaticPrivateKeyJwtProvider` or `CrossAppAccessProvider` without `expectedIssuer` is deprecated: the constructor logs one `console.warn` and that call signature is marked `@deprecated`. Behaviour is otherwise unchanged. Pass the `issuer` of the authorization server the credentials were registered with.
+
+    `fetchToken()` throws `AuthorizationServerMismatchError`, before sending anything, when the provider's client information is bound to a different authorization server than the one it is called with. The `AuthorizationServerMismatchError` message no longer assumes the authorization-code callback; its fields are unchanged.
+
+    `OAuthTokensSchema` and `OAuthClientInformationSchema` accept the optional `issuer` stamp, so a provider that reads storage back through them keeps it. `auth()` overwrites it on every save.
+
+## 2.1.0
+
+### Minor Changes
+
+- [#2629](https://github.com/modelcontextprotocol/typescript-sdk/pull/2629) [`dcc0102`](https://github.com/modelcontextprotocol/typescript-sdk/commit/dcc01028ff6a499a5728c2b6181c1727d52e2fab) Thanks [@gbshankar](https://github.com/gbshankar)! - Add DPoP (RFC 9449 / SEP-1932) sender-constrained access token support to the client.
+    - Opt in by implementing `OAuthClientProvider.dpop()` returning a `DpopSession` (new, along with `generateDpopKeyPair`, `accessTokenHash`, `isDpopNonceChallenge`). `auth()` / `exchangeAuthorization` / `refreshAuthorization` / `fetchToken` then sign a DPoP proof into token requests (retrying once on an authorization-server `use_dpop_nonce` challenge, with client authentication re-applied per attempt), and `StreamableHTTPClientTransport`, `SSEClientTransport` and `withOAuth` present a `token_type: "DPoP"` access token as `Authorization: DPoP <token>` plus a fresh per-request proof, retry a resource-server `use_dpop_nonce` challenge once, and pick up a `DPoP-Nonce` delivered on any response. Tokens the AS issued as `Bearer` are still presented as Bearer.
+    - DPoP is applied at the fetch layer: the transports wrap their resource-server `fetch` (including a caller-supplied `fetch` / `eventSourceInit.fetch`) with the new `withDpopFromProvider(provider)` middleware, so proofs are always bound to the request actually sent. `withDpop(session, getToken)` is exported for callers that manage tokens themselves (e.g. alongside a minimal `AuthProvider`); the `AuthProvider` interface itself is unchanged.
+    - `auth()` now recovers from `invalid_dpop_proof` on refresh (e.g. a refresh token bound to a key that is no longer held) by discarding the tokens and re-authorizing, like `invalid_grant`. `OAuthErrorCode` gains `InvalidDpopProof` and `UseDpopNonce`; `extractWWWAuthenticateParams` recognizes the `DPoP` challenge scheme; `OAuthMetadataSchema` gains `dpop_signing_alg_values_supported`.
+
 ## 2.0.0
 
 ### Minor Changes

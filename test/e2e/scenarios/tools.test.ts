@@ -31,7 +31,14 @@ import type {
     RequestId,
     Tool
 } from '@modelcontextprotocol/server';
-import { McpServer, ProtocolError, ProtocolErrorCode, Server, UrlElicitationRequiredError } from '@modelcontextprotocol/server';
+import {
+    isJSONRPCRequest,
+    McpServer,
+    ProtocolError,
+    ProtocolErrorCode,
+    Server,
+    UrlElicitationRequiredError
+} from '@modelcontextprotocol/server';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
@@ -515,6 +522,71 @@ verifies('tools:call:is-error', async ({ transport }: TestArgs) => {
     expect((reply as { result: { isError?: boolean } }).result.isError).toBe(true);
 
     client.transport!.onmessage = original;
+});
+
+verifies('tools:call:omitted-args:all-optional', async ({ transport }: TestArgs) => {
+    // Shared across factory calls so stateless still observes what the handler received.
+    const received: unknown[] = [];
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool(
+            'greet',
+            { description: 'Greets by name, or generically.', inputSchema: z.object({ name: z.string().optional() }) },
+            args => {
+                received.push(args);
+                return { content: [{ type: 'text', text: args.name ? `Hello, ${args.name}!` : 'Hello!' }] };
+            }
+        );
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+
+    // Tap outbound wire messages to prove the request carries no `arguments` key at all (unlike `arguments: {}`).
+    const outbound: JSONRPCMessage[] = [];
+    const tx = client.transport!;
+    const originalSend = tx.send.bind(tx);
+    tx.send = async (m, opts) => {
+        outbound.push(m);
+        return originalSend(m, opts);
+    };
+
+    const result = await client.callTool({ name: 'greet' });
+
+    const call = outbound.find(m => isJSONRPCRequest(m) && m.method === 'tools/call');
+    expect(call).toBeDefined();
+    if (!call || !isJSONRPCRequest(call)) throw new Error('expected tools/call request');
+    expect(call.params).not.toHaveProperty('arguments');
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toEqual([{ type: 'text', text: 'Hello!' }]);
+    // The omitted field is validated as an empty object, so the handler sees no keys rather than undefined.
+    expect(received).toEqual([{}]);
+
+    tx.send = originalSend;
+});
+
+verifies('tools:call:omitted-args:required', async ({ transport }: TestArgs) => {
+    // Shared across factory calls so stateless still observes the count.
+    const handlerCalls = { n: 0 };
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('summarize', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => {
+            handlerCalls.n++;
+            return { content: [{ type: 'text', text: `Summary of: ${text}` }] };
+        });
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+
+    // No `arguments` key at all: an input validation failure is a tool execution error, not a JSON-RPC error.
+    const result = await client.callTool({ name: 'summarize' });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([{ type: 'text', text: expect.stringMatching(/input validation error/i) }]);
+    expect(result.content).toEqual([{ type: 'text', text: expect.stringContaining('text') }]);
+    expect(handlerCalls.n).toBe(0);
 });
 
 verifies(

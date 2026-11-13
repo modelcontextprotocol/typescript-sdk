@@ -140,12 +140,12 @@ describe('deterministic tools/list ordering (draft spec)', () => {
         const client = await connect(mcpServer);
 
         // Disable a tool in the middle: relative order of the remaining tools is unchanged.
-        registered[2].disable();
+        registered[2]!.disable();
         const whileDisabled = await client.listTools();
         expect(whileDisabled.tools.map(t => t.name)).toEqual(['zeta', 'alpha', 'omega', 'beta']);
 
         // Re-enable it: the original insertion order is restored, not appended at the end.
-        registered[2].enable();
+        registered[2]!.enable();
         const afterReenable = await client.listTools();
         expect(afterReenable.tools.map(t => t.name)).toEqual(names);
     });

@@ -150,6 +150,26 @@ console.log(quiet.content);
 const validated = await client.callTool({ name: 'validate-records', arguments: { records: ['a.csv', 'b.txt'] } });
 console.log(validated.content);
 
+// "Let the client set the level" — the harness swaps in a handler that also
+// records each level it sees, so the run can assert what the page claims.
+const delivered: string[] = [];
+client.setNotificationHandler('notifications/message', notification => {
+    delivered.push(notification.params.level);
+    console.log(notification.params.level, notification.params.data);
+});
+//#region setLoggingLevel_warning
+await client.setLoggingLevel('warning');
+
+const filtered = await client.callTool({ name: 'validate-records', arguments: { records: ['c.csv', 'd.txt'] } });
+console.log(filtered.content);
+//#endregion setLoggingLevel_warning
+const filteredText = Array.isArray(filtered.content) && filtered.content[0]?.type === 'text' ? filtered.content[0].text : undefined;
+if (delivered.join(',') !== 'warning' || filteredText !== '1 of 2 records are valid') {
+    throw new Error(
+        `logging-progress-cancellation.md claim failed: after setLoggingLevel('warning') the client received [${delivered.join(', ')}] and ${JSON.stringify(filtered.content)}`
+    );
+}
+
 // "Stop work when the request is cancelled".
 //#region callTool_abort
 const controller = new AbortController();

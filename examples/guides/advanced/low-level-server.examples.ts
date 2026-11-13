@@ -130,10 +130,13 @@ await server.close();
 // take over this process's stdin/stdout, so the harness never calls this.
 // ---------------------------------------------------------------------------
 
+declare function buildServer(): Server;
+
 function lowLevel_serve() {
     //#region lowLevel_serve
-    serveStdio(() => server);
-    createMcpHandler(() => server);
+    // `buildServer` wraps the construction above: the factory runs per connection (stdio) or per request (HTTP).
+    serveStdio(buildServer);
+    createMcpHandler(buildServer);
     //#endregion lowLevel_serve
 }
 void lowLevel_serve;

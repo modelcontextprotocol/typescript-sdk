@@ -1,8 +1,8 @@
 /**
  * Code Snippet Sync Script
  *
- * This script syncs code snippets into JSDoc comments and markdown files
- * containing labeled code fences.
+ * This script syncs code snippets into JSDoc comments and into markdown files
+ * (under docs/ and skills/) containing labeled code fences.
  *
  * ## Supported Source Files
  *
@@ -55,6 +55,7 @@ const __dirname = dirname(__filename);
 const PROJECT_ROOT = join(__dirname, '..');
 const PACKAGES_DIR = join(PROJECT_ROOT, 'packages');
 const DOCS_DIR = join(PROJECT_ROOT, 'docs');
+const SKILLS_DIR = join(PROJECT_ROOT, 'skills');
 
 /** Processing mode based on file type */
 type FileMode = 'jsdoc' | 'markdown';
@@ -505,30 +506,53 @@ function findMarkdownFiles(dir: string): string[] {
 }
 
 /**
+ * Directory names that are never descended into when looking for package sources.
+ *
+ * `node_modules` is the critical one: pnpm fills it with symlinks pointing back
+ * into the store, whose packages link onward in turn. Entering it means walking
+ * that graph along every distinct link path, re-visiting the same directories
+ * over and over.
+ *
+ * `batch-test` holds the codemod's cloned fixture repositories — whole external
+ * monorepos that `pnpm-workspace.yaml` already excludes from the workspace, and
+ * whose sources this script must never rewrite.
+ */
+const SKIPPED_DIRS = new Set(['node_modules', 'dist', 'batch-test']);
+
+/**
  * Find all package src directories under the packages directory.
+ *
+ * Descends explicitly rather than using `readdirSync`'s `recursive` option. That
+ * option follows symlinks and collects every entry it visits into a single array
+ * before returning, so filtering unwanted directories out of the result is too
+ * late to keep the walk bounded — the traversal has already happened.
+ *
  * @param packagesDir The packages directory
  * @returns Array of absolute paths to src directories
  */
 function findPackageSrcDirs(packagesDir: string): string[] {
   const srcDirs: string[] = [];
-  const entries = readdirSync(packagesDir, {
-    withFileTypes: true,
-    recursive: true,
-  });
 
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name !== 'src') continue;
+  const descend = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      // isDirectory() is false for a symlink, so pnpm's links are never entered.
+      if (!entry.isDirectory()) continue;
+      if (SKIPPED_DIRS.has(entry.name)) continue;
 
-    const fullPath = join(entry.parentPath, entry.name);
+      const fullPath = join(dir, entry.name);
 
-    // Only include src dirs that are direct children of a package
-    // (e.g., packages/core-internal/src, packages/middleware/express/src)
-    // Skip nested src dirs like node_modules/*/src
-    if (fullPath.includes('node_modules')) continue;
+      // A package owns a single src dir; everything below it is that package's
+      // own tree, which findSourceFiles walks.
+      if (entry.name === 'src') {
+        srcDirs.push(fullPath);
+        continue;
+      }
 
-    srcDirs.push(fullPath);
-  }
+      descend(fullPath);
+    }
+  };
+
+  descend(packagesDir);
 
   return srcDirs;
 }
@@ -554,8 +578,8 @@ async function main() {
     }
   }
 
-  // Process markdown documentation files
-  const markdownFiles = findMarkdownFiles(DOCS_DIR);
+  // Process markdown files: the docs and the agent skills
+  const markdownFiles = [...findMarkdownFiles(DOCS_DIR), ...findMarkdownFiles(SKILLS_DIR)];
   for (const filePath of markdownFiles) {
     const result = processFile(filePath, cache, 'markdown', { check: checkMode });
     results.push(result);
