@@ -185,7 +185,7 @@ export function isOAuthClientProvider(provider: AuthProvider | OAuthClientProvid
 export async function handleOAuthUnauthorized(
     provider: OAuthClientProvider,
     ctx: UnauthorizedContext,
-    extraAuthOptions?: Pick<AuthOptions, 'skipIssuerMetadataValidation'>
+    extraAuthOptions?: Pick<AuthOptions, 'skipIssuerMetadataValidation' | 'rejectedAccessToken'>
 ): Promise<void> {
     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(ctx.response);
     const result = await auth(provider, {
@@ -225,12 +225,14 @@ export function adaptOAuthProvider(
     provider: OAuthClientProvider,
     extraAuthOptions?: Pick<AuthOptions, 'skipIssuerMetadataValidation'>
 ): AuthProvider {
+    let lastAccessToken: string | undefined;
     return {
         token: async () => {
             const tokens = await provider.tokens();
-            return tokens?.access_token;
+            lastAccessToken = tokens?.access_token;
+            return lastAccessToken;
         },
-        onUnauthorized: async ctx => handleOAuthUnauthorized(provider, ctx, extraAuthOptions)
+        onUnauthorized: async ctx => handleOAuthUnauthorized(provider, ctx, { ...extraAuthOptions, rejectedAccessToken: lastAccessToken })
     };
 }
 
@@ -1084,6 +1086,14 @@ export interface AuthOptions {
      * @default false
      */
     forceReauthorization?: boolean;
+
+    /**
+     * The access token the server rejected with `401`. When the provider already stores a
+     * different access token, another flow replaced it while this one waited, so
+     * {@linkcode auth} returns `AUTHORIZED` without refreshing. Without this, a second refresh
+     * spends a rotated refresh token and can end in `invalid_grant`.
+     */
+    rejectedAccessToken?: string;
 }
 
 /**
@@ -1115,7 +1125,8 @@ function equivalentAuthOptions(a: AuthOptions, b: AuthOptions): boolean {
         a.resourceMetadataUrl?.toString() === b.resourceMetadataUrl?.toString() &&
         a.scope === b.scope &&
         (a.skipIssuerMetadataValidation ?? false) === (b.skipIssuerMetadataValidation ?? false) &&
-        a.fetchFn === b.fetchFn
+        a.fetchFn === b.fetchFn &&
+        a.rejectedAccessToken === b.rejectedAccessToken
     );
 }
 
@@ -1225,7 +1236,8 @@ async function authInternal(
         resourceMetadataUrl,
         fetchFn,
         skipIssuerMetadataValidation,
-        forceReauthorization
+        forceReauthorization,
+        rejectedAccessToken
     }: AuthOptions
 ): Promise<AuthResult> {
     // SEP-837 / SEP-2207: resolve spec defaults for the DCR body. determineScope()
@@ -1464,6 +1476,9 @@ async function authInternal(
     // SEP-2352: a refresh_token stamped for a different authorization server reads back
     // as `undefined`, so it is never POSTed to this AS's token endpoint.
     let tokens = discardIfIssuerMismatch(await provider.tokens(infoCtx), issuer);
+    if (!forceReauthorization && rejectedAccessToken !== undefined && tokens && tokens.access_token !== rejectedAccessToken) {
+        return 'AUTHORIZED';
+    }
     if (tokens && tokens.issuer === undefined) {
         // SEP-2352 back-stamp: bind a legacy unstamped token set to the first-resolved AS
         // so the stamp check is effective from the next call onward.
