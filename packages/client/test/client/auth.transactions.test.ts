@@ -3,7 +3,7 @@ import { OAuthErrorCode, OAuthErrorResponseSchema } from '@modelcontextprotocol/
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AuthOptions, AuthResult, OAuthClientProvider } from '../../src/client/auth';
-import { auth, IssuerMismatchError, parseErrorResponse } from '../../src/client/auth';
+import { adaptOAuthProvider, auth, IssuerMismatchError, parseErrorResponse } from '../../src/client/auth';
 
 const issuer = 'https://auth.example.com';
 const serverUrl = 'https://api.example.com/mcp';
@@ -328,21 +328,37 @@ describe('ordinary auth option compatibility', () => {
         await expect(auth(provider, { ...options, scope: 'other' })).resolves.toBe('AUTHORIZED');
         expect(posts).toHaveLength(3);
     });
+});
 
-    it.each([
-        { rejected: 'expired', posts: 1 },
-        { rejected: 'fresh', posts: 0 }
-    ])('refreshes after a 401 only while the rejected token is still stored: $rejected', async ({ rejected, posts: expected }) => {
-        const { provider, options, posts } = fixture();
-        await provider.saveTokens({ access_token: 'fresh', refresh_token: 'refresh-1', token_type: 'Bearer', issuer });
-        if (rejected === 'expired') {
-            await provider.saveTokens({ access_token: 'expired', refresh_token: 'refresh-0', token_type: 'Bearer', issuer });
-        }
-        await expect(auth(provider, { ...options, rejectedAccessToken: 'expired' })).resolves.toBe('AUTHORIZED');
-        expect(posts).toHaveLength(expected);
+describe('refresh after a 401', () => {
+    const unauthorized = (fetchFn: typeof globalThis.fetch) => ({
+        response: new Response(null, { status: 401 }),
+        serverUrl: new URL(serverUrl),
+        fetchFn
     });
 
-    it('makes one refresh when a 401 for the old token waits behind a refresh that replaced it', async () => {
+    it('refreshes while the rejected token is still stored', async () => {
+        const { provider, posts, fetchFn } = fixture();
+        const adapted = adaptOAuthProvider(provider);
+        expect(await adapted.token()).toBe('expired');
+
+        await adapted.onUnauthorized!(unauthorized(fetchFn));
+
+        expect(posts).toHaveLength(1);
+    });
+
+    it('skips the refresh when another flow already replaced the rejected token', async () => {
+        const { provider, posts, fetchFn } = fixture();
+        const adapted = adaptOAuthProvider(provider);
+        expect(await adapted.token()).toBe('expired');
+        await provider.saveTokens({ access_token: 'fresh', refresh_token: 'refresh-1', token_type: 'Bearer', issuer });
+
+        await adapted.onUnauthorized!(unauthorized(fetchFn));
+
+        expect(posts).toHaveLength(0);
+    });
+
+    it('makes one refresh when a 401 waits behind a refresh with other options', async () => {
         const { provider, options, posts, tokenResponse, fetchFn } = fixture();
         let tail = Promise.resolve();
         provider.withAuthTransaction = async operation => {
@@ -363,18 +379,17 @@ describe('ordinary auth option compatibility', () => {
             await release.promise;
             return Response.json({ access_token: 'fresh', refresh_token: 'refresh-1', token_type: 'Bearer' });
         });
+        const adapted = adaptOAuthProvider(provider);
+        expect(await adapted.token()).toBe('expired');
+
         const first = auth(provider, options);
         await refreshing.promise;
-        const otherTransport = async (input: string | URL | Request, init?: RequestInit) => fetchFn(input, init);
-        const late = auth(provider, { ...options, fetchFn: otherTransport, rejectedAccessToken: 'expired' });
+        const transportFetch = vi.fn((input: string | URL | Request, init?: RequestInit) => fetchFn(input, init));
+        const late = adapted.onUnauthorized!(unauthorized(transportFetch));
         release.resolve();
-        await expect(Promise.all([first, late])).resolves.toEqual(['AUTHORIZED', 'AUTHORIZED']);
-        expect(posts).toHaveLength(1);
-    });
 
-    it('still refreshes when forced reauthorization names the stored token as rejected', async () => {
-        const { provider, options } = fixture();
-        await provider.saveTokens({ access_token: 'fresh', refresh_token: 'refresh-1', token_type: 'Bearer', issuer });
-        await expect(auth(provider, { ...options, rejectedAccessToken: 'expired', forceReauthorization: true })).resolves.toBe('REDIRECT');
+        await expect(first).resolves.toBe('AUTHORIZED');
+        await late;
+        expect(posts).toHaveLength(1);
     });
 });

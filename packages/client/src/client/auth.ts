@@ -185,10 +185,18 @@ export function isOAuthClientProvider(provider: AuthProvider | OAuthClientProvid
 export async function handleOAuthUnauthorized(
     provider: OAuthClientProvider,
     ctx: UnauthorizedContext,
-    extraAuthOptions?: Pick<AuthOptions, 'skipIssuerMetadataValidation' | 'rejectedAccessToken'>
+    extraAuthOptions?: Pick<AuthOptions, 'skipIssuerMetadataValidation'>
+): Promise<void> {
+    return retryAfterUnauthorized(provider, ctx, extraAuthOptions);
+}
+
+async function retryAfterUnauthorized(
+    provider: OAuthClientProvider,
+    ctx: UnauthorizedContext,
+    extraAuthOptions?: Pick<InternalAuthOptions, 'skipIssuerMetadataValidation' | 'rejectedAccessToken'>
 ): Promise<void> {
     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(ctx.response);
-    const result = await auth(provider, {
+    const result = await runAuth(provider, {
         serverUrl: ctx.serverUrl,
         resourceMetadataUrl,
         scope,
@@ -232,7 +240,7 @@ export function adaptOAuthProvider(
             lastAccessToken = tokens?.access_token;
             return lastAccessToken;
         },
-        onUnauthorized: async ctx => handleOAuthUnauthorized(provider, ctx, { ...extraAuthOptions, rejectedAccessToken: lastAccessToken })
+        onUnauthorized: async ctx => retryAfterUnauthorized(provider, ctx, { ...extraAuthOptions, rejectedAccessToken: lastAccessToken })
     };
 }
 
@@ -1086,14 +1094,6 @@ export interface AuthOptions {
      * @default false
      */
     forceReauthorization?: boolean;
-
-    /**
-     * The access token the server rejected with `401`. When the provider already stores a
-     * different access token, another flow replaced it while this one waited, so
-     * {@linkcode auth} returns `AUTHORIZED` without refreshing. Without this, a second refresh
-     * spends a rotated refresh token and can end in `invalid_grant`.
-     */
-    rejectedAccessToken?: string;
 }
 
 /**
@@ -1117,9 +1117,15 @@ function warnCredentialInvalidation(provider: OAuthClientProvider, error: OAuthE
     console.warn(`[mcp-sdk] OAuth ${JSON.stringify(error.code)} — ${action}. Cause: ${JSON.stringify(error.message)}`);
 }
 
-const pendingAuthRequests = new WeakMap<OAuthClientProvider, { options: AuthOptions; request: Promise<AuthResult> }>();
+/**
+ * {@linkcode AuthOptions} plus the access token a resource server rejected with `401`, which only
+ * the transport adapter knows. Kept out of the public options.
+ */
+type InternalAuthOptions = AuthOptions & { rejectedAccessToken?: string };
 
-function equivalentAuthOptions(a: AuthOptions, b: AuthOptions): boolean {
+const pendingAuthRequests = new WeakMap<OAuthClientProvider, { options: InternalAuthOptions; request: Promise<AuthResult> }>();
+
+function equivalentAuthOptions(a: InternalAuthOptions, b: InternalAuthOptions): boolean {
     return (
         String(a.serverUrl) === String(b.serverUrl) &&
         a.resourceMetadataUrl?.toString() === b.resourceMetadataUrl?.toString() &&
@@ -1137,6 +1143,10 @@ function equivalentAuthOptions(a: AuthOptions, b: AuthOptions): boolean {
  * instead of linking together the other lower-level functions in this module.
  */
 export async function auth(provider: OAuthClientProvider, options: AuthOptions): Promise<AuthResult> {
+    return runAuth(provider, options);
+}
+
+async function runAuth(provider: OAuthClientProvider, options: InternalAuthOptions): Promise<AuthResult> {
     const execute = (): Promise<AuthResult> => {
         const operation = (): Promise<AuthResult> => authWithErrorHandling(provider, options);
         return provider.withAuthTransaction ? provider.withAuthTransaction(operation) : operation();
@@ -1162,7 +1172,7 @@ export async function auth(provider: OAuthClientProvider, options: AuthOptions):
     }
 }
 
-async function authWithErrorHandling(provider: OAuthClientProvider, options: AuthOptions): Promise<AuthResult> {
+async function authWithErrorHandling(provider: OAuthClientProvider, options: InternalAuthOptions): Promise<AuthResult> {
     try {
         return await authInternal(provider, options);
     } catch (error) {
@@ -1238,7 +1248,7 @@ async function authInternal(
         skipIssuerMetadataValidation,
         forceReauthorization,
         rejectedAccessToken
-    }: AuthOptions
+    }: InternalAuthOptions
 ): Promise<AuthResult> {
     // SEP-837 / SEP-2207: resolve spec defaults for the DCR body. determineScope()
     // intentionally reads the raw provider.clientMetadata instead.
@@ -1476,7 +1486,9 @@ async function authInternal(
     // SEP-2352: a refresh_token stamped for a different authorization server reads back
     // as `undefined`, so it is never POSTed to this AS's token endpoint.
     let tokens = discardIfIssuerMismatch(await provider.tokens(infoCtx), issuer);
-    if (!forceReauthorization && rejectedAccessToken !== undefined && tokens && tokens.access_token !== rejectedAccessToken) {
+    // Another flow already replaced the token this 401 rejected while we waited for the
+    // transaction, so refreshing again would spend a refresh token that may have rotated.
+    if (rejectedAccessToken !== undefined && tokens && tokens.access_token !== rejectedAccessToken) {
         return 'AUTHORIZED';
     }
     if (tokens && tokens.issuer === undefined) {
