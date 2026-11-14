@@ -80,6 +80,20 @@ const checkIssuerUrl = (issuer: URL): void => {
     }
 };
 
+/**
+ * RFC 8414 §2: the issuer identifier MUST NOT have a trailing slash ("/"), and §3.3
+ * requires the metadata `issuer` to be byte-identical to the URL the well-known
+ * document was fetched from. `new URL('https://host').href` normalizes to
+ * 'https://host/', so an issuerUrl constructed from a slash-less origin string would
+ * otherwise advertise an issuer that strict clients (including this SDK's own client,
+ * which validates the echo since IssuerMismatchError) reject — an SDK server and an
+ * SDK client could not complete discovery against each other for root issuers.
+ *
+ * A trailing-slash issuerUrl is accepted and served slash-less so both spellings
+ * behave the same; endpoint URLs below resolve against the full issuerUrl either way.
+ */
+const issuerIdentifierOf = (issuer: URL): string => issuer.href.replace(/\/$/, '');
+
 export const createOAuthMetadata = (options: {
     provider: OAuthServerProvider;
     issuerUrl: URL;
@@ -98,7 +112,7 @@ export const createOAuthMetadata = (options: {
     const revocation_endpoint = options.provider.revokeToken ? '/revoke' : undefined;
 
     const metadata: OAuthMetadata = {
-        issuer: issuer.href,
+        issuer: issuerIdentifierOf(issuer),
         service_documentation: options.serviceDocumentationUrl?.href,
 
         authorization_endpoint: new URL(authorization_endpoint, baseUrl || issuer).href,
@@ -155,7 +169,7 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
         mcpAuthMetadataRouter({
             oauthMetadata,
             // Prefer explicit RS; otherwise fall back to AS baseUrl, then to issuer (back-compat)
-            resourceServerUrl: options.resourceServerUrl ?? options.baseUrl ?? new URL(oauthMetadata.issuer),
+            resourceServerUrl: options.resourceServerUrl ?? options.baseUrl ?? options.issuerUrl,
             serviceDocumentationUrl: options.serviceDocumentationUrl,
             scopesSupported: options.scopesSupported,
             resourceName: options.resourceName
