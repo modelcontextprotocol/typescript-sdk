@@ -198,6 +198,79 @@ describe('UriTemplate', () => {
         });
     });
 
+    describe('path-style parameter expansion', () => {
+        it('should add ; prefix and name=value format', () => {
+            const template = new UriTemplate('{;x,y}');
+            expect(template.expand({ x: '1024', y: '768' })).toBe(';x=1024;y=768');
+            expect(template.variableNames).toEqual(['x', 'y']);
+        });
+
+        it('should match the RFC 6570 Section 3.2.7 examples', () => {
+            expect(new UriTemplate('{;who}').expand({ who: 'fred' })).toBe(';who=fred');
+            expect(new UriTemplate('{;half}').expand({ half: '50%' })).toBe(';half=50%25');
+            expect(new UriTemplate('{;empty}').expand({ empty: '' })).toBe(';empty');
+            expect(new UriTemplate('{;v,empty,who}').expand({ v: '6', empty: '', who: 'fred' })).toBe(';v=6;empty;who=fred');
+            expect(new UriTemplate('{;v,bar,who}').expand({ v: '6', who: 'fred' })).toBe(';v=6;who=fred');
+            expect(new UriTemplate('{;x,y,empty}').expand({ x: '1024', y: '768', empty: '' })).toBe(';x=1024;y=768;empty');
+            expect(new UriTemplate('{;x,y,undef}').expand({ x: '1024', y: '768' })).toBe(';x=1024;y=768');
+            expect(new UriTemplate('{;list}').expand({ list: ['red', 'green', 'blue'] })).toBe(';list=red,green,blue');
+        });
+
+        it('should expand path parameters after a literal path segment', () => {
+            expect(new UriTemplate('X{;color,year}').expand({ color: 'red', year: '2012' })).toBe('X;color=red;year=2012');
+        });
+
+        it('should encode values as unreserved characters', () => {
+            expect(new UriTemplate('{;v}').expand({ v: 'a b' })).toBe(';v=a%20b');
+            expect(new UriTemplate('{;v}').expand({ v: 'a;b=c' })).toBe(';v=a%3Bb%3Dc');
+        });
+
+        it('should match ;name=value segments back to variables', () => {
+            expect(new UriTemplate('{;x}').match(';x=1')).toEqual({ x: '1' });
+            expect(new UriTemplate('{;x,y}').match(';x=1;y=2')).toEqual({ x: '1', y: '2' });
+            expect(new UriTemplate('X{;color,year}').match('X;color=red;year=2012')).toEqual({
+                color: 'red',
+                year: '2012'
+            });
+            expect(new UriTemplate('{;empty}').match(';empty')).toEqual({ empty: '' });
+        });
+
+        it('should return null when path-style parameters do not match', () => {
+            expect(new UriTemplate('{;x}').match('?x=1')).toBeNull();
+            expect(new UriTemplate('{;x}').match(';y=1')).toBeNull();
+        });
+    });
+
+    describe('empty list expansion', () => {
+        it('should treat a list with zero members as undefined', () => {
+            expect(new UriTemplate('{tags}').expand({ tags: [] })).toBe('');
+            expect(new UriTemplate('{+tags}').expand({ tags: [] })).toBe('');
+            expect(new UriTemplate('X{#tags}').expand({ tags: [] })).toBe('X');
+            expect(new UriTemplate('X{.tags}').expand({ tags: [] })).toBe('X');
+            expect(new UriTemplate('X{/tags}').expand({ tags: [] })).toBe('X');
+            expect(new UriTemplate('X{?tags}').expand({ tags: [] })).toBe('X');
+            expect(new UriTemplate('X{&tags}').expand({ tags: [] })).toBe('X');
+            expect(new UriTemplate('X{;tags}').expand({ tags: [] })).toBe('X');
+        });
+
+        it('should not leave a dangling separator behind', () => {
+            expect(new UriTemplate('/tags{/tags}').expand({ tags: [] })).toBe('/tags');
+            expect(new UriTemplate('/tags{?tags}').expand({ tags: [] })).toBe('/tags');
+            expect(new UriTemplate('/tags{.tags}').expand({ tags: [] })).toBe('/tags');
+            expect(new UriTemplate('/tags{;tags}').expand({ tags: [] })).toBe('/tags');
+        });
+
+        it('should still expand defined empty strings', () => {
+            expect(new UriTemplate('{;empty}').expand({ empty: '' })).toBe(';empty');
+            expect(new UriTemplate('{?empty}').expand({ empty: '' })).toBe('?empty=');
+        });
+
+        it('should skip empty lists inside multi-variable expressions', () => {
+            expect(new UriTemplate('{;x,y}').expand({ x: '1', y: [] })).toBe(';x=1');
+            expect(new UriTemplate('X{?a,b}').expand({ a: '1', b: [] })).toBe('X?a=1');
+        });
+    });
+
     describe('security and edge cases', () => {
         it('should handle extremely long input strings', () => {
             const longString = 'x'.repeat(100_000);
