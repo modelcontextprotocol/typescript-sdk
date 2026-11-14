@@ -88,7 +88,7 @@ export class UriTemplate {
     }
 
     private getOperator(expr: string): string {
-        const operators = ['+', '#', '.', '/', '?', '&'];
+        const operators = ['+', '#', '.', '/', '?', '&', ';'];
         return operators.find(op => expr.startsWith(op)) || '';
     }
 
@@ -99,6 +99,11 @@ export class UriTemplate {
             .split(',')
             .map(name => name.replace('*', '').trim())
             .filter(name => name.length > 0);
+    }
+
+    // RFC 6570 Section 2.3: a list with zero members is considered undefined.
+    private isUndefinedValue(value: string | string[] | undefined): value is undefined {
+        return value === undefined || (Array.isArray(value) && value.length === 0);
     }
 
     private encodeValue(value: string, operator: string): string {
@@ -122,7 +127,7 @@ export class UriTemplate {
             const pairs = part.names
                 .map(name => {
                     const value = variables[name];
-                    if (value === undefined) return '';
+                    if (this.isUndefinedValue(value)) return '';
                     const encoded = Array.isArray(value)
                         ? value.map(v => this.encodeValue(v, part.operator)).join(',')
                         : this.encodeValue(value.toString(), part.operator);
@@ -135,14 +140,30 @@ export class UriTemplate {
             return separator + pairs.join('&');
         }
 
+        if (part.operator === ';') {
+            const segments = part.names.flatMap(name => {
+                const value = variables[name];
+                if (this.isUndefinedValue(value)) return [];
+                if (part.exploded && Array.isArray(value)) {
+                    return value.map(v => `;${name}=${this.encodeValue(v, part.operator)}`);
+                }
+                const encoded = Array.isArray(value)
+                    ? value.map(v => this.encodeValue(v, part.operator)).join(',')
+                    : this.encodeValue(value.toString(), part.operator);
+                // RFC 6570 Section 3.2.7: append "=" only when the value is not empty.
+                return [encoded ? `;${name}=${encoded}` : `;${name}`];
+            });
+            return segments.join('');
+        }
+
         if (part.names.length > 1) {
-            const values = part.names.map(name => variables[name]).filter(v => v !== undefined);
+            const values = part.names.map(name => variables[name]).filter(v => !this.isUndefinedValue(v));
             if (values.length === 0) return '';
             return values.map(v => (Array.isArray(v) ? v[0] : v)).join(',');
         }
 
         const value = variables[part.name];
-        if (value === undefined) return '';
+        if (this.isUndefinedValue(value)) return '';
 
         const values = Array.isArray(value) ? value : [value];
         const encoded = values.map(v => this.encodeValue(v, part.operator));
@@ -222,6 +243,17 @@ export class UriTemplate {
             return patterns;
         }
 
+        if (part.operator === ';') {
+            for (let i = 0; i < part.names.length; i++) {
+                const name = part.names[i]!;
+                patterns.push({
+                    pattern: ';' + this.escapeRegExp(name) + '(?:=([^;]*))?',
+                    name
+                });
+            }
+            return patterns;
+        }
+
         let pattern: string;
         const name = part.name;
 
@@ -279,7 +311,7 @@ export class UriTemplate {
         const result: Variables = {};
         for (const [i, name_] of names.entries()) {
             const { name, exploded } = name_!;
-            const value = match[i + 1]!;
+            const value = match[i + 1] ?? '';
             const cleanName = name.replace('*', '');
 
             result[cleanName] = exploded && value.includes(',') ? value.split(',') : value;
