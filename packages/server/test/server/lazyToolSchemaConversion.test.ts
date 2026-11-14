@@ -169,4 +169,26 @@ describe('lazy tool schema conversion', () => {
         expect(body.result).toBeUndefined();
         expect(JSON.stringify(body.error)).toContain('does not implement StandardJSONSchemaV1');
     });
+
+    it('an already-converted JSON Schema document (zod toJSONSchema() output) is used directly, never re-converted', async () => {
+        const document = z.object({ a: z.string() }).toJSONSchema() as unknown as StandardSchemaWithJSON;
+        // The document retains a `~standard` prop whose converters re-run the conversion
+        // from the original zod schema; patch them so any re-conversion is counted (#3132).
+        let conversions = 0;
+        const jsonSchema = (document['~standard'] as { jsonSchema: Record<'input', (options: never) => unknown> }).jsonSchema;
+        const original = jsonSchema.input;
+        jsonSchema.input = (options: never) => {
+            conversions++;
+            return original(options);
+        };
+        const server = new McpServer({ name: 'lazy', version: '0' });
+        server.registerTool('t', { inputSchema: document }, async () => ({ content: [] }));
+
+        expect(server.toolInputSchemaJson('t')).toEqual({ type: 'object', ...document });
+        expect(conversions).toBe(0);
+
+        // tools/list converts outside the memo, and must not re-convert a document either.
+        await listTools(server);
+        expect(conversions).toBe(0);
+    });
 });
