@@ -214,6 +214,10 @@ describe('UriTemplate', () => {
             expect(new UriTemplate('{;x,y,empty}').expand({ x: '1024', y: '768', empty: '' })).toBe(';x=1024;y=768;empty');
             expect(new UriTemplate('{;x,y,undef}').expand({ x: '1024', y: '768' })).toBe(';x=1024;y=768');
             expect(new UriTemplate('{;list}').expand({ list: ['red', 'green', 'blue'] })).toBe(';list=red,green,blue');
+            expect(new UriTemplate('{;list*}').expand({ list: ['red', 'green', 'blue'] })).toBe(';list=red;list=green;list=blue');
+            // `{;keys}` and `{;keys*}` are not covered: RFC 6570 associative values cannot be represented by
+            // `Variables`, which only holds strings and lists of strings.
+            // `{;hello:5}` is not covered either: prefix modifiers are not parsed, a pre-existing gap.
         });
 
         it('should expand path parameters after a literal path segment', () => {
@@ -233,6 +237,21 @@ describe('UriTemplate', () => {
                 year: '2012'
             });
             expect(new UriTemplate('{;empty}').match(';empty')).toEqual({ empty: '' });
+        });
+
+        it('should round-trip an exploded path-style list through match', () => {
+            const template = new UriTemplate('{;list*}');
+            const uri = template.expand({ list: ['red', 'green', 'blue'] });
+            expect(uri).toBe(';list=red;list=green;list=blue');
+            expect(template.match(uri)).toEqual({ list: ['red', 'green', 'blue'] });
+            expect(template.match(';list=red')).toEqual({ list: 'red' });
+        });
+
+        it('should round-trip a non-exploded path-style list through match', () => {
+            const template = new UriTemplate('{;list}');
+            const uri = template.expand({ list: ['red', 'green', 'blue'] });
+            expect(uri).toBe(';list=red,green,blue');
+            expect(template.match(uri)).toEqual({ list: ['red', 'green', 'blue'] });
         });
 
         it('should return null when path-style parameters do not match', () => {
