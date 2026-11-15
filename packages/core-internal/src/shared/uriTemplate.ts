@@ -223,8 +223,8 @@ export class UriTemplate {
         operator: string;
         names: string[];
         exploded: boolean;
-    }): Array<{ pattern: string; name: string }> {
-        const patterns: Array<{ pattern: string; name: string }> = [];
+    }): Array<{ pattern: string; name: string; repeated?: boolean; splitOnComma?: boolean }> {
+        const patterns: Array<{ pattern: string; name: string; repeated?: boolean; splitOnComma?: boolean }> = [];
 
         // Validate variable name length for matching
         for (const name of part.names) {
@@ -246,10 +246,18 @@ export class UriTemplate {
         if (part.operator === ';') {
             for (let i = 0; i < part.names.length; i++) {
                 const name = part.names[i]!;
-                patterns.push({
-                    pattern: ';' + this.escapeRegExp(name) + '(?:=([^;]*))?',
-                    name
-                });
+                if (part.exploded) {
+                    // RFC 6570 Section 3.2.7 repeats the `;name=value` segment for exploded lists, and
+                    // JavaScript keeps only the last iteration of `(?:;name=([^;]*))+`, so the pattern
+                    // captures the whole run and `match` splits it into the member values.
+                    patterns.push({ pattern: '((?:;' + this.escapeRegExp(name) + '(?:=[^;]*)?)+)', name, repeated: true });
+                } else {
+                    patterns.push({
+                        pattern: ';' + this.escapeRegExp(name) + '(?:=([^;]*))?',
+                        name,
+                        splitOnComma: true
+                    });
+                }
             }
             return patterns;
         }
@@ -287,16 +295,16 @@ export class UriTemplate {
     match(uri: string): Variables | null {
         UriTemplate.validateLength(uri, MAX_TEMPLATE_LENGTH, 'URI');
         let pattern = '^';
-        const names: Array<{ name: string; exploded: boolean }> = [];
+        const names: Array<{ name: string; exploded: boolean; repeated?: boolean; splitOnComma?: boolean }> = [];
 
         for (const part of this.parts) {
             if (typeof part === 'string') {
                 pattern += this.escapeRegExp(part);
             } else {
                 const patterns = this.partToRegExp(part);
-                for (const { pattern: partPattern, name } of patterns) {
+                for (const { pattern: partPattern, name, repeated, splitOnComma } of patterns) {
                     pattern += partPattern;
-                    names.push({ name, exploded: part.exploded });
+                    names.push({ name, exploded: part.exploded, repeated, splitOnComma });
                 }
             }
         }
@@ -310,11 +318,25 @@ export class UriTemplate {
 
         const result: Variables = {};
         for (const [i, name_] of names.entries()) {
-            const { name, exploded } = name_!;
+            const { name, exploded, repeated, splitOnComma } = name_!;
+            // The `=` group is optional, which is how `{;empty}` matches the bare `;empty` that expand
+            // produces; an absent capture reads as '' rather than leaving the variable out.
             const value = match[i + 1] ?? '';
             const cleanName = name.replace('*', '');
 
-            result[cleanName] = exploded && value.includes(',') ? value.split(',') : value;
+            if (repeated) {
+                const values = value
+                    .split(';')
+                    .filter(segment => segment.length > 0)
+                    .map(segment => {
+                        const equals = segment.indexOf('=');
+                        return equals === -1 ? '' : segment.slice(equals + 1);
+                    });
+                result[cleanName] = values.length > 1 ? values : (values[0] ?? '');
+                continue;
+            }
+
+            result[cleanName] = (exploded || splitOnComma) && value.includes(',') ? value.split(',') : value;
         }
 
         return result;
