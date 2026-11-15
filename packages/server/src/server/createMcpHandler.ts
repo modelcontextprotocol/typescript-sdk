@@ -206,7 +206,15 @@ export interface CreateMcpHandlerOptions {
      * return the same error. Requires {@linkcode getSessionId} to be
      * configured. {@linkcode createMcpHandler} throws `TypeError` at
      * construction otherwise, since without a resolver the SDK has no safe
-     * source for per-session attribution.
+     * source for per-session attribution. The value itself must be a positive
+     * safe integer; non-finite, non-integer, zero, negative, or fractional
+     * values are rejected at construction, since those would silently
+     * disable the cap under a `>=` comparison.
+     *
+     * Scope: per resolved key within one handler instance. This is not a
+     * cross-instance, distributed, or per-tenant quota; a client that can
+     * mint many identities still consumes the handler-wide
+     * {@linkcode maxSubscriptions} cap.
      * @default no per-session cap
      */
     maxSubscriptionsPerSession?: number;
@@ -736,6 +744,21 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         throw new TypeError(
             "The 'maxSubscriptionsPerSession' option requires a 'getSessionId' resolver to supply the trusted session key. " +
                 'Without a resolver the SDK has no safe source for per-session attribution. The entry does not authenticate inbound headers.'
+        );
+    }
+    // Value guard: a non-finite, non-integer, zero, negative, or fractional
+    // cap would silently disable the per-session limit under a `>=` comparison
+    // (`sessionOpen.size >= NaN` and `>= Infinity` are false forever;
+    // `>= 0` fires on the first stream and makes the feature a boolean toggle;
+    // fractional values do the same). For a fail-closed resource guard,
+    // reject at construction rather than appear to enforce a cap that cannot fire.
+    if (
+        options.maxSubscriptionsPerSession !== undefined &&
+        (!Number.isSafeInteger(options.maxSubscriptionsPerSession) || options.maxSubscriptionsPerSession <= 0)
+    ) {
+        throw new TypeError(
+            "The 'maxSubscriptionsPerSession' option must be a positive safe integer. " +
+                'Non-finite, non-integer, zero, negative, and fractional values silently disable the cap and are rejected at construction.'
         );
     }
 

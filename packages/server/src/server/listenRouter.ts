@@ -166,12 +166,14 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
             return jsonRpcError(message.id, -32_603, 'Subscription limit reached');
         }
         if (maxSubscriptionsPerSession !== undefined) {
-            // Fail-closed: the per-session cap is only honest with a resolved
-            // key. The caller's resolver returned undefined for this listen,
-            // so there is no bucket to attribute it to. Reject rather than
-            // silently fall through to the handler-wide cap and misreport the
-            // guarantee.
-            if (sessionId === undefined) {
+            // Fail-closed: the per-session cap is only honest with a resolved,
+            // non-empty key. A resolver that returned undefined, a non-string,
+            // or a string that is empty or only whitespace has not established
+            // an identity. Accepting an empty-string key would bucket every
+            // such listen under a single shared slot, which is not isolation.
+            // Reject rather than silently fall through to the handler-wide
+            // cap and misreport the guarantee.
+            if (typeof sessionId !== 'string' || sessionId.trim() === '') {
                 onerror?.(
                     new Error(
                         'subscriptions/listen refused: per-session cap configured but no trusted session key was resolved for this request'
@@ -181,10 +183,12 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
             }
             const sessionOpen = openPerSession.get(sessionId);
             if (sessionOpen !== undefined && sessionOpen.size >= maxSubscriptionsPerSession) {
+                // Do not interpolate the resolved key into the log message:
+                // the resolver can return a principal-level identifier the
+                // deployment supplied, which may be sensitive. The limit and
+                // reason are enough for diagnostics.
                 onerror?.(
-                    new Error(
-                        `subscriptions/listen refused: per-session subscription limit reached (${maxSubscriptionsPerSession}, session ${sessionId})`
-                    )
+                    new Error(`subscriptions/listen refused: per-session subscription limit reached (${maxSubscriptionsPerSession})`)
                 );
                 return jsonRpcError(message.id, -32_603, 'Subscription limit reached');
             }

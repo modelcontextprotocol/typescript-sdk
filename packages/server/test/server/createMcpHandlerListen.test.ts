@@ -282,6 +282,27 @@ describe('createMcpHandler — subscriptions/listen', () => {
         expect(() => createMcpHandler(trivialFactory(), { maxSubscriptionsPerSession: 1 })).toThrow(TypeError);
     });
 
+    it.each([
+        ['NaN', NaN],
+        ['Infinity', Number.POSITIVE_INFINITY],
+        ['-Infinity', Number.NEGATIVE_INFINITY],
+        ['zero', 0],
+        ['negative', -1],
+        ['fractional', 1.5]
+    ])('throws TypeError at construction when maxSubscriptionsPerSession is %s', (_label, value) => {
+        // Non-finite, non-integer, zero, negative, and fractional values all
+        // silently disable the cap under the `>=` comparison in the router
+        // (`>= NaN` and `>= Infinity` are false forever; `>= 0` fires on the
+        // first stream and makes the feature a boolean toggle). Reject at
+        // construction rather than appear to enforce a cap that cannot fire.
+        expect(() =>
+            createMcpHandler(trivialFactory(), {
+                maxSubscriptionsPerSession: value,
+                getSessionId: () => 'session-a'
+            })
+        ).toThrow(TypeError);
+    });
+
     it('refuses pre-ack with -32603 when getSessionId returns undefined for a configured per-session cap', async () => {
         // Fail-closed runtime contract: the resolver signaled it cannot
         // attribute this listen (no trusted identity available), so the SDK
@@ -298,6 +319,85 @@ describe('createMcpHandler — subscriptions/listen', () => {
         expect(body.error.code).toBe(-32_603);
         expect(body.error.message).toBe('Subscription limit reached');
         expect(body.id).toBe(1);
+        await handler.close();
+    });
+
+    it.each([
+        ['empty string', ''],
+        ['whitespace only', '   ']
+    ])('refuses pre-ack with -32603 when getSessionId returns %s', async (_label, value) => {
+        // Same fail-closed posture as the undefined-key case: an empty or
+        // whitespace-only key has not established an identity and would
+        // otherwise bucket every such listen under a single shared slot,
+        // which is not isolation.
+        const handler = createMcpHandler(trivialFactory(), {
+            keepAliveMs: 0,
+            maxSubscriptionsPerSession: 1,
+            getSessionId: () => value
+        });
+        const response = await handler.fetch(listenRequest(1, { toolsListChanged: true }, 'session-a'));
+        expect(response.headers.get('Content-Type')).toContain('application/json');
+        const body = (await response.json()) as { error: { code: number; message: string }; id: unknown };
+        expect(body.error.code).toBe(-32_603);
+        expect(body.error.message).toBe('Subscription limit reached');
+        await handler.close();
+    });
+
+    it('attributes the per-session bucket to the authInfo-stamped identity, not to the inbound Mcp-Session-Id header', async () => {
+        // Trust-boundary test: the resolver reads the identity from the
+        // request's authInfo.extra (what trusted middleware established),
+        // not from the inbound Mcp-Session-Id header. A caller rotating the
+        // header value must not rotate the accounting bucket. This is the
+        // actual contract the per-session cap advertises in the docs; a
+        // header-reading test would pass while leaving the trust boundary
+        // untested.
+        const handler = createMcpHandler(trivialFactory(), {
+            keepAliveMs: 0,
+            maxSubscriptionsPerSession: 1,
+            getSessionId: options => options.authInfo?.extra?.sessionKey as string | undefined
+        });
+        const trustedIdentity = 'principal-A';
+        const options = { authInfo: { token: 'tkn', clientId: 'c', scopes: [], extra: { sessionKey: trustedIdentity } } };
+
+        // First listen under the trusted identity opens a stream.
+        const first = await handler.fetch(listenRequest(1, { toolsListChanged: true }, 'attacker-rotates-this'), options);
+        expect(first.headers.get('Content-Type')).toBe('text/event-stream');
+
+        // Attacker rotates the inbound Mcp-Session-Id header but keeps the
+        // same authInfo identity. The bucket must not rotate: the second
+        // listen is refused because the identity-level cap of 1 is reached.
+        const second = await handler.fetch(listenRequest(2, { toolsListChanged: true }, 'different-header-value'), options);
+        expect(second.headers.get('Content-Type')).toContain('application/json');
+        const body = (await second.json()) as { error: { code: number; message: string }; id: unknown };
+        expect(body.error.code).toBe(-32_603);
+        expect(body.error.message).toBe('Subscription limit reached');
+        expect(body.id).toBe(2);
+
+        await first.body!.cancel();
+        await handler.close();
+    });
+
+    it('does not interpolate the resolved session key into onerror reports', async () => {
+        // The resolved key can be a principal identifier the deployment
+        // supplied; log messages must carry limit + reason, not the key.
+        const errors: string[] = [];
+        const sensitiveKey = 'principal-sub-sensitive-id-abc123';
+        const handler = createMcpHandler(trivialFactory(), {
+            keepAliveMs: 0,
+            maxSubscriptionsPerSession: 1,
+            getSessionId: () => sensitiveKey,
+            onerror: err => errors.push(err.message)
+        });
+
+        const first = await handler.fetch(listenRequest(1, { toolsListChanged: true }, 's'));
+        expect(first.headers.get('Content-Type')).toBe('text/event-stream');
+        const second = await handler.fetch(listenRequest(2, { toolsListChanged: true }, 's'));
+        expect(second.headers.get('Content-Type')).toContain('application/json');
+
+        expect(errors.some(m => m.includes('per-session subscription limit reached'))).toBe(true);
+        expect(errors.join('\n')).not.toContain(sensitiveKey);
+
+        await first.body!.cancel();
         await handler.close();
     });
 
