@@ -168,6 +168,26 @@ The Resource Server helpers did not move there: `requireBearerAuth`, `mcpAuthMet
 
 HTTP SSE streams emit a `: keepalive` comment every 15 seconds by default so client body-idle timeouts and intermediaries do not terminate an otherwise idle connection. Configure the interval with `keepAliveMs` on the transport or `createMcpHandler`; set it to `0` to disable heartbeats.
 
+## `inputSchema` is empty / clients strip all arguments
+
+On v1, `registerTool` / `server.tool()` expect a **raw shape** (`{ name: z.string() }`), not a `ZodObject` (`z.object({ name: z.string() })`). Passing a `ZodObject` where a raw shape is expected either crashes `tools/list` with `Cannot read properties of null (reading '_def')` (v1 ≤1.21) or silently publishes an empty schema (`{"type":"object"}` with no `properties`) — clients then strip every argument and the handler receives none. Neither failure points at the cause.
+
+Check your registration call. The second argument to `server.tool()` / the `inputSchema` field of `registerTool` must be a plain object mapping names to Zod schemas, **not** wrapped in `z.object()`:
+
+```ts
+// v1 — wrong: ZodObject where a raw shape is expected
+server.tool('greet', 'desc', z.object({ name: z.string() }), async (args) => ({ ... }));
+
+// v1 — right: raw shape
+server.tool('greet', 'desc', { name: z.string() }, async (args) => ({ ... }));
+```
+
+v1.22+ normalizes a `ZodObject` passed to `registerTool`, and v1.28+ throws a clear error at registration via `server.tool()`. Older 1.x versions are still widely deployed, so the symptom survives in the wild. The v2 registration API takes a Standard Schema instead, where `z.object({...})` is the correct form — see the [v1→v2 migration guide](./migration/upgrade-to-v2.md).
+
+## `tools/list` fails with `Cannot read properties of null (reading '_def')`
+
+Same root cause as the entry above: a `ZodObject` (`z.object({...})`) passed where a raw shape (`{ field: z.string() }`) is expected, on SDK v1 ≤1.21. The internal normalization dereferences a null schema and throws while serializing `tools/list`. Fix the registration call to pass the raw shape (see the entry above). On v1.22+ the same mistake is normalized or throws a clear error at registration instead.
+
 ## Recap
 
 - Every heading on this page is the exact message you searched for.
