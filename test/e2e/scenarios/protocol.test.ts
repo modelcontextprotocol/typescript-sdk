@@ -1610,7 +1610,7 @@ verifies('typescript:protocol:error:not-connected', async ({ transport }: TestAr
     const result = await client.callTool({ name: 'summarize_document', arguments: { text: 'Q3 sales were flat.' } });
     expect(result.content).toEqual([{ type: 'text', text: 'summary: Q3 sales were flat.' }]);
 
-    // Closed-state checks use a direct InMemory pair: the in-process stdio harness never fires the client transport's onclose.
+    // Closed-state checks use a direct InMemory pair.
     const closedClient = newClient();
     const closedServer = makeServer();
     const [closedClientTx, closedServerTx] = InMemoryTransport.createLinkedPair();
@@ -1803,7 +1803,7 @@ verifies('protocol:transport-callbacks:wrappable-after-connect', async ({ transp
     expect(observedResponsesFor(secondCallId)[0]?.result).toMatchObject({ content: [{ type: 'text', text: 'still wrapped' }] });
     expect(observedErrors).toEqual([]);
 
-    // Close-event chaining is checked on a direct InMemory pair: the in-process stdio harness never fires the client transport's onclose.
+    // Close-event chaining is checked on a direct InMemory pair.
     const closingClient = newClient();
     const closingServer = makeServer();
     const [closingClientTx, closingServerTx] = InMemoryTransport.createLinkedPair();

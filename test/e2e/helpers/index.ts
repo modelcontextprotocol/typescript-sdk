@@ -127,7 +127,10 @@ export async function wire(
             const server = makeServer();
             const c2s = new PassThrough();
             const s2c = new PassThrough();
-            await server.connect(new StdioServerTransport(c2s, s2c));
+            const serverTransport = new StdioServerTransport(c2s, s2c);
+            // A real server process exits once its transport closes, which closes its stdout.
+            serverTransport.onclose = () => s2c.end();
+            await server.connect(serverTransport);
             await client.connect(sniffTransport(stdioClientOverPipes(s2c, c2s), 'client', sniff));
             return { [Symbol.asyncDispose]: () => Promise.all([client.close(), server.close()]).then(() => {}) };
         }
@@ -408,6 +411,7 @@ function assertModernNegotiation(client: Client): void {
 
 function stdioClientOverPipes(serverStdout: NodeJS.ReadableStream, serverStdin: NodeJS.WritableStream) {
     const buf = new ReadBuffer();
+    const exited = new Promise<void>(resolve => serverStdout.once('close', () => resolve()));
     return {
         onmessage: undefined as ((m: JSONRPCMessage) => void) | undefined,
         onerror: undefined as ((e: Error) => void) | undefined,
@@ -426,6 +430,7 @@ function stdioClientOverPipes(serverStdout: NodeJS.ReadableStream, serverStdin: 
         },
         async close() {
             serverStdin.end();
+            await exited;
         }
     };
 }
