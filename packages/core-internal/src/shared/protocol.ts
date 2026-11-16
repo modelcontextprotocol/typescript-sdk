@@ -835,6 +835,25 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const _onmessage = this._transport?.onmessage;
         this._transport.onmessage = (message, extra) => {
             _onmessage?.(message, extra);
+            // The envelope keys settle the kind, so only that kind's schema has to run.
+            if (isPlainObject(message)) {
+                if ('result' in message || 'error' in message) {
+                    if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
+                        this._onresponse(message);
+                        return;
+                    }
+                } else if ('method' in message) {
+                    if ('id' in message) {
+                        if (isJSONRPCRequest(message)) {
+                            this._onrequest(message, extra);
+                            return;
+                        }
+                    } else if (isJSONRPCNotification(message)) {
+                        this._onnotification(message, extra);
+                        return;
+                    }
+                }
+            }
             if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
                 this._onresponse(message);
             } else if (isJSONRPCRequest(message)) {
