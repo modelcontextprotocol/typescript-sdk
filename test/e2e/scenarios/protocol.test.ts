@@ -765,6 +765,8 @@ verifies('protocol:timeout:reset-on-progress', async ({ transport }: TestArgs) =
                 r => ((settled = 'resolved'), r),
                 error => ((settled = 'rejected'), Promise.reject(error))
             );
+        // SSE known-failures throw inside waitFor before this promise is awaited.
+        call.catch(() => {});
 
         for (let i = 1; i <= steps; i++) {
             await vi.advanceTimersByTimeAsync(delayMs);
