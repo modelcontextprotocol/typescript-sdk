@@ -2,7 +2,6 @@ import type { DeliveryMode } from '@modelcontextprotocol/core/ext/events';
 import type { ServerContext } from '@modelcontextprotocol/core-internal';
 import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 
-import { assertModernRequest } from './eraGate';
 import type { EventRegistry, RegisteredEvent } from './registry';
 import type { EventsOptions } from './types';
 
@@ -38,14 +37,13 @@ export class SubscriptionValidator {
         this.#deps = deps;
     }
 
-    // Era gate, webhook mode (webhook only), principal (required for webhook), event exists, mode offered, `beforeParse`, then the arguments.
+    // After the era gate in `attach`: webhook mode (webhook only), principal (required for webhook), event exists, mode offered, `beforeParse`, then the arguments.
     async validate(
         mode: DeliveryMode,
         params: SubscriptionRequest,
         ctx: ServerContext,
         beforeParse?: (principal: string | null, rawArgs: Record<string, unknown>) => void
     ): Promise<ValidSubscription> {
-        assertModernRequest(ctx);
         const webhook = mode === 'webhook';
         if (webhook && !this.#deps.webhookEnabled) throw notOffered('This server does not offer webhook delivery', mode);
         const principal = (await this.#deps.getPrincipal?.(ctx)) ?? null;

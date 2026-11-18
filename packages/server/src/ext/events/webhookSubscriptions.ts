@@ -26,8 +26,13 @@ const ROTATION_GRACE_MS = 300_000;
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
 const encoder = new TextEncoder();
-// The `signal` of callbacks for a stored subscription this process does not watch.
-const UNWATCHED = new AbortController().signal;
+let unwatched: AbortSignal | undefined;
+
+// The `signal` of callbacks for a stored subscription this process does not watch; made at first use, as Cloudflare Workers refuse it at module scope.
+function unwatchedSignal(): AbortSignal {
+    unwatched ??= new AbortController().signal;
+    return unwatched;
+}
 
 export interface WebhookDeps {
     readonly validator: SubscriptionValidator;
@@ -496,7 +501,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
                 this.#later(record.id, () => this.#recheck(record.id));
                 continue;
             }
-            const ctx = this.#watched.get(record.id)?.ctx ?? this.#contextOf(record, UNWATCHED);
+            const ctx = this.#watched.get(record.id)?.ctx ?? this.#contextOf(record, unwatchedSignal());
             const occurrence = selectEvent(entry, ctx, record.arguments, buffered, this.#deps.report);
             if (occurrence !== undefined) this.#engine.deliver(record, occurrence, cursor, previous);
         }

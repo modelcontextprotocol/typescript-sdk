@@ -19,10 +19,11 @@ import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 import type { McpServer } from '../../server/mcp';
 import { markModernOnlyExtension } from '../../server/modernOnlyExtensions';
 import { registerParamHeaderSource } from '../../server/paramHeaderSources';
+import type { Server } from '../../server/server';
 import { markStreamingMethod } from '../../server/streamingMethods';
 import type { BufferedEvent } from './emitBuffer';
 import { EmitBuffer } from './emitBuffer';
-import { assertModernRequest } from './eraGate';
+import { assertModernServer } from './eraGate';
 import { PollSource, toOccurrence } from './poll';
 import { StreamSet } from './push';
 import type { AnyEventDefinition, RegisteredEvent } from './registry';
@@ -240,8 +241,8 @@ export class EventsExtension {
      * server: attaching another one throws and leaves the server as it was,
      * as does attaching to a server that already handles one of the
      * `events/*` methods. A legacy `initialize` result does not advertise
-     * Events, and `events/*` requests without a `2026-07-28` envelope are
-     * answered `-32601`.
+     * Events, and a server serving an earlier revision than `2026-07-28`
+     * answers `events/*` requests with `-32601`.
      *
      * Experimental: Events (SEP-3415) is new; this API may change in a minor release.
      *
@@ -254,18 +255,24 @@ export class EventsExtension {
         const server = mcp.server;
         // Check before changing anything; declare the capability last, so a server never advertises events it does not serve.
         for (const method of EVENTS_METHODS) server.assertCanSetRequestHandler(method);
-        server.setRequestHandler(EVENTS_LIST_METHOD, { params: ListEventsRequestParamsSchema }, (_params, ctx) => this.#list(ctx));
+        server.setRequestHandler(EVENTS_LIST_METHOD, { params: ListEventsRequestParamsSchema }, () =>
+            this.#modernOnly(server, () => this.#list())
+        );
         server.setRequestHandler(EVENTS_POLL_METHOD, { params: PollEventsRequestParamsSchema }, (params, ctx) =>
-            this.#poll.handlePoll(params, ctx)
+            this.#modernOnly(server, () => this.#poll.handlePoll(params, ctx))
         );
         server.setRequestHandler(EVENTS_STREAM_METHOD, { params: StreamEventsRequestParamsSchema }, (params, ctx) =>
-            this.#push.open(params, ctx)
+            this.#modernOnly(server, () => this.#push.open(params, ctx))
         );
         server.setRequestHandler(EVENTS_SUBSCRIBE_METHOD, { params: SubscribeEventsRequestParamsSchema }, (params, ctx) =>
-            this.#webhooks === undefined ? this.#refuseWebhook(params, ctx) : this.#webhooks.subscribe(params, ctx)
+            this.#modernOnly(server, () =>
+                this.#webhooks === undefined ? this.#refuseWebhook(params, ctx) : this.#webhooks.subscribe(params, ctx)
+            )
         );
         server.setRequestHandler(EVENTS_UNSUBSCRIBE_METHOD, { params: UnsubscribeEventsRequestParamsSchema }, (params, ctx) =>
-            this.#webhooks === undefined ? this.#refuseWebhook(params, ctx) : this.#webhooks.unsubscribe(params, ctx)
+            this.#modernOnly(server, () =>
+                this.#webhooks === undefined ? this.#refuseWebhook(params, ctx) : this.#webhooks.unsubscribe(params, ctx)
+            )
         );
         server.registerCapabilities({ extensions: { [EVENTS_EXTENSION_ID]: {} } });
         markModernOnlyExtension(server, EVENTS_EXTENSION_ID);
@@ -336,14 +343,19 @@ export class EventsExtension {
         return emitOnly;
     }
 
-    // Without webhook mode the shared checks refuse every webhook request: the era gate, then `unsupported`.
+    // Runs `serve` only on a server bound to 2026-07-28 or later; the request's `_meta` envelope does not decide.
+    #modernOnly<T>(server: Server, serve: () => T): T {
+        assertModernServer(server);
+        return serve();
+    }
+
+    // Without webhook mode the shared checks refuse every webhook request with `unsupported`.
     async #refuseWebhook(params: SubscriptionRequest, ctx: ServerContext): Promise<never> {
         await this.#validator.validate('webhook', params, ctx);
         throw new TypeError('webhook mode is off, yet validate() accepted a webhook request');
     }
 
-    #list(ctx: ServerContext): ListEventsResult {
-        assertModernRequest(ctx);
+    #list(): ListEventsResult {
         return { events: this.#registry.list().map(entry => this.#describe(entry)) };
     }
 

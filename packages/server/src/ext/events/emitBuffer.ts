@@ -37,7 +37,8 @@ export class EmitBuffer {
     readonly #maxEvents: number;
     readonly #now: () => number;
     readonly #rings = new Map<string, Ring>();
-    #epoch = newEpoch();
+    // Drawn at first use: Cloudflare Workers refuse random values at module scope, where an extension is built.
+    #epoch: string | undefined;
 
     constructor(limits: { maxAgeMs: number; maxEvents: number }, now: () => number = () => Date.now()) {
         this.#maxAgeMs = limits.maxAgeMs;
@@ -110,7 +111,7 @@ export class EmitBuffer {
     // Drops every event and starts a new epoch, as a process restart would.
     clear(): void {
         this.#rings.clear();
-        this.#epoch = newEpoch();
+        this.#epoch = undefined;
     }
 
     #evict(ring: Ring): void {
@@ -122,13 +123,18 @@ export class EmitBuffer {
         ring.evicted += drop;
     }
 
+    #currentEpoch(): string {
+        this.#epoch ??= newEpoch();
+        return this.#epoch;
+    }
+
     #format(sequence: number): string {
-        return `e${this.#epoch}.${sequence}`;
+        return `e${this.#currentEpoch()}.${sequence}`;
     }
 
     #parse(cursor: string): number | undefined {
         const match = CURSOR.exec(cursor);
-        if (match === null || match[1] !== this.#epoch) return undefined;
+        if (match === null || match[1] !== this.#currentEpoch()) return undefined;
         const sequence = Number(match[2]);
         return Number.isSafeInteger(sequence) ? sequence : undefined;
     }

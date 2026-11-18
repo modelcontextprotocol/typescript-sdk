@@ -142,8 +142,8 @@ export class WebhookEngine {
     // Each verified `principal\0url` with the subscription ids it covers; it lasts while one of them does.
     readonly #verified = new Map<string, Set<string>>();
     readonly #verifiedKeyOf = new Map<string, string>();
-    // Aborts verification sends in flight on clear().
-    #lifetime = new AbortController();
+    // Aborts verification sends in flight on clear(); made at first use, as Cloudflare Workers refuse it at module scope.
+    #lifetime: AbortController | undefined;
 
     constructor(options: WebhookEngineOptions) {
         this.#sender = options.sender;
@@ -166,6 +166,7 @@ export class WebhookEngine {
             const challenge = challengeNonce();
             const body = JSON.stringify({ type: 'verification', challenge });
             const webhookId = generateWebhookId('verification');
+            this.#lifetime ??= new AbortController();
             const outcome = await this.#post(url, subscriptionId, [secret], webhookId, body, this.#lifetime.signal);
             if ('error' in outcome) throw verificationError(outcome.error);
             if (!echoes(outcome, challenge)) throw verificationError('challenge_failed');
@@ -259,8 +260,8 @@ export class WebhookEngine {
         for (const control of this.#controls) this.#stopControl(control);
         this.#verified.clear();
         this.#verifiedKeyOf.clear();
-        this.#lifetime.abort();
-        this.#lifetime = new AbortController();
+        this.#lifetime?.abort();
+        this.#lifetime = undefined;
     }
 
     #start(id: string, watermark: string | null): Tracked {
