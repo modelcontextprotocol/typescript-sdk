@@ -399,7 +399,10 @@ describe('Authorization Handler', () => {
     });
 
     describe('RFC 9207 iss parameter', () => {
-        const ISSUER = 'https://auth.example.com/';
+        // RFC 8414 §2/§3.3: the issuer identifier is served slash-less (byte-identical to
+        // the metadata `issuer`), so the `iss` authorization-response parameter uses the
+        // same spelling.
+        const ISSUER = 'https://auth.example.com';
         let issApp: express.Express;
 
         beforeEach(() => {

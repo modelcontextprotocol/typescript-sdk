@@ -79,7 +79,10 @@ const RequestAuthorizationParamsSchema = z.object({
 });
 
 export function authorizationHandler({ provider, issuerUrl, rateLimit: rateLimitConfig }: AuthorizationHandlerOptions): RequestHandler {
-    const issuer = issuerUrl?.href;
+    // RFC 8414 §2/§3.3: serve the `iss` identifier slash-less, byte-identical to the
+    // metadata `issuer` (which strips the URL-normalization slash). A slashed `iss`
+    // against a slash-less metadata issuer is exactly the mismatch strict clients reject.
+    const issuer = issuerUrl?.href.replace(/\/$/, '');
     // Create a router to apply middleware
     const router = express.Router();
     router.use(allowedMethods(['GET', 'POST']));

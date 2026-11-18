@@ -203,7 +203,10 @@ describe('MCP Auth Router', () => {
             expect(response.status).toBe(200);
 
             // Verify essential fields
-            expect(response.body.issuer).toBe('https://auth.example.com/');
+            // RFC 8414 §2: the issuer identifier MUST NOT carry a trailing slash, and §3.3
+            // requires it to be byte-identical to the URL the metadata was fetched from —
+            // so an issuerUrl of 'https://auth.example.com' serves 'https://auth.example.com'.
+            expect(response.body.issuer).toBe('https://auth.example.com');
             expect(response.body.authorization_endpoint).toBe('https://auth.example.com/authorize');
             expect(response.body.token_endpoint).toBe('https://auth.example.com/token');
             expect(response.body.registration_endpoint).toBe('https://auth.example.com/register');
@@ -250,7 +253,7 @@ describe('MCP Auth Router', () => {
             expect(response.status).toBe(200);
 
             // Verify essential endpoints
-            expect(response.body.issuer).toBe('https://auth.example.com/');
+            expect(response.body.issuer).toBe('https://auth.example.com');
             expect(response.body.authorization_endpoint).toBe('https://auth.example.com/authorize');
             expect(response.body.token_endpoint).toBe('https://auth.example.com/token');
 
@@ -278,9 +281,44 @@ describe('MCP Auth Router', () => {
 
             // Verify protected resource metadata
             expect(response.body.resource).toBe('https://mcp.example.com/');
-            expect(response.body.authorization_servers).toContain('https://mcp.example.com/');
+            // RFC 8414 §2/§3.3: the AS issuer is served slash-less, matching what the
+            // authorization-server metadata document advertises for this issuerUrl.
+            expect(response.body.authorization_servers).toContain('https://mcp.example.com');
             expect(response.body.scopes_supported).toEqual(['read', 'write']);
             expect(response.body.resource_name).toBe('Test API');
+        });
+
+        // RFC 8414 §2 forbids a trailing slash on the issuer identifier and §3.3 requires
+        // the metadata issuer to be byte-identical to the URL the well-known document was
+        // fetched from. `new URL('https://host').href` normalizes to 'https://host/', which
+        // re-introduced the slash — an SDK server and an SDK client (which validates the
+        // echo) could not complete discovery against each other for root issuers.
+        it('serves the issuer without a trailing slash when issuerUrl has none', async () => {
+            const app = express();
+            app.use(
+                mcpAuthRouter({
+                    provider: mockProvider,
+                    issuerUrl: new URL('https://auth.example.com')
+                })
+            );
+
+            const response = await supertest(app).get('/.well-known/oauth-authorization-server');
+            expect(response.status).toBe(200);
+            expect(response.body.issuer).toBe('https://auth.example.com');
+        });
+
+        it('serves a slash-less issuer for an issuerUrl that already carries one', async () => {
+            const app = express();
+            app.use(
+                mcpAuthRouter({
+                    provider: mockProvider,
+                    issuerUrl: new URL('https://auth.example.com/')
+                })
+            );
+
+            const response = await supertest(app).get('/.well-known/oauth-authorization-server');
+            expect(response.status).toBe(200);
+            expect(response.body.issuer).toBe('https://auth.example.com');
         });
     });
 
