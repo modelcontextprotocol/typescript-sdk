@@ -92,7 +92,7 @@ On shutdown, close every stored transport — `for (const { transport } of sessi
 
 ## Resume a dropped stream
 
-A sessionful client holds a `GET` SSE stream open for server notifications, and anything sent while that connection is down is lost. An **event store** closes the gap: with one configured, the transport stamps every SSE message with an event id from the store before sending it.
+A sessionful client holds a `GET` SSE stream open for server notifications, and anything sent while that connection is down is lost. An **event store** closes the gap: with one configured, the transport stamps every SSE message with an event id from the store before sending it. One window it cannot close: anything sent before the client has opened its first `GET`, because that request carries no `Last-Event-ID` to replay from. A server that emits alerts on a timer should repeat them while the condition persists, or defer its first check until a client is likely connected.
 
 `EventStore` is a two-method contract — `storeEvent(streamId, message)` persists a message and returns its event id; `replayEventsAfter(lastEventId, { send })` re-sends every later message on that stream. Implement it over storage every node can reach (`databaseEventStore` here) and pass it next to `sessionIdGenerator`.
 
