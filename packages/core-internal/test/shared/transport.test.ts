@@ -180,3 +180,21 @@ describe('createFetchWithInit', () => {
         );
     });
 });
+
+describe('repeated tuple headers', () => {
+    test('preserves every Accept media type when normalizing tuple headers', () => {
+        const input: [string, string][] = [
+            ['accept', 'text/event-stream'],
+            ['accept', 'application/json']
+        ];
+        expect(new Headers(normalizeHeaders(input)).get('accept')).toBe(new Headers(input).get('accept'));
+    });
+
+    test('combines repeated tuple fields regardless of casing', () => {
+        const input: [string, string][] = [
+            ['Accept', 'text/event-stream'],
+            ['accept', 'application/json']
+        ];
+        expect(new Headers(normalizeHeaders(input)).get('accept')).toBe(new Headers(input).get('accept'));
+    });
+});
