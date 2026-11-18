@@ -2260,8 +2260,14 @@ export class Client extends Protocol<ClientContext> {
 
     // Ends every live `openStream` request as `remote`: the connection it was sent on is gone.
     private _endStreams(): void {
-        for (const stream of this._streamState.values()) {
-            stream.end({ cause: 'remote' });
+        // A snapshot, so a stream that an `onEnd` reopens is not ended (and reopened again) by this same loop.
+        const live = [...this._streamState.values()];
+        for (const stream of live) {
+            try {
+                stream.end({ cause: 'remote' });
+            } catch (error) {
+                this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+            }
         }
     }
 
@@ -2421,15 +2427,19 @@ export class Client extends Protocol<ClientContext> {
      * hanging.
      */
     protected override _onclose(): void {
-        if (this._listenState.size > 0) {
-            const reason = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
-            for (const entry of this._listenState.values()) {
-                entry.settle({ cause: 'remote', error: reason });
+        try {
+            if (this._listenState.size > 0) {
+                const reason = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
+                for (const entry of this._listenState.values()) {
+                    entry.settle({ cause: 'remote', error: reason });
+                }
+                this._listenState.clear();
             }
-            this._listenState.clear();
+            this._endStreams();
+        } finally {
+            // Base teardown runs even if a callback above throws, so pending requests and timers are always settled.
+            super._onclose();
         }
-        this._endStreams();
-        super._onclose();
     }
 
     /**

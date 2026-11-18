@@ -194,6 +194,65 @@ describe('clientInternals.openStream', () => {
         expect(stream.ends).toHaveLength(1);
     });
 
+    it('does not loop when onEnd reopens synchronously on transport close', async () => {
+        const { client, clientTx } = await scriptedStreams();
+        const ends: StreamEnd[] = [];
+        const refused: unknown[] = [];
+        let opens = 0;
+        const open = (): void => {
+            try {
+                clientInternals.openStream(client, streamRequest('a'), {
+                    onNotification: () => {},
+                    onEnd: end => {
+                        ends.push(end);
+                        // Capped so a regression fails the assertions below instead of hanging the run.
+                        if (ends.length < 20) open();
+                    }
+                });
+                opens++;
+            } catch (error) {
+                refused.push(error);
+            }
+        };
+        open();
+
+        await clientTx.close();
+        await flush();
+
+        // The reopen inside the teardown is sent on the closing transport and ends when that send fails; the next is refused.
+        expect(opens).toBe(2);
+        expect(ends).toHaveLength(2);
+        expect(ends[0]).toStrictEqual({ cause: 'remote' });
+        expect(ends[1]).toMatchObject({ cause: 'remote', error: expect.objectContaining({ code: SdkErrorCode.NotConnected }) });
+        expect(refused).toEqual([expect.objectContaining({ code: SdkErrorCode.NotConnected })]);
+        await client.close();
+    });
+
+    it('a throwing onEnd on transport close still ends the other streams and pending requests', async () => {
+        const { client, clientTx, received } = await scriptedStreams();
+        const errors: Error[] = [];
+        client.onerror = error => void errors.push(error);
+        const failure = new Error('onEnd failed');
+        clientInternals.openStream(client, streamRequest('a'), {
+            onNotification: () => {},
+            onEnd: () => {
+                throw failure;
+            }
+        });
+        const other = recorder();
+        clientInternals.openStream(client, streamRequest('b'), other.handlers);
+        const pending = client.request({ method: 'tools/list', params: {} });
+        await flush();
+        expect(received.map(message => (message as JSONRPCRequest).method)).toEqual(['events/stream', 'events/stream', 'tools/list']);
+
+        await clientTx.close();
+
+        expect(other.ends).toStrictEqual([{ cause: 'remote' }]);
+        await expect(pending).rejects.toMatchObject({ code: SdkErrorCode.ConnectionClosed });
+        expect(errors).toEqual([failure]);
+        await client.close();
+    });
+
     it('ends remotely when the request stream ends', async () => {
         const { client, clientTx } = await scriptedStreams();
         const send = vi.spyOn(clientTx, 'send');
