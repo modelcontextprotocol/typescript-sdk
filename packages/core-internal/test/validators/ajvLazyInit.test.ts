@@ -71,4 +71,45 @@ describe('AjvJsonSchemaValidator lazy engine construction', () => {
         expect((provider as unknown as { _ajvDraft7: unknown })._ajvDraft7).toBeUndefined();
         expect((provider as unknown as { _ajv2019: unknown })._ajv2019).toBeDefined();
     });
+
+    it('passes custom engine options while preserving lazy construction and dialect dispatch', () => {
+        const provider = new AjvJsonSchemaValidator({ options: { useDefaults: true } });
+        expect(engineSlot(provider)).toBeUndefined();
+
+        // 2020-12 (default dialect)
+        const validate2020 = provider.getValidator<{ count?: number }>({
+            type: 'object',
+            properties: { count: { type: 'number', default: 42 } }
+        });
+        expect(engineSlot(provider)).toBeDefined();
+        const input2020: { count?: number } = {};
+        const result2020 = validate2020(input2020);
+        expect(result2020.valid).toBe(true);
+        expect(input2020.count).toBe(42);
+        expect(result2020.data?.count).toBe(42);
+
+        // Draft-07 dialect
+        const validateDraft7 = provider.getValidator<{ limit?: number }>({
+            $schema: 'http://json-schema.org/draft-07/schema#',
+            type: 'object',
+            properties: { limit: { type: 'number', default: 10 } }
+        });
+        const inputDraft7: { limit?: number } = {};
+        const resultDraft7 = validateDraft7(inputDraft7);
+        expect(resultDraft7.valid).toBe(true);
+        expect(inputDraft7.limit).toBe(10);
+        expect(resultDraft7.data?.limit).toBe(10);
+
+        // 2019-09 dialect
+        const validate2019 = provider.getValidator<{ mode?: string }>({
+            $schema: 'https://json-schema.org/draft/2019-09/schema',
+            type: 'object',
+            properties: { mode: { type: 'string', default: 'auto' } }
+        });
+        const input2019: { mode?: string } = {};
+        const result2019 = validate2019(input2019);
+        expect(result2019.valid).toBe(true);
+        expect(input2019.mode).toBe('auto');
+        expect(result2019.data?.mode).toBe('auto');
+    });
 });
