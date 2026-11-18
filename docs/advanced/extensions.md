@@ -19,7 +19,7 @@ An extension is an `id` and a `setup(ctx)` function. What is both required and d
 | `ctx.capability(settings)`                      | Sets what the server advertises under `capabilities.extensions[id]`. Without a call, the server advertises `{}`.                                                                  |
 | `ctx.require(extensionId)`                      | Declares that this extension needs another extension. Construction fails, naming both, when the server doesn't install it. Order in `extensions` doesn't matter.                  |
 | `ctx.setRequestHandler(name, schemas, handler)` | Registers the handler for a custom request method, with the same arguments as `setRequestHandler`. Throws for a core method name, or for a method another handler already serves. |
-| `ctx.use(method, middleware)`                   | Middleware around whatever handler serves `method`, core or custom.                                                                                                               |
+| `ctx.use(method, middleware)`                   | Middleware around whatever handler serves a request `method` this side receives, core or custom.                                                                                  |
 | `ctx.mcp`                                       | The `McpServer`, for `registerTool`, `registerResource` and `ResourceTemplate`.                                                                                                   |
 
 This extension adds a custom method, and refuses `tools/call` from clients that didn't declare it. It reads the 2026-07-28 per-request envelope, so as written it refuses every 2025-11-25 request:
@@ -132,6 +132,8 @@ Middleware works at the JSON-RPC level, before the handler's own steps:
 - A result the middleware returns without calling `next` skips the handler's result validation.
 
 With no underlying handler, `next` throws `MethodNotFound`. If the middleware lets it through, the request is answered as an unknown method (HTTP 404 on a per-request HTTP exchange), the way a web framework answers 404 through route middleware. If the middleware answers instead, its answer goes out. Over 2026-07-28, a request that lacks the `_meta` envelope is refused with `-32602` before middleware runs, even for a method only middleware serves.
+
+`use()` and `ctx.use` wrap requests this side receives. They throw a `TypeError` for a core notification, for `subscriptions/listen` on a server (the HTTP and stdio entries answer it before any middleware), and for a core request this side is never sent, such as `tools/call` on a client. A custom notification can't be told from a custom request by name, so middleware on one is accepted and never runs.
 
 Several middleware nest in registration order, the first outermost. Extension middleware runs outside middleware the application adds with `server.server.use`, whenever either was added, and extensions' middleware nests in array order, the first extension's outermost. Method names are exact, and there is no wildcard.
 

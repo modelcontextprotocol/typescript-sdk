@@ -615,6 +615,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _customSchemaRequestMethods = new Set<string>();
     /** Middleware installed by `use`, in registration order across every method (see `_resolveRequestHandler`). */
     private _requestMiddleware: Array<{ method: string; middleware: RequestMiddleware<ContextT> }> = [];
+    private _extensionMiddleware: Array<{ method: string; middleware: RequestMiddleware<ContextT> }> = [];
     /** Extension result kinds accepted per method (see `acceptResultType`). */
     private _acceptedResultTypes: Map<string, Set<string>> = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
@@ -2002,6 +2003,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * middleware around it, Koa-shaped: `await next(request, ctx)` yields the
      * result and the middleware returns what goes on the wire.
      *
+     * It wraps requests this side receives. A core notification,
+     * `subscriptions/listen` on a server (the HTTP and stdio entries answer
+     * it before any middleware) and a core request this side is never sent
+     * throw a `TypeError`.
+     *
      * Middleware sits at the JSON-RPC level, before the handler's own
      * steps: wire-only material (the reserved `_meta` envelope keys,
      * `inputResponses`, `requestState`) is already lifted onto `ctx.mcpReq`,
@@ -2032,6 +2038,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         if (typeof middleware !== 'function') {
             throw new TypeError('use: middleware is required');
         }
+        this.assertMiddlewareMethod(method);
         const entry = { method, middleware };
         this._requestMiddleware.push(entry);
         return () => {
@@ -2091,13 +2098,25 @@ export abstract class Protocol<ContextT extends BaseContext> {
         );
     }
 
+    /**
+     * `ctx.use`: adds middleware in the extension tier, outside middleware added with `use()`.
+     *
+     * @internal
+     */
+    useForExtension(method: string, middleware: RequestMiddleware<ContextT>): void {
+        if (typeof middleware !== 'function') throw new TypeError('use: middleware is required');
+        this.assertMiddlewareMethod(method);
+        this._extensionMiddleware.push({ method, middleware });
+    }
+
+    /** Throws when middleware on `method` could never run on this side; `Client` and `Server` check. */
+    protected assertMiddlewareMethod(_method: string): void {}
+
     /** The middleware for `method`, outermost first: extension middleware (`ctx.use`), then `use()`. */
     private _middlewareFor(method: string): RequestMiddleware<ContextT>[] {
-        const extension = (extensionStateOf(this)?.middleware ?? []) as unknown as Array<{
-            method: string;
-            middleware: RequestMiddleware<ContextT>;
-        }>;
-        return [...extension, ...this._requestMiddleware].filter(entry => entry.method === method).map(entry => entry.middleware);
+        return [...this._extensionMiddleware, ...this._requestMiddleware]
+            .filter(entry => entry.method === method)
+            .map(entry => entry.middleware);
     }
 
     /** `handler` with the middleware for `method` composed around it, outermost first. */

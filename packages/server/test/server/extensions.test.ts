@@ -195,6 +195,47 @@ describe('McpServerOptions.extensions', () => {
     });
 });
 
+describe('methods middleware can never wrap', () => {
+    const wraps = (method: string): ServerExtension => ({
+        id: 'com.example/wrap',
+        setup: ctx => ctx.use(method, (req, reqCtx, next) => next(req, reqCtx))
+    });
+    const cases: [string, string][] = [
+        ['subscriptions/listen', 'use: subscriptions/listen is answered by the HTTP and stdio entries before middleware runs'],
+        ['notifications/cancelled', 'use: "notifications/cancelled" is a notification; use() wraps requests this server receives'],
+        ['sampling/createMessage', 'use: this server never receives "sampling/createMessage"; use() wraps requests this server receives']
+    ];
+
+    it.each(cases)('use(%s) throws a TypeError', (method, message) => {
+        const mcp = new McpServer(info);
+        expect(() => mcp.server.use(method, (req, reqCtx, next) => next(req, reqCtx))).toThrow(new TypeError(message));
+    });
+
+    it.each(cases)('ctx.use(%s) fails construction with a TypeError', (method, message) => {
+        expect(() => new McpServer(info, { extensions: [wraps(method)] })).toThrow(new TypeError(message));
+    });
+
+    it('still takes core requests the server receives, and custom methods', () => {
+        const mcp = new McpServer(info, {
+            extensions: [
+                wraps('tools/call'),
+                { id: 'com.example/b', setup: ctx => ctx.use('com.example/x', (req, reqCtx, next) => next(req, reqCtx)) }
+            ]
+        });
+        expect(() => mcp.server.use('ping', (req, reqCtx, next) => next(req, reqCtx))).not.toThrow();
+    });
+
+    it('ctx.setRequestHandler refuses a core notification name', () => {
+        const claims: ServerExtension = {
+            id: 'com.example/core',
+            setup: ctx => ctx.setRequestHandler('notifications/cancelled', { params: z.looseObject({}) }, () => ({}))
+        };
+        expect(() => new McpServer(info, { extensions: [claims] })).toThrow(
+            'Extension "com.example/core" cannot register "notifications/cancelled": it is a core notification'
+        );
+    });
+});
+
 describe('ServerExtensionContext.require', () => {
     const needs = (id: string, extensionId: `${string}/${string}`): ServerExtension => ({ id, setup: ctx => ctx.require(extensionId) });
 

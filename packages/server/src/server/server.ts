@@ -64,7 +64,8 @@ import {
     SdkErrorCode,
     setProtocolInstrumentation,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS,
-    withRequestStateValue
+    withRequestStateValue,
+    assertWrappable
 } from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
@@ -882,6 +883,10 @@ export class Server extends Protocol<ServerContext> {
                 break;
             }
         }
+    }
+
+    protected override assertMiddlewareMethod(method: string): void {
+        assertWrappable('server', method);
     }
 
     protected assertRequestHandlerCapability(method: string): void {

@@ -6,15 +6,13 @@
  */
 import type { JSONObject } from '../types/spec.types.2026-07-28';
 import type { StandardSchemaV1 } from '../util/standardSchema';
-import { isExtensionReusedRequestMethod, isSpecRequestMethod } from '../wire/codec';
+import { isCoreRequestReceivedBy, isExtensionReusedRequestMethod, isSpecNotificationMethod, isSpecRequestMethod } from '../wire/codec';
 import type { BaseContext, InferHandlerResult, Protocol, RequestMiddleware } from './protocol';
 
 /** What installed extensions add to one server or client, kept off its public surface. */
 interface ExtensionState {
     /** Ids of the installed extensions; their capability entries belong to them. */
     readonly owned: ReadonlySet<string>;
-    /** Middleware from `ctx.use`, in setup order; it runs outside middleware added with `use()`. */
-    readonly middleware: Array<{ method: string; middleware: RequestMiddleware<BaseContext> }>;
     /** Pending while a `setup` is unfinished, and kept when one fails; `connect` waits for it. */
     ready?: Promise<void>;
     /** The extension whose capability entry is being written. */
@@ -69,10 +67,25 @@ export function useAsExtension<ContextT extends BaseContext>(
     method: string,
     middleware: RequestMiddleware<ContextT>
 ): void {
-    if (typeof middleware !== 'function') throw new TypeError('use: middleware is required');
-    const state = states.get(protocol);
-    if (state === undefined) throw new Error('use: this server or client installed no extensions');
-    state.middleware.push({ method, middleware: middleware as unknown as RequestMiddleware<BaseContext> });
+    if (!states.has(protocol)) throw new Error('use: this server or client installed no extensions');
+    protocol.useForExtension(method, middleware);
+}
+
+/**
+ * Throws a `TypeError` for a method `use()` and `ctx.use` could never wrap on
+ * this side: a core notification, `subscriptions/listen` on a server (the HTTP
+ * and stdio entries answer it), or a core request this side is never sent.
+ */
+export function assertWrappable(side: 'server' | 'client', method: string): void {
+    if (side === 'server' && method === 'subscriptions/listen') {
+        throw new TypeError('use: subscriptions/listen is answered by the HTTP and stdio entries before middleware runs');
+    }
+    if (isSpecNotificationMethod(method)) {
+        throw new TypeError(`use: "${method}" is a notification; use() wraps requests this ${side} receives`);
+    }
+    if (isSpecRequestMethod(method) && !isCoreRequestReceivedBy(side, method)) {
+        throw new TypeError(`use: this ${side} never receives "${method}"; use() wraps requests this ${side} receives`);
+    }
 }
 
 /**
@@ -101,7 +114,7 @@ export function installExtensions<E extends { readonly id: string; setup(ctx: C)
     }
     if (ids.size === 0) return;
 
-    const state: ExtensionState = { owned: ids, middleware: [] };
+    const state: ExtensionState = { owned: ids };
     states.set(protocol, state);
     const setUp = (extension: E): void | PromiseLike<void> => {
         writeExtensionCapability(protocol, extension.id, {}, register);
@@ -178,6 +191,9 @@ export function setExtensionRequestHandler<
     schemas: { params: P; result?: R },
     handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ContextT) => InferHandlerResult<R> | Promise<InferHandlerResult<R>>
 ): void {
+    if (isSpecNotificationMethod(name)) {
+        throw new Error(`Extension "${extension}" cannot register "${name}": it is a core notification`);
+    }
     if (isSpecRequestMethod(name) && !isExtensionReusedRequestMethod(name)) {
         throw new Error(`Extension "${extension}" cannot register "${name}": it is a core method; wrap it with use() instead`);
     }

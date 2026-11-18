@@ -243,3 +243,36 @@ describe('ClientOptions.extensions', () => {
         expect(() => client.registerCapabilities({ extensions: { [EXT_ID]: {} } })).toThrow(/belongs to the installed/);
     });
 });
+
+describe('methods middleware can never wrap', () => {
+    const cinfo = { name: 'c', version: '1' };
+    const cases: [string, string][] = [
+        ['notifications/progress', 'use: "notifications/progress" is a notification; use() wraps requests this client receives'],
+        ['tools/call', 'use: this client never receives "tools/call"; use() wraps requests this client receives']
+    ];
+
+    it.each(cases)('use(%s) throws a TypeError', (method, message) => {
+        const client = new Client(cinfo);
+        expect(() => client.use(method, (req, reqCtx, next) => next(req, reqCtx))).toThrow(new TypeError(message));
+    });
+
+    it.each(cases)('ctx.use(%s) fails construction with a TypeError', (method, message) => {
+        const wraps: ClientExtension = { id: 'com.example/wrap', setup: ctx => ctx.use(method, (req, reqCtx, next) => next(req, reqCtx)) };
+        expect(() => new Client(cinfo, { extensions: [wraps] })).toThrow(new TypeError(message));
+    });
+
+    it('still takes requests the client receives', () => {
+        const client = new Client(cinfo);
+        expect(() => client.use('elicitation/create', (req, reqCtx, next) => next(req, reqCtx))).not.toThrow();
+    });
+
+    it('ctx.setRequestHandler refuses a core notification name', () => {
+        const claims: ClientExtension = {
+            id: 'com.example/a',
+            setup: ctx => ctx.setRequestHandler('notifications/progress', { params: z.looseObject({}) }, () => ({}))
+        };
+        expect(() => new Client(cinfo, { extensions: [claims] })).toThrow(
+            'Extension "com.example/a" cannot register "notifications/progress": it is a core notification'
+        );
+    });
+});

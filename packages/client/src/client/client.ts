@@ -81,7 +81,8 @@ import {
     SERVER_INFO_META_KEY,
     setProtocolInstrumentation,
     SUBSCRIPTION_ID_META_KEY,
-    SUPPORTED_MODERN_PROTOCOL_VERSIONS
+    SUPPORTED_MODERN_PROTOCOL_VERSIONS,
+    assertWrappable
 } from '@modelcontextprotocol/core-internal';
 
 import type { ClientExtension } from './extension';
@@ -1554,6 +1555,10 @@ export class Client extends Protocol<ClientContext> {
                 break;
             }
         }
+    }
+
+    protected override assertMiddlewareMethod(method: string): void {
+        assertWrappable('client', method);
     }
 
     protected assertRequestHandlerCapability(method: string): void {
