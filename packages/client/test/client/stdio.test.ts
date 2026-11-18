@@ -122,6 +122,31 @@ test('should fire onerror and close when ReadBuffer overflows', async () => {
     await closed;
 });
 
+test('should read a message the server prefixes with a UTF-8 byte order mark', async () => {
+    const expected: JSONRPCMessage = { jsonrpc: '2.0', method: 'notifications/initialized' };
+    const line = JSON.stringify(expected) + '\n';
+    const client = new StdioClientTransport({
+        command: 'node',
+        args: ['-e', `process.stdout.write(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(${JSON.stringify(line)})]))`]
+    });
+    client.onerror = error => {
+        throw error;
+    };
+
+    const readMessages: JSONRPCMessage[] = [];
+    client.onmessage = message => {
+        readMessages.push(message);
+    };
+    const closed = new Promise<void>(resolve => {
+        client.onclose = () => resolve();
+    });
+
+    await client.start();
+    await closed;
+
+    expect(readMessages).toEqual([expected]);
+});
+
 test('_dispose releases the parent-side pipe handles even when a helper process holds the child stdio', async () => {
     // The rmcp-holding anatomy: the child exits, but a helper it spawned with
     // stdio: 'inherit' keeps the pipe write ends open. Awaiting 'exit' settles
