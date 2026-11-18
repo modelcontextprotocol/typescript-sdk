@@ -1,10 +1,14 @@
-import type { SubscriptionSource } from './extension';
+import type { EmitFanOut, SubscriptionSource } from './extension';
 
 // Where an EventsExtension keeps its test hook; `Symbol.for` so separately bundled copies find it.
 export const EVENTS_TEST_HOOK = Symbol.for('mcp.events.testHook');
 
 export interface EventsTestState {
     readonly trustedOrigins: readonly string[];
+    // Events the emit buffer holds, per event type.
+    readonly emitBuffer: Readonly<Record<string, number>>;
+    // Live poll leases.
+    readonly pollLeases: number;
 }
 
 // Internal controls for tests and the conformance fixture; never part of the public API or its declarations.
@@ -16,6 +20,7 @@ export interface EventsTestHook {
     state(): EventsTestState;
     addTrustedOrigin(origin: string): void;
     addSource(source: SubscriptionSource): void;
+    addFanOut(fanOut: EmitFanOut): void;
 }
 
 export function installTestHook(target: object, hook: EventsTestHook): void {

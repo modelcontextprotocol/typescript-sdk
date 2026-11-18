@@ -6,7 +6,8 @@ import {
     EVENTS_STREAM_METHOD,
     EVENTS_SUBSCRIBE_METHOD,
     EVENTS_UNSUBSCRIBE_METHOD,
-    ListEventsRequestParamsSchema
+    ListEventsRequestParamsSchema,
+    PollEventsRequestParamsSchema
 } from '@modelcontextprotocol/core/ext/events';
 import type { ServerContext, StandardSchemaWithJSON } from '@modelcontextprotocol/core-internal';
 import { scanXMcpHeaderDeclarations } from '@modelcontextprotocol/core-internal';
@@ -14,16 +15,23 @@ import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 
 import type { McpServer } from '../../server/mcp';
 import { markModernOnlyExtension } from '../../server/modernOnlyExtensions';
+import type { BufferedEvent } from './emitBuffer';
+import { EmitBuffer } from './emitBuffer';
 import { assertModernRequest } from './eraGate';
+import { PollSource, toOccurrence } from './poll';
 import type { AnyEventDefinition, RegisteredEvent } from './registry';
 import { changedSchema, deliveryModes, EventRegistry } from './registry';
 import { installTestHook } from './testHook';
-import type { CheckEventDefinition, EmitOnlyEventDefinition, EmitOnlyEventHandle, EventHandle, EventsOptions } from './types';
+import type { CheckEventDefinition, EmitOnlyEventDefinition, EmitOnlyEventHandle, EventHandle, EventInput, EventsOptions } from './types';
+import { SubscriptionValidator } from './validation';
 
 // The live subscriptions of one delivery mode, which `remove()`, a schema change and `terminate()` end.
 export interface SubscriptionSource {
     terminate(name: string, error: EventsError, subscriptionId?: string): Promise<void>;
 }
+
+// Receives each emitted event once it is buffered: `cursor` is the position after it, `previous` the one before.
+export type EmitFanOut = (name: string, buffered: BufferedEvent, positions: { cursor: string; previous: string }) => void | Promise<void>;
 
 type DefaultSchema = StandardSchemaWithJSON<Record<string, unknown>>;
 
@@ -37,6 +45,11 @@ const NUMERIC_OPTIONS = [
     'defaultNextPollMs',
     'maxSubscriptions'
 ] as const;
+
+const DEFAULT_EMIT_BUFFER_MAX_AGE_MS = 600_000;
+const DEFAULT_EMIT_BUFFER_MAX_EVENTS = 10_000;
+const DEFAULT_POLL_SUBSCRIPTION_TTL_MS = 300_000;
+const DEFAULT_NEXT_POLL_MS = 30_000;
 
 // Servers with an events extension attached: one per server, as SEP-3371 rejects a duplicate extension identifier.
 const eventsServers = new WeakSet<McpServer>();
@@ -104,6 +117,11 @@ export class EventsExtension {
     readonly #trustedOrigins: Set<string>;
     readonly #webhookEnabled: boolean;
     readonly #onerror: (error: Error) => void;
+    readonly #buffer: EmitBuffer;
+    readonly #validator: SubscriptionValidator;
+    readonly #poll: PollSource;
+    // Each emitted event is handed to these after it is buffered; push and webhook delivery add theirs.
+    readonly #fanOuts: EmitFanOut[] = [];
     // Clears process-memory state on a simulated restart; each delivery mode adds its own.
     readonly #restarts: Array<() => void> = [];
     #generation = 1;
@@ -118,19 +136,45 @@ export class EventsExtension {
         this.#trustedOrigins = new Set(options.trustedOrigins);
         this.#webhookEnabled = options.webhookTtlMs !== undefined;
         this.#onerror = options.onerror ?? defaultOnerror;
+        this.#buffer = new EmitBuffer({
+            maxAgeMs: options.emitBuffer?.maxAgeMs ?? DEFAULT_EMIT_BUFFER_MAX_AGE_MS,
+            maxEvents: options.emitBuffer?.maxEvents ?? DEFAULT_EMIT_BUFFER_MAX_EVENTS
+        });
+        this.#validator = new SubscriptionValidator({
+            registry: this.#registry,
+            webhookEnabled: this.#webhookEnabled,
+            getPrincipal: options.getPrincipal,
+            maxSubscriptions: options.maxSubscriptions,
+            subscriptionCount: () => this.#poll.size
+        });
+        this.#poll = new PollSource({
+            validator: this.#validator,
+            buffer: this.#buffer,
+            pollSubscriptionTtlMs: options.pollSubscriptionTtlMs ?? DEFAULT_POLL_SUBSCRIPTION_TTL_MS,
+            defaultNextPollMs: options.defaultNextPollMs ?? DEFAULT_NEXT_POLL_MS,
+            report: error => this.#report(error)
+        });
+        this.#sources.push(this.#poll);
+        this.#restarts.push(
+            () => this.#buffer.clear(),
+            () => this.#poll.clear()
+        );
         installTestHook(this, {
             generation: () => this.#generation,
             restart: () => {
                 this.#generation += 1;
                 for (const clear of this.#restarts) clear();
             },
-            state: () => ({ trustedOrigins: [...this.#trustedOrigins] }),
+            state: () => ({ trustedOrigins: [...this.#trustedOrigins], emitBuffer: this.#buffer.sizes(), pollLeases: this.#poll.size }),
             addTrustedOrigin: origin => {
                 assertOrigin(origin);
                 this.#trustedOrigins.add(origin);
             },
             addSource: source => {
                 this.#sources.push(source);
+            },
+            addFanOut: fanOut => {
+                this.#fanOuts.push(fanOut);
             }
         });
     }
@@ -157,6 +201,9 @@ export class EventsExtension {
         // Check before changing anything; declare the capability last, so a server never advertises events it does not serve.
         for (const method of EVENTS_METHODS) server.assertCanSetRequestHandler(method);
         server.setRequestHandler(EVENTS_LIST_METHOD, { params: ListEventsRequestParamsSchema }, (_params, ctx) => this.#list(ctx));
+        server.setRequestHandler(EVENTS_POLL_METHOD, { params: PollEventsRequestParamsSchema }, (params, ctx) =>
+            this.#poll.handlePoll(params, ctx)
+        );
         server.registerCapabilities({ extensions: { [EVENTS_EXTENSION_ID]: {} } });
         markModernOnlyExtension(server, EVENTS_EXTENSION_ID);
         this.#attached.add(mcp);
@@ -194,12 +241,15 @@ export class EventsExtension {
                 new EventsError('unsupported', `Event type ${feature} changed`, { feature, reason: 'schema_changed' })
             );
         }
-        return {
+        const assertCurrent = (): void => {
+            if (this.#registry.get(name) !== current) {
+                throw new Error(`event '${name}': this handle's registration was removed or replaced`);
+            }
+        };
+        const handle: EventHandle = {
             name,
             update: changes => {
-                if (this.#registry.get(name) !== current) {
-                    throw new Error(`event '${name}': this handle's registration was removed or replaced`);
-                }
+                assertCurrent();
                 current = this.#registry.update(current, changes);
                 if (changes.inputSchema !== undefined) this.#checkHeaders(current);
             },
@@ -210,6 +260,15 @@ export class EventsExtension {
             },
             terminate: (error, options) => this.#terminate(name, error, options?.subscriptionId)
         };
+        if (definition.emitOnly !== true) return handle;
+        const emitOnly: EmitOnlyEventHandle<unknown> = {
+            ...handle,
+            emit: async (input, options) => {
+                assertCurrent();
+                await this.#emit(current, input, options?.subscriptionId);
+            }
+        };
+        return emitOnly;
     }
 
     #list(ctx: ServerContext): ListEventsResult {
@@ -240,20 +299,36 @@ export class EventsExtension {
         );
     }
 
+    // Validates and buffers the event, then hands it to every fan-out; nobody listening is not an error.
+    async #emit(entry: RegisteredEvent, input: EventInput<unknown>, subscriptionId: string | undefined): Promise<void> {
+        const occurrence = await toOccurrence(entry, input, error => this.#report(error));
+        if (occurrence === undefined) return;
+        const buffered: BufferedEvent = subscriptionId === undefined ? { occurrence } : { occurrence, target: subscriptionId };
+        const previous = this.#buffer.append(entry.name, buffered);
+        const positions = { cursor: this.#buffer.head(entry.name), previous };
+        await Promise.all(
+            this.#fanOuts.map(async fanOut => {
+                try {
+                    await fanOut(entry.name, buffered, positions);
+                } catch (error) {
+                    this.#report(error);
+                }
+            })
+        );
+    }
+
     async #terminate(name: string, error: EventsError, subscriptionId: string | undefined): Promise<void> {
         await Promise.all(this.#sources.map(source => source.terminate(name, error, subscriptionId)));
     }
 
     // For callers that cannot wait: a failed termination goes to onerror.
     #terminateLater(name: string, error: EventsError): void {
-        this.#terminate(name, error, undefined).catch((error_: unknown) =>
-            this.#report(error_ instanceof Error ? error_ : new Error(String(error_)))
-        );
+        this.#terminate(name, error, undefined).catch((error_: unknown) => this.#report(error_));
     }
 
-    #report(error: Error): void {
+    #report(error: unknown): void {
         try {
-            this.#onerror(error);
+            this.#onerror(error instanceof Error ? error : new Error(String(error)));
         } catch {
             // A throwing onerror must not break the caller it reports for.
         }
