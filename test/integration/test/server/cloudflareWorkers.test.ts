@@ -310,13 +310,21 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
 
             // Write server source. `/skills` also serves a skills catalog, loaded once at module scope
             // and attached to each per-request server (the shape the server guide recommends for
-            // Workers); `/runtime` reports the globals the skills extension feature-detects.
+            // Workers); `/runtime` reports the globals the skills extension feature-detects; `/events`
+            // reports the id of an events extension built at module scope with webhook delivery on.
             const serverSource = `
 import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { EventsExtension } from '@modelcontextprotocol/server/ext/events';
 import { memorySkillFiles, SkillsExtension } from '@modelcontextprotocol/server/ext/skills';
 import { z } from 'zod';
 
 const skills = await SkillsExtension.load(memorySkillFiles({ 'release-notes/SKILL.md': ${JSON.stringify(RELEASE_NOTES_MD)} }));
+const events = new EventsExtension({
+    webhookTtlMs: 60000,
+    webhookSender: async () => ({ error: 'connection_refused' }),
+    getPrincipal: () => null
+});
+events.registerEvent('release.published', { emitOnly: true, payloadSchema: z.object({ tag: z.string() }) });
 
 // A stateless transport serves one request: connect a new pair for each.
 async function connectPair(withSkills) {
@@ -340,6 +348,9 @@ export default {
         const { pathname } = new URL(request.url);
         if (pathname === '/runtime') {
             return new Response(JSON.stringify({ weakRef: typeof WeakRef }), { headers: { 'content-type': 'application/json' } });
+        }
+        if (pathname === '/events') {
+            return new Response(JSON.stringify({ id: events.id }), { headers: { 'content-type': 'application/json' } });
         }
         const transport = await connectPair(pathname === '/skills');
         return transport.handleRequest(request);
@@ -418,5 +429,10 @@ export default {
         expect(manifest.frontmatter).toEqual({ name: 'release-notes', description: 'Write release notes from merged pull requests.' });
 
         await client.close();
+    }, 30_000);
+
+    it('loads the events extension subpath, whose extension the worker built with webhook delivery and an event type', async () => {
+        const response = await fetch(`http://127.0.0.1:${port}/events`);
+        expect(await response.json()).toEqual({ id: 'io.modelcontextprotocol/events' });
     }, 30_000);
 });
