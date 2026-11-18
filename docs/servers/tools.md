@@ -116,7 +116,7 @@ server.registerTool(
 );
 ```
 
-TypeScript checks the callback against `outputSchema`: in this example, returning a string, leaving out `price`, or returning `price: '24'` is a compile error, and so is a successful result with no `structuredContent`. Results with `isError: true` and [input-required results](input-required.md) are exempt. `structuredContent: undefined` counts as missing; `null` is fine when the schema allows it.
+TypeScript checks the callback against `outputSchema`: in this example, returning a string, leaving out `price`, or returning `price: '24'` is a compile error, and so is a successful result with no `structuredContent`. Results with `isError: true` and [input-required results](input-required.md) are exempt. `structuredContent: undefined` counts as missing; `null` is fine when the schema allows it. A schema with no static output type, such as an untyped `fromJsonSchema(...)`, is not checked at compile time.
 
 The SDK validates the value you return and sends it as is, without the parsed result. So the type TypeScript asks for is one that satisfies both the input and the output side of the schema: fields with a `.default()` must be supplied, coerced fields must already have the output type, and a `.transform()` whose output is not a valid input cannot be satisfied at all. Values built from wider types, such as a `string` that should be one of an enum's members, need narrowing or a `satisfies` annotation before you return them.
 

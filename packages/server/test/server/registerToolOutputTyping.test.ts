@@ -2,14 +2,13 @@
  * Compile-time contract for `McpServer.registerTool` handler results (SEP-2106 / #2754).
  *
  * These are type-level tests: every `@ts-expect-error` line must fail to compile and every
- * other registration must compile. `pnpm typecheck` enforces both. The runtime assertions only
- * pin the authoring affordances the types rely on (content auto-fill).
+ * other registration must compile. `pnpm typecheck` enforces both.
  */
 import type { StandardSchemaWithJSON } from '@modelcontextprotocol/core-internal';
 import { toStandardJsonSchema } from '@valibot/to-json-schema';
 import { type } from 'arktype';
 import * as v from 'valibot';
-import { describe, expect, expectTypeOf, it } from 'vitest';
+import { describe, expectTypeOf, it } from 'vitest';
 import * as z from 'zod/v4';
 
 import type { CallToolResult, ServerContext, ToolCallback, ToolResultFor, ToolStructuredContent } from '../../src/index';
@@ -80,9 +79,6 @@ describe('registerTool: structuredContent is typed from outputSchema', () => {
         server.registerTool('str-bad', { outputSchema: z.string() }, () => ({ content: [], structuredContent: 1 }));
         server.registerTool('nul', { outputSchema: z.null() }, () => ({ content: [], structuredContent: null }));
         server.registerTool('unk', { outputSchema: z.unknown() }, () => ({ content: [], structuredContent: null }));
-        // An unknown output accepts any value, so forwarded `unknown` values type-check. The cost: a
-        // literal `undefined` here is left to the runtime "no structured content" check.
-        expectTypeOf<ToolStructuredContent<z.ZodUnknown>>().toEqualTypeOf<unknown>();
         // @ts-expect-error an optional root still requires a defined value at runtime
         server.registerTool('opt-undef', { outputSchema: z.string().optional() }, () => ({ content: [], structuredContent: undefined }));
         server.registerTool('opt-val', { outputSchema: z.string().optional() }, () => ({ content: [], structuredContent: 'x' }));
@@ -160,11 +156,6 @@ describe('registerTool: structuredContent is typed from outputSchema', () => {
         server.registerTool('std', { outputSchema: objectOut }, () => ({ content: [], structuredContent: { answer: 'ok' } }));
         // @ts-expect-error provider-agnostic: wrong field type
         server.registerTool('std-bad', { outputSchema: objectOut }, () => ({ content: [], structuredContent: { answer: 1 } }));
-
-        const unknownOut = {} as StandardSchemaWithJSON<unknown, unknown>;
-        server.registerTool('std-unknown', { outputSchema: unknownOut }, () => ({ content: [], structuredContent: { any: 'thing' } }));
-        // @ts-expect-error unknown output still needs a defined structuredContent
-        server.registerTool('std-unknown-missing', { outputSchema: unknownOut }, () => ({ content: [] }));
     });
 
     it('works with ArkType and Valibot output schemas', () => {
@@ -232,14 +223,21 @@ describe('registerTool: structuredContent is typed from outputSchema', () => {
         });
     });
 
-    it('accepts an unknown-typed value for an untyped fromJsonSchema output', () => {
-        const forwarded: unknown = JSON.parse('{"a":1}');
-        server.registerTool('json-out', { outputSchema: fromJsonSchema({ type: 'object' }) }, () => ({
-            content: [],
-            structuredContent: forwarded
-        }));
-        // @ts-expect-error structuredContent is still required on success
-        server.registerTool('json-out-missing', { outputSchema: fromJsonSchema({ type: 'object' }) }, () => ({ content: [] }));
+    it('leaves the result untyped when the schema output is unknown (runtime validation only)', () => {
+        expectTypeOf<ToolResultFor<StandardSchemaWithJSON<unknown, unknown>>>().toEqualTypeOf<CallToolResult>();
+        expectTypeOf<ToolResultFor<z.ZodUnknown>>().toEqualTypeOf<CallToolResult>();
+
+        // A proxy mirroring an upstream tool: untyped, possibly absent schema.
+        const upstream = {} as { outputSchema?: Record<string, unknown>; result: CallToolResult };
+        server.registerTool(
+            'proxy',
+            { outputSchema: upstream.outputSchema ? fromJsonSchema(upstream.outputSchema) : undefined },
+            async () => upstream.result
+        );
+        // A typed fromJsonSchema<T> is checked like any other schema.
+        const typed = fromJsonSchema<{ a: number }>({ type: 'object' });
+        // @ts-expect-error typed JSON Schema output: wrong field type
+        server.registerTool('json-typed-bad', { outputSchema: typed }, () => ({ content: [], structuredContent: { a: 'x' } }));
     });
 
     it('types standalone callbacks via ToolCallback<Input, Output>', () => {
