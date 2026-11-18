@@ -205,7 +205,14 @@ describe('events/stream: a check type', () => {
                 ],
                 cursor: 'h3'
             })
-            .mockReturnValueOnce({ events: [{ eventId: 'c', data: { n: 3 } }], cursor: 'h9', truncated: true })
+            .mockReturnValueOnce({
+                events: [
+                    { eventId: 'c', data: { n: 3 } },
+                    { eventId: 'd', data: { n: 4 } }
+                ],
+                cursor: 'h9',
+                truncated: true
+            })
             .mockReturnValue({ events: [], cursor: 'h9' });
         const events = new EventsExtension();
         events.registerEvent('tick', { payloadSchema: P, check });
@@ -216,8 +223,10 @@ describe('events/stream: a check type', () => {
         expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'b', data: { n: 2 }, cursor: 'h3' } });
         const gap = next(stream);
         await vi.advanceTimersByTimeAsync(5000);
-        expect(await gap).toEqual(notification(ACTIVE, stream.id, { cursor: 'h3', truncated: true, heartbeatMs: 30_000 }));
+        // A truncated batch carries the fresh cursor on its active and on every event, so the cursor never moves back.
+        expect(await gap).toEqual(notification(ACTIVE, stream.id, { cursor: 'h9', truncated: true, heartbeatMs: 30_000 }));
         expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'c', cursor: 'h9' } });
+        expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'd', cursor: 'h9' } });
         expect(check.mock.calls.map(call => call[2])).toEqual(['h1', 'h3']);
     });
 
@@ -226,15 +235,17 @@ describe('events/stream: a check type', () => {
         const check = vi.fn<Check>(() => ({
             events: [
                 { eventId: 'old', timestamp: old, data: { n: 1 } },
-                { eventId: 'new', data: { n: 2 } }
+                { eventId: 'new', data: { n: 2 } },
+                { eventId: 'newer', data: { n: 3 } }
             ],
             cursor: 'h2'
         }));
         const events = new EventsExtension();
         events.registerEvent('tick', { payloadSchema: P, check });
         const stream = await open(serve(events), { name: 'tick', cursor: 'h1', maxAgeMs: 300_000 });
-        expect(await next(stream)).toMatchObject({ method: ACTIVE, params: { cursor: 'h1', truncated: true } });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE, params: { cursor: 'h2', truncated: true } });
         expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'new', cursor: 'h2' } });
+        expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'newer', cursor: 'h2' } });
         expect(check.mock.calls[0]![0]).toMatchObject({ mode: 'push', maxAgeMs: 300_000 });
     });
 

@@ -210,14 +210,15 @@ export class StreamSet implements SubscriptionSource {
         return this.#batch(stream, from, result, params.maxAgeMs);
     }
 
-    // A check batch's cursors stay at `from` until its last event, so no cursor runs ahead of an event still to be sent.
+    // A batch's cursors stay at `from` until its last event, so none runs ahead of an unsent event; a truncated batch carries the fresh cursor throughout.
     async #batch(stream: PushStream, from: string | null, result: EventResult<unknown>, maxAgeMs?: number): Promise<Batch> {
         const { events, truncated } = await checkedEvents(stream.entry, result, maxAgeMs, this.#deps.report);
         const last = events.length - 1;
+        const cursorAt = (index: number) => (truncated || index === last ? result.cursor : from);
         return {
-            cursor: last === -1 ? result.cursor : from,
+            cursor: cursorAt(-1),
             truncated,
-            events: events.map((occurrence, index) => ({ ...occurrence, cursor: index === last ? result.cursor : from })),
+            events: events.map((occurrence, index) => ({ ...occurrence, cursor: cursorAt(index) })),
             position: result.cursor
         };
     }
