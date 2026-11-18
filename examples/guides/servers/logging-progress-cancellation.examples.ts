@@ -21,14 +21,14 @@ const server = new McpServer({ name: 'file-processor', version: '1.0.0' }, { cap
 //#endregion logging_capability
 
 // "Route SDK diagnostics" — keep local SDK output off the stdio protocol channel.
-//#region sdkLogger_stderr
-const sdkLogger = {
+//#region McpServer_logger_stderr
+const stderrLogger = {
     debug: (...args: unknown[]) => console.error('[debug]', ...args),
     warn: (...args: unknown[]) => console.error('[warn]', ...args)
 };
 
-const diagnosticServer = new McpServer({ name: 'file-processor', version: '1.0.0' }, { logger: sdkLogger });
-//#endregion sdkLogger_stderr
+const diagnosticServer = new McpServer({ name: 'file-processor', version: '1.0.0' }, { logger: stderrLogger });
+//#endregion McpServer_logger_stderr
 void diagnosticServer;
 
 // "Report progress from a handler" — the page's lead block.

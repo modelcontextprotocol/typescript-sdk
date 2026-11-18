@@ -75,13 +75,13 @@ Only the result comes back:
 
 Pass `logger` to `McpServer` to route the warnings and debug messages the SDK prints locally. On a stdio server, send every level to stderr: the server's stdout carries only MCP messages.
 
-```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#sdkLogger_stderr"
-const sdkLogger = {
+```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#McpServer_logger_stderr"
+const stderrLogger = {
     debug: (...args: unknown[]) => console.error('[debug]', ...args),
     warn: (...args: unknown[]) => console.error('[warn]', ...args)
 };
 
-const diagnosticServer = new McpServer({ name: 'file-processor', version: '1.0.0' }, { logger: sdkLogger });
+const diagnosticServer = new McpServer({ name: 'file-processor', version: '1.0.0' }, { logger: stderrLogger });
 ```
 
 `Client` and `createMcpHandler` take the same option. The low-level `Server` has no diagnostics of its own, so it does not take one. The SDK logs at two levels, `debug` and `warn`. Both methods are optional, and an omitted one discards diagnostics at that level. The default is `console`, and a logger that throws is ignored.
