@@ -20,6 +20,8 @@ import {
     requestJwtAuthorizationGrant,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
+import type { EventSubscription } from '@modelcontextprotocol/client/ext/events';
+import { EventsClientExtension } from '@modelcontextprotocol/client/ext/events';
 import { SkillsClient, SkillVerificationError } from '@modelcontextprotocol/client/ext/skills';
 import * as z from 'zod/v4';
 
@@ -952,6 +954,38 @@ registerScenarios(
     runSkillsLoadClient
 );
 registerScenario('sep-2640-client-no-prefetch', runSkillsNoPrefetchClient);
+
+// ============================================================================
+// SEP-3415 Events
+// ============================================================================
+
+// The events-client-* harness never POSTs to the callback; it only watches the subscribe calls.
+const EVENTS_WEBHOOK_URL = 'https://conformance-test.local/mcp-events';
+
+// Subscribe to every listed event type for the scenario's durationMs, then cancel; send nothing without the extension.
+async function runEventsClient(serverUrl: string): Promise<void> {
+    const { durationMs } = z.object({ durationMs: z.number() }).parse(JSON.parse(process.env.MCP_CONFORMANCE_CONTEXT ?? '{}'));
+    const events = new EventsClientExtension({ webhook: { url: EVENTS_WEBHOOK_URL } });
+    const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {}, versionNegotiation: { mode: 'auto' } });
+    events.attach(client);
+    await client.connect(new StreamableHTTPClientTransport(new URL(serverUrl)));
+    const subscriptions: EventSubscription[] = [];
+    if (events.supported) {
+        const listed = await events.list();
+        for (const { name } of listed.events) {
+            void (async () => {
+                const subscription = await events.subscribe({ name });
+                subscriptions.push(subscription);
+                for await (const event of subscription) logger.debug(`${name}: event ${event.eventId}`);
+            })().catch((error: unknown) => logger.debug(`${name}: subscription ended:`, error));
+        }
+    }
+    await new Promise(resolve => setTimeout(resolve, durationMs));
+    await Promise.all(subscriptions.map(subscription => subscription.cancel()));
+    await client.close();
+}
+
+registerScenarios(['events-client-poll', 'events-client-push', 'events-client-webhook', 'events-client-no-extension'], runEventsClient);
 
 // ============================================================================
 // Main entry point
