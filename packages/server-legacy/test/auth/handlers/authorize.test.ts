@@ -350,6 +350,68 @@ describe('Authorization Handler', () => {
         });
     });
 
+    describe('State on error redirects', () => {
+        // RFC 6749 4.1.2.1: the error response MUST include `state` when the
+        // authorization request carried one, so the client can correlate the
+        // callback with its pending request and surface the actual error.
+        it('preserves state when a required parameter is missing', async () => {
+            const response = await supertest(app).get('/authorize').query({
+                client_id: 'valid-client',
+                redirect_uri: 'https://example.com/callback',
+                response_type: 'code',
+                state: 'state-value-123'
+            });
+
+            expect(response.status).toBe(302);
+            const location = new URL(response.header.location!);
+            expect(location.searchParams.get('error')).toBe('invalid_request');
+            expect(location.searchParams.get('state')).toBe('state-value-123');
+        });
+
+        it('preserves state when code_challenge_method is unsupported', async () => {
+            const response = await supertest(app).get('/authorize').query({
+                client_id: 'valid-client',
+                redirect_uri: 'https://example.com/callback',
+                response_type: 'code',
+                code_challenge: 'challenge123',
+                code_challenge_method: 'plain',
+                state: 'state-value-123'
+            });
+
+            expect(response.status).toBe(302);
+            const location = new URL(response.header.location!);
+            expect(location.searchParams.get('error')).toBe('invalid_request');
+            expect(location.searchParams.get('state')).toBe('state-value-123');
+        });
+
+        it('preserves state on error redirects for POST requests', async () => {
+            const response = await supertest(app).post('/authorize').type('form').send({
+                client_id: 'valid-client',
+                redirect_uri: 'https://example.com/callback',
+                response_type: 'code',
+                state: 'state-value-123'
+            });
+
+            expect(response.status).toBe(302);
+            const location = new URL(response.header.location!);
+            expect(location.searchParams.get('error')).toBe('invalid_request');
+            expect(location.searchParams.get('state')).toBe('state-value-123');
+        });
+
+        it('omits state on error redirects when the request had none', async () => {
+            const response = await supertest(app).get('/authorize').query({
+                client_id: 'valid-client',
+                redirect_uri: 'https://example.com/callback',
+                response_type: 'code'
+            });
+
+            expect(response.status).toBe(302);
+            const location = new URL(response.header.location!);
+            expect(location.searchParams.get('error')).toBe('invalid_request');
+            expect(location.searchParams.has('state')).toBe(false);
+        });
+    });
+
     describe('Successful authorization', () => {
         it('handles successful authorization with all parameters', async () => {
             const response = await supertest(app).get('/authorize').query({
