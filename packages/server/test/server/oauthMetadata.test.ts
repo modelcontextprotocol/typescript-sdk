@@ -88,6 +88,19 @@ describe('getOAuthProtectedResourceMetadataUrl', () => {
             'https://api.example.com/.well-known/oauth-protected-resource/mcp?tenant=acme'
         );
     });
+
+    it.each(['/mcp/', '/mcp//', '/mcp/?tenant=acme'])(
+        'preserves trailing slashes for %s and serves the generated URL',
+        async resourcePath => {
+            const resourceServerUrl = new URL(`https://api.example.com${resourcePath}`);
+            const metadataUrl = getOAuthProtectedResourceMetadataUrl(resourceServerUrl);
+            expect(metadataUrl).toBe(`https://api.example.com/.well-known/oauth-protected-resource${resourcePath}`);
+
+            const response = oauthMetadataResponse(new Request(metadataUrl), { ...options, resourceServerUrl });
+            expect(response?.status).toBe(200);
+            expect(await response?.json()).toMatchObject({ resource: resourceServerUrl.href });
+        }
+    );
 });
 
 describe('oauthMetadataResponse', () => {

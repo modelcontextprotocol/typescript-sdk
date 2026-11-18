@@ -367,6 +367,26 @@ describe('OAuth Authorization', () => {
             expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource/path/name');
         });
 
+        it.each([
+            ['/mcp/', '/.well-known/oauth-protected-resource/mcp/'],
+            ['/mcp//', '/.well-known/oauth-protected-resource/mcp//'],
+            ['/mcp/?tenant=1', '/.well-known/oauth-protected-resource/mcp/?tenant=1']
+        ])('preserves trailing slashes in path-aware discovery for %s', async (resourcePath, metadataPath) => {
+            const resource = `https://resource.example.com${resourcePath}`;
+            const expectedMetadata = { ...validMetadata, resource };
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => expectedMetadata
+            });
+
+            const metadata = await discoverOAuthProtectedResourceMetadata(resource);
+
+            expect(metadata).toEqual(expectedMetadata);
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+            expect(mockFetch.mock.calls[0]![0].toString()).toBe(`https://resource.example.com${metadataPath}`);
+        });
+
         it('preserves query parameters in path-aware discovery', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
@@ -541,6 +561,23 @@ describe('OAuth Authorization', () => {
             });
         });
 
+        it('falls back to root discovery when a trailing-slash path returns 404', async () => {
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validMetadata
+            });
+
+            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/mcp/');
+
+            expect(metadata).toEqual(validMetadata);
+            expect(mockFetch.mock.calls.map(([url]) => url.toString())).toEqual([
+                'https://resource.example.com/.well-known/oauth-protected-resource/mcp/',
+                'https://resource.example.com/.well-known/oauth-protected-resource'
+            ]);
+        });
+
         it('does not fallback when resourceMetadataUrl is provided', async () => {
             // Call with explicit URL returns 404
             mockFetch.mockResolvedValueOnce({
@@ -631,6 +668,22 @@ describe('OAuth Authorization', () => {
             expect(options.headers).toEqual({
                 'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
             });
+        });
+
+        it('removes the trailing slash from authorization-server discovery paths', async () => {
+            const issuer = 'https://auth.example.com/tenant/';
+            const expectedMetadata = { ...validMetadata, issuer };
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => expectedMetadata
+            });
+
+            const metadata = await discoverOAuthMetadata(issuer);
+
+            expect(metadata).toEqual(expectedMetadata);
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+            expect(mockFetch.mock.calls[0]![0].toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/tenant');
         });
 
         it('falls back to root discovery when path-aware discovery returns 404', async () => {

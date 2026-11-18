@@ -97,9 +97,7 @@ export function getOAuthProtectedResourceMetadataUrl(serverUrl: URL): string {
 
 /** The RFC 9728 path-aware well-known path for a resource URL. */
 function protectedResourceMetadataPath(resourceServerUrl: URL): string {
-    // Normalized like the request path in `oauthMetadataResponse`: a resource
-    // URL with a trailing slash must not make its own PRM route unreachable.
-    const rsPath = stripTrailingSlash(resourceServerUrl.pathname);
+    const rsPath = resourceServerUrl.pathname;
     return `/.well-known/oauth-protected-resource${rsPath === '/' ? '' : rsPath}`;
 }
 
@@ -172,7 +170,7 @@ export function oauthMetadataResponse(request: Request, options: AuthMetadataOpt
     // never on the host's own traffic.
     // Tolerate a single trailing slash, as path-mounted routers do.
     const requestPath = stripTrailingSlash(new URL(request.url).pathname);
-    if (requestPath === protectedResourceMetadataPath(options.resourceServerUrl)) {
+    if (requestPath === stripTrailingSlash(protectedResourceMetadataPath(options.resourceServerUrl))) {
         return metadataDocumentResponse(request, buildOAuthProtectedResourceMetadata(options));
     }
     if (requestPath === '/.well-known/oauth-authorization-server') {
