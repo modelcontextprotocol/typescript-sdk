@@ -87,7 +87,9 @@ export async function ensureBuilt(pkgDir: string): Promise<void> {
         try {
             if (!haveAll()) {
                 try {
+                    // pnpm is a pnpm.cmd shim on Windows, which execFile can only start through a shell.
                     await execFileAsync('pnpm', ['build'], {
+                        shell: process.platform === 'win32',
                         cwd: pkgDir,
                         timeout: BUILD_TIMEOUT_MS,
                         maxBuffer: 16 * 1024 * 1024
