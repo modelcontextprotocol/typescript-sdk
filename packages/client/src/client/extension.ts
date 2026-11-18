@@ -79,15 +79,16 @@ export interface ClientExtensionContext {
     require(extensionId: `${string}/${string}`): void;
     /**
      * Middleware around whatever handler serves a server-to-client request
-     * `method`. Runs outside middleware the application adds with
-     * `client.use`, and inside middleware from extensions earlier in
-     * `extensions`. See `Protocol.use`.
+     * `method`. Throws a `TypeError` for a method it could never wrap, such as
+     * a notification or a request the client sends. Runs outside middleware
+     * the application adds with `client.use`, and inside middleware from
+     * extensions earlier in `extensions`. See `Protocol.use`.
      */
     use(method: RequestMethod | (string & {}), middleware: RequestMiddleware<ClientContext>): void;
     /**
      * Registers the handler for a custom server-to-client request, like
      * `Client.setRequestHandler` with schemas, but checked: throws when `name`
-     * is a core method (wrap those with `use` instead) or when a handler
+     * is a core request (wrap those with `use` instead) or notification, or when a handler
      * already serves it, such as another extension's. Served on 2025-11-25
      * connections only: 2026-07-28 has no server-to-client request channel.
      */

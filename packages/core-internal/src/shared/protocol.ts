@@ -224,6 +224,21 @@ export function isNoHandlerResponse(message: object): boolean {
     return noHandlerResponses.has(message);
 }
 
+let addExtensionMiddleware: <ContextT extends BaseContext>(
+    protocol: Protocol<ContextT>,
+    method: string,
+    middleware: RequestMiddleware<ContextT>
+) => void;
+
+/** `ctx.use`: middleware in the extension tier, outside middleware the application adds with `use()`; package-internal. */
+export function useAsExtension<ContextT extends BaseContext>(
+    protocol: Protocol<ContextT>,
+    method: string,
+    middleware: RequestMiddleware<ContextT>
+): void {
+    addExtensionMiddleware(protocol, method, middleware);
+}
+
 /**
  * Request middleware (see `Protocol.use`): receives the JSON-RPC request,
  * with wire-only material lifted onto `ctx.mcpReq` and params not yet
@@ -615,6 +630,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _customSchemaRequestMethods = new Set<string>();
     /** Middleware installed by `use`, in registration order across every method (see `_resolveRequestHandler`). */
     private _requestMiddleware: Array<{ method: string; middleware: RequestMiddleware<ContextT> }> = [];
+    /** Middleware installed by extensions with `ctx.use`; it runs outside `_requestMiddleware`. */
     private _extensionMiddleware: Array<{ method: string; middleware: RequestMiddleware<ContextT> }> = [];
     /** Extension result kinds accepted per method (see `acceptResultType`). */
     private _acceptedResultTypes: Map<string, Set<string>> = new Map();
@@ -2028,10 +2044,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * extension needs every peer to know belongs in its advertised
      * capability, not in per-request middleware.
      *
-     * @returns A function that removes the middleware.
-     *
      * Experimental: may change in a minor release while the extensions SEPs settle.
      *
+     * @returns A function that removes the middleware.
      * @experimental
      */
     use(method: RequestMethod | string, middleware: RequestMiddleware<ContextT>): () => void {
@@ -2059,10 +2074,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * version. Client extensions reach this through
      * `ctx.acceptResultType` in their `setup`.
      *
-     * @returns A function that withdraws the declaration.
-     *
      * Experimental: may change in a minor release while the extensions SEPs settle.
      *
+     * @returns A function that withdraws the declaration.
      * @experimental
      */
     acceptResultType(method: string, resultType: string): () => void {
@@ -2098,15 +2112,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
         );
     }
 
-    /**
-     * `ctx.use`: adds middleware in the extension tier, outside middleware added with `use()`.
-     *
-     * @internal
-     */
-    useForExtension(method: string, middleware: RequestMiddleware<ContextT>): void {
-        if (typeof middleware !== 'function') throw new TypeError('use: middleware is required');
-        this.assertMiddlewareMethod(method);
-        this._extensionMiddleware.push({ method, middleware });
+    static {
+        // Reaches the private extension tier for `useAsExtension`, so no public method is needed.
+        addExtensionMiddleware = (protocol, method, middleware) => {
+            if (typeof middleware !== 'function') throw new TypeError('use: middleware is required');
+            protocol.assertMiddlewareMethod(method);
+            protocol._extensionMiddleware.push({ method, middleware });
+        };
     }
 
     /** Throws when middleware on `method` could never run on this side; `Client` and `Server` check. */

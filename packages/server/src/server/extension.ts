@@ -75,8 +75,9 @@ export interface ServerExtensionContext {
      */
     require(extensionId: `${string}/${string}`): void;
     /**
-     * Middleware around whatever handler serves `method`, including a core
-     * method or another extension's: it may answer, transform or refuse. Runs
+     * Middleware around whatever handler serves `method`, a request this server
+     * receives, including a core method or another extension's: it may answer,
+     * transform or refuse. Throws a `TypeError` for a method it could never wrap. Runs
      * outside middleware the application adds with `mcp.server.use`, and
      * inside middleware from extensions earlier in `extensions`. See
      * `Protocol.use` for how middleware composes.
@@ -85,7 +86,7 @@ export interface ServerExtensionContext {
     /**
      * Registers the handler for a custom request method, like
      * `Server.setRequestHandler` with schemas, but checked: throws when `name`
-     * is a core method (wrap those with `use` instead) or when a handler
+     * is a core request (wrap those with `use` instead) or notification, or when a handler
      * already serves it, such as another extension's.
      */
     setRequestHandler<P extends StandardSchemaV1, R extends StandardSchemaV1 | undefined = undefined>(

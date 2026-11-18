@@ -7,7 +7,7 @@
 import type { JSONObject } from '../types/spec.types.2026-07-28';
 import type { StandardSchemaV1 } from '../util/standardSchema';
 import { isCoreRequestReceivedBy, isExtensionReusedRequestMethod, isSpecNotificationMethod, isSpecRequestMethod } from '../wire/codec';
-import type { BaseContext, InferHandlerResult, Protocol, RequestMiddleware } from './protocol';
+import type { BaseContext, InferHandlerResult, Protocol } from './protocol';
 
 /** What installed extensions add to one server or client, kept off its public surface. */
 interface ExtensionState {
@@ -59,16 +59,6 @@ export function writeExtensionCapability(
     } finally {
         if (state !== undefined) state.writing = undefined;
     }
-}
-
-/** `ctx.use`: middleware in the extension tier, outside middleware the application adds with `use()`. */
-export function useAsExtension<ContextT extends BaseContext>(
-    protocol: Protocol<ContextT>,
-    method: string,
-    middleware: RequestMiddleware<ContextT>
-): void {
-    if (!states.has(protocol)) throw new Error('use: this server or client installed no extensions');
-    protocol.useForExtension(method, middleware);
 }
 
 /**
