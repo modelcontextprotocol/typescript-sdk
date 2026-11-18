@@ -86,7 +86,7 @@ export const createOAuthMetadata = (options: {
     baseUrl?: URL;
     serviceDocumentationUrl?: URL;
     scopesSupported?: string[];
-}): OAuthMetadata => {
+}): OAuthMetadata & { authorization_endpoint: string } => {
     const issuer = options.issuerUrl;
     const baseUrl = options.baseUrl;
 
@@ -97,7 +97,7 @@ export const createOAuthMetadata = (options: {
     const registration_endpoint = options.provider.clientsStore.registerClient ? '/register' : undefined;
     const revocation_endpoint = options.provider.revokeToken ? '/revoke' : undefined;
 
-    const metadata: OAuthMetadata = {
+    const metadata: OAuthMetadata & { authorization_endpoint: string } = {
         issuer: issuer.href,
         service_documentation: options.serviceDocumentationUrl?.href,
 
