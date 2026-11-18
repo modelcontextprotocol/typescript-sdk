@@ -517,6 +517,57 @@ describe('delivery status', () => {
         expect(engine.status(ID)).toMatchObject({ active: false });
     });
 
+    it('holds at most 10 000 messages while suspended, abandoning the oldest', async () => {
+        let healthy = false;
+        const { engine, record, requests, until } = setup(() => (healthy ? { status: 200, body: '' } : { status: 503, body: '' }));
+        engine.track(ID, 'p0');
+        // 20 events, five failed attempts each: the 100th attempt suspends delivery as the last retries give up.
+        for (let n = 1; n <= 20; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+        await until(20);
+        for (const [index, delay] of DELAYS.entries()) {
+            await settle();
+            await vi.advanceTimersByTimeAsync(delay);
+            await until(20 * (index + 2));
+        }
+        await settle();
+        expect(engine.status(ID)).toMatchObject({ active: false });
+        expect(engine.watermark(ID)).toBe('p20');
+
+        for (let n = 21; n <= 10_021; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+        expect(engine.watermark(ID)).toBe('p21');
+        expect(requests).toHaveLength(100);
+
+        healthy = true;
+        engine.resume(ID);
+        await until(100 + 10_000);
+        await settle();
+        expect(requests).toHaveLength(100 + 10_000);
+        expect(requests.some(request => bodyOf(request).eventId === 'evt_21')).toBe(false);
+        expect(engine.watermark(ID)).toBe('p10021');
+    });
+
+    it.each(['a due retry', 'a new delivery'])('releases a suspended subscription whose record expired, on %s', async path => {
+        const { engine, store, record, requests, until } = setup(() => ({ status: 503, body: '' }));
+        engine.track(ID, 'p0');
+        for (let n = 1; n <= 100; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+        await until(100);
+        await settle();
+        expect(engine.status(ID)).toMatchObject({ active: false });
+
+        const expired = { ...record, expiresAt: Date.now() + 1000 };
+        await store.put(expired);
+        if (path === 'a due retry') await vi.advanceTimersByTimeAsync(5000);
+        else {
+            await vi.advanceTimersByTimeAsync(1000);
+            engine.deliver(expired, occurrence('evt_101'), 'p101', null);
+        }
+        await settle();
+        expect(engine.size).toBe(0);
+        expect(engine.watermark(ID)).toBeUndefined();
+        expect(vi.getTimerCount()).toBe(0);
+        expect(requests).toHaveLength(100);
+    });
+
     it('resume() does nothing for an active or unknown subscription', async () => {
         const { engine, record, requests, until } = setup();
         engine.resume(ID);
@@ -552,9 +603,84 @@ describe('control bodies', () => {
         }
     });
 
-    it('returns a failed outcome as it is', async () => {
-        const { engine, record } = setup(() => ({ error: 'connection_refused' }));
-        expect(await engine.sendControl(record, { type: 'gap', cursor: null })).toEqual({ error: 'connection_refused' });
+    it('retries a control body under one webhook-id, with a fresh timestamp and signature', async () => {
+        let answer: WebhookSendOutcome = { status: 503, body: '' };
+        const { engine, record, requests, until } = setup(() => answer);
+        const outcome = engine.sendControl(record, { type: 'terminated', error: { code: -32_024, message: 'Forbidden' } });
+        await until(1);
+        await settle();
+        answer = { status: 200, body: '' };
+        await vi.advanceTimersByTimeAsync(5000);
+        await until(2);
+        expect(await outcome).toEqual({ status: 200, body: '' });
+
+        const [first, second] = requests;
+        expect(second!.headers['webhook-id']).toBe(first!.headers['webhook-id']);
+        expect(Number(second!.headers['webhook-timestamp']) - Number(first!.headers['webhook-timestamp'])).toBe(5);
+        expect(second!.headers['webhook-signature']).not.toBe(first!.headers['webhook-signature']);
+        for (const request of requests) expect(await verifies(request, SECRET)).toBe(true);
+    });
+
+    it('resolves with the last answer once the retries run out', async () => {
+        const { engine, record, requests, until } = setup(() => ({ error: 'connection_refused' }));
+        const outcome = engine.sendControl(record, { type: 'gap', cursor: null });
+        await until(1);
+        for (const [index, delay] of DELAYS.entries()) {
+            await settle();
+            await vi.advanceTimersByTimeAsync(delay);
+            await until(index + 2);
+        }
+        expect(await outcome).toEqual({ error: 'connection_refused' });
+        expect(new Set(requests.map(request => request.headers['webhook-id'])).size).toBe(1);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it.each([410, 413])('treats %i as final for a control body', async status => {
+        const { engine, record, requests } = setup(() => ({ status, body: '' }));
+        expect(await engine.sendControl(record, { type: 'gap', cursor: 'p9' })).toEqual({ status, body: '' });
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(600_000);
+        expect(requests).toHaveLength(1);
+    });
+
+    it('never moves the watermark or the delivery status', async () => {
+        const answers: Array<(outcome: WebhookSendOutcome) => void> = [];
+        const { engine, record, until } = setup(request =>
+            'type' in bodyOf(request) ? { status: 200, body: '' } : new Promise(resolve => answers.push(resolve))
+        );
+        await engine.sendControl(recordFor({ id: 'sub_2' }), { type: 'gap', cursor: 'p9' });
+        expect(engine.size).toBe(0);
+
+        engine.track(ID, 'p0');
+        engine.deliver(record, occurrence('evt_1'), 'p1', null);
+        await until(2);
+        expect(await engine.sendControl(record, { type: 'gap', cursor: 'p9' })).toEqual({ status: 200, body: '' });
+        expect(engine.watermark(ID)).toBe('p0');
+        expect(engine.status(ID)).toEqual({ active: true, lastDeliveryAt: null, lastError: null });
+        answers[0]!({ status: 200, body: '' });
+        await settle();
+        expect(engine.watermark(ID)).toBe('p1');
+    });
+
+    it.each(['forget', 'clear'])('stops retrying a control body on %s()', async stop => {
+        const { engine, record, requests, until } = setup(() => ({ status: 503, body: '' }));
+        const outcome = engine.sendControl(record, { type: 'gap', cursor: 'p9' });
+        await until(1);
+        await settle();
+        if (stop === 'forget') engine.forget(ID);
+        else engine.clear();
+        expect(await outcome).toEqual({ status: 503, body: '' });
+        expect(requests[0]!.signal.aborted).toBe(true);
+        await vi.advanceTimersByTimeAsync(600_000);
+        expect(requests).toHaveLength(1);
+    });
+
+    it('never sends a control body over 256 KiB', async () => {
+        const { engine, record, sender, onerror } = setup();
+        const error = { code: -32_024, message: 'Forbidden', data: { blob: 'x'.repeat(262_144) } };
+        expect(await engine.sendControl(record, { type: 'terminated', error })).toBeUndefined();
+        expect(sender).not.toHaveBeenCalled();
+        expect((onerror.mock.calls[0]![0] as Error).message).toContain('262144');
     });
 });
 

@@ -12,7 +12,11 @@ import type { WebhookSender, WebhookSendOutcome, WebhookSubscriptionRecord, Webh
 
 // The waits between the five attempts of one message; after the last it is abandoned.
 const RETRY_DELAYS_MS = [5000, 30_000, 120_000, 300_000];
+// Non-2xx answers that end a message without a retry.
+const FINAL_STATUSES: ReadonlySet<number> = new Set([410, 413]);
 const MAX_BODY_BYTES = 262_144;
+// The most messages a suspended subscription holds: as many as the emit buffer holds by default.
+const MAX_PARKED_MESSAGES = 10_000;
 // Delivery is suspended once more than 95 % of at least 100 attempts in the last 60 minutes failed.
 const SUSPENSION_WINDOW_MS = 3_600_000;
 const SUSPENSION_MIN_ATTEMPTS = 100;
@@ -40,6 +44,19 @@ interface Message {
     retry?: ReturnType<typeof setTimeout>;
 }
 
+// One control body to one subscription, under one webhook-id until it is answered or abandoned; it never touches the watermark.
+interface Control {
+    readonly record: WebhookSubscriptionRecord;
+    readonly webhookId: string;
+    readonly body: string;
+    // Aborts its send in flight once it is stopped.
+    readonly ended: AbortController;
+    attempts: number;
+    last?: WebhookSendOutcome;
+    retry?: ReturnType<typeof setTimeout>;
+    readonly resolve: (outcome: WebhookSendOutcome | undefined) => void;
+}
+
 // What this process holds for one subscription it delivers to.
 interface Tracked {
     readonly id: string;
@@ -49,7 +66,7 @@ interface Tracked {
     watermark: string | null;
     // Messages not yet acknowledged or abandoned, in position order.
     readonly pending: Message[];
-    // Messages that came due while delivery was suspended.
+    // Messages that came due while delivery was suspended, oldest first.
     parked: Message[];
     active: boolean;
     lastDeliveryAt: string | null;
@@ -73,6 +90,14 @@ function byteLength(text: string): number {
 
 function isSuccess(status: number): boolean {
     return status >= 200 && status < 300;
+}
+
+function isRetryable(outcome: WebhookSendOutcome): boolean {
+    return 'error' in outcome || (!isSuccess(outcome.status) && !FINAL_STATUSES.has(outcome.status));
+}
+
+function toError(error: unknown): Error {
+    return error instanceof Error ? error : new Error(String(error));
 }
 
 // The bytes of a `whsec_` secret; records and subscribe requests carry only valid ones.
@@ -113,10 +138,11 @@ export class WebhookEngine {
     readonly #onerror: (error: Error) => void;
     readonly #now: () => number;
     readonly #tracked = new Map<string, Tracked>();
+    readonly #controls = new Set<Control>();
     // Each verified `principal\0url` with the subscription ids it covers; it lasts while one of them does.
     readonly #verified = new Map<string, Set<string>>();
     readonly #verifiedKeyOf = new Map<string, string>();
-    // Aborts verification and control sends in flight on clear().
+    // Aborts verification sends in flight on clear().
     #lifetime = new AbortController();
 
     constructor(options: WebhookEngineOptions) {
@@ -132,7 +158,7 @@ export class WebhookEngine {
         return this.#tracked.size;
     }
 
-    // Throws `callbackEndpointError` with the failure category as `data.reason`.
+    // One attempt, which the subscribe call waits for; throws `callbackEndpointError` with the failure category as `data.reason`.
     async verify(principal: string, url: string, secret: string, subscriptionId: string): Promise<void> {
         const key = `${principal}\u0000${url}`;
         let covered = this.#verified.get(key);
@@ -140,7 +166,7 @@ export class WebhookEngine {
             const challenge = challengeNonce();
             const body = JSON.stringify({ type: 'verification', challenge });
             const webhookId = generateWebhookId('verification');
-            const outcome = await this.#post(url, subscriptionId, [signingKey(secret)], webhookId, body, this.#lifetime.signal);
+            const outcome = await this.#post(url, subscriptionId, [secret], webhookId, body, this.#lifetime.signal);
             if ('error' in outcome) throw verificationError(outcome.error);
             if (!echoes(outcome, challenge)) throw verificationError('challenge_failed');
             covered = this.#verified.get(key) ?? new Set();
@@ -156,7 +182,7 @@ export class WebhookEngine {
         this.#start(id, startCursor);
     }
 
-    // Queues one event POST and returns; `seed` is the watermark to start from when this process does not track `record.id`.
+    // Queues one event POST and returns; calls for one subscription come in position order, and `seed` starts the watermark of an untracked id.
     deliver(record: WebhookSubscriptionRecord, occurrence: EventOccurrence, position: string | null, seed: string | null): void {
         const tracked = this.#tracked.get(record.id) ?? this.#start(record.id, seed);
         const message: Message = { webhookId: generateWebhookId(), occurrence, position, attempts: 0, done: false };
@@ -164,13 +190,25 @@ export class WebhookEngine {
         this.#attempt(tracked, message, record);
     }
 
-    // One signed POST of a control body, not retried; rejects for a body over the cap.
-    async sendControl(record: WebhookSubscriptionRecord, body: WebhookControlBody): Promise<WebhookSendOutcome> {
+    // Queues a control body, retried like an event, and resolves with its last answer (`undefined` without one); request paths must not await it.
+    sendControl(record: WebhookSubscriptionRecord, body: WebhookControlBody): Promise<WebhookSendOutcome | undefined> {
         const text = JSON.stringify(body);
         if (byteLength(text) > MAX_BODY_BYTES) {
-            throw new Error(`webhook subscription ${record.id}: the ${body.type} body is over ${MAX_BODY_BYTES} bytes`);
+            this.#onerror(new Error(`webhook subscription ${record.id}: did not send a ${body.type} body over ${MAX_BODY_BYTES} bytes`));
+            return Promise.resolve(undefined);
         }
-        return this.#post(record.url, record.id, this.#signingKeys(record), generateWebhookId(body.type), text, this.#lifetime.signal);
+        return new Promise(resolve => {
+            const control: Control = {
+                record,
+                webhookId: generateWebhookId(body.type),
+                body: text,
+                ended: new AbortController(),
+                attempts: 0,
+                resolve
+            };
+            this.#controls.add(control);
+            this.#sendControl(control);
+        });
     }
 
     watermark(id: string): string | null | undefined {
@@ -196,9 +234,10 @@ export class WebhookEngine {
         for (const message of parked) this.#attempt(tracked, message);
     }
 
-    // Drops the subscription's delivery state; the last subscription of a (principal, url) also drops its verification.
+    // Drops the subscription's delivery state and stops its control bodies; its last subscription also drops a (principal, url) verification.
     forget(id: string): void {
         this.#drop(id);
+        for (const control of this.#controls) if (control.record.id === id) this.#stopControl(control);
         const key = this.#verifiedKeyOf.get(id);
         if (key === undefined) return;
         this.#verifiedKeyOf.delete(id);
@@ -211,6 +250,7 @@ export class WebhookEngine {
     // Drops all in-memory state, as a process restart would.
     clear(): void {
         for (const id of this.#tracked.keys()) this.#drop(id);
+        for (const control of this.#controls) this.#stopControl(control);
         this.#verified.clear();
         this.#verifiedKeyOf.clear();
         this.#lifetime.abort();
@@ -250,22 +290,24 @@ export class WebhookEngine {
     #attempt(tracked: Tracked, message: Message, record?: WebhookSubscriptionRecord): void {
         this.#try(tracked, message, record).catch((error: unknown) => {
             if (!this.#isCurrent(tracked)) return;
-            this.#onerror(error instanceof Error ? error : new Error(String(error)));
+            this.#onerror(toError(error));
             this.#retry(tracked, message);
         });
     }
 
     async #try(tracked: Tracked, message: Message, supplied: WebhookSubscriptionRecord | undefined): Promise<void> {
-        if (!tracked.active) {
-            tracked.parked.push(message);
-            return;
-        }
         message.attempts += 1;
         const record = supplied ?? (await this.#store.get(tracked.id));
         if (!this.#isCurrent(tracked)) return;
         // A record gone from the store, or expired, ends what this process holds for the subscription.
         if (record === undefined || record.expiresAt <= this.#now()) {
             this.forget(tracked.id);
+            return;
+        }
+        if (!tracked.active) {
+            // A parked message keeps this attempt for the resume.
+            message.attempts -= 1;
+            this.#park(tracked, message);
             return;
         }
         const body = JSON.stringify({ ...message.occurrence, cursor: tracked.watermark });
@@ -278,7 +320,7 @@ export class WebhookEngine {
             this.#settle(tracked, message);
             return;
         }
-        const outcome = await this.#post(record.url, record.id, this.#signingKeys(record), message.webhookId, body, tracked.ended.signal);
+        const outcome = await this.#post(record.url, record.id, this.#secretsOf(record), message.webhookId, body, tracked.ended.signal);
         if (!this.#isCurrent(tracked)) return;
         if (this.#observe(tracked, outcome)) this.#retry(tracked, message);
         else this.#settle(tracked, message);
@@ -291,6 +333,13 @@ export class WebhookEngine {
             return;
         }
         message.retry = unref(setTimeout(() => this.#attempt(tracked, message), delay));
+    }
+
+    // Holds a message until resume(); past the cap the oldest one held is abandoned.
+    #park(tracked: Tracked, message: Message): void {
+        tracked.parked.push(message);
+        const oldest = tracked.parked.length > MAX_PARKED_MESSAGES ? tracked.parked.shift() : undefined;
+        if (oldest !== undefined) this.#settle(tracked, oldest);
     }
 
     // Marks the message acknowledged or abandoned, and moves the watermark past the finished messages at the front.
@@ -317,7 +366,7 @@ export class WebhookEngine {
             return false;
         } else {
             tracked.lastError = outcome.status >= 500 ? 'http_5xx' : 'http_4xx';
-            if (outcome.status === 410 || outcome.status === 413) return false;
+            if (FINAL_STATUSES.has(outcome.status)) return false;
         }
         tracked.failedSince ??= new Date(now).toISOString();
         this.#count(tracked, now, true);
@@ -340,28 +389,69 @@ export class WebhookEngine {
         }
     }
 
+    // One attempt of a control body; it is signed with the record it was queued with.
+    #sendControl(control: Control): void {
+        control.attempts += 1;
+        const { record } = control;
+        this.#post(record.url, record.id, this.#secretsOf(record), control.webhookId, control.body, control.ended.signal).then(
+            outcome => {
+                if (!this.#controls.has(control)) return;
+                control.last = outcome;
+                if (isRetryable(outcome)) this.#retryControl(control);
+                else this.#endControl(control);
+            },
+            (error: unknown) => {
+                if (!this.#controls.has(control)) return;
+                this.#onerror(toError(error));
+                this.#retryControl(control);
+            }
+        );
+    }
+
+    #retryControl(control: Control): void {
+        const delay = RETRY_DELAYS_MS[control.attempts - 1];
+        if (delay === undefined) this.#endControl(control);
+        else control.retry = unref(setTimeout(() => this.#sendControl(control), delay));
+    }
+
+    #stopControl(control: Control): void {
+        control.ended.abort();
+        this.#endControl(control);
+    }
+
+    // Resolves a control body with its last answer and drops it.
+    #endControl(control: Control): void {
+        this.#controls.delete(control);
+        clearTimeout(control.retry);
+        control.resolve(control.last);
+    }
+
     // The record's secret, and its previous one during the rotation grace window.
-    #signingKeys(record: WebhookSubscriptionRecord): Uint8Array[] {
-        const keys = [signingKey(record.secret)];
+    #secretsOf(record: WebhookSubscriptionRecord): string[] {
         const previous = record.previousSecret;
-        if (previous !== undefined && this.#now() < previous.expiresAt) keys.push(signingKey(previous.secret));
-        return keys;
+        return previous !== undefined && this.#now() < previous.expiresAt ? [record.secret, previous.secret] : [record.secret];
     }
 
     async #post(
         url: string,
         subscriptionId: string,
-        keys: readonly Uint8Array[],
+        secrets: readonly string[],
         webhookId: string,
         body: string,
         signal: AbortSignal
     ): Promise<WebhookSendOutcome> {
         const timestamp = Math.floor(this.#now() / 1000);
+        const signature = await signWebhook(
+            secrets.map(secret => signingKey(secret)),
+            webhookId,
+            timestamp,
+            body
+        );
         const headers = {
             'Content-Type': 'application/json',
             'webhook-id': webhookId,
             'webhook-timestamp': String(timestamp),
-            'webhook-signature': await signWebhook(keys, webhookId, timestamp, body),
+            'webhook-signature': signature,
             [WEBHOOK_SUBSCRIPTION_ID_HEADER]: subscriptionId
         };
         return this.#sender({ url, headers, body, trusted: this.#trustedOrigins.has(new URL(url).origin), signal });
