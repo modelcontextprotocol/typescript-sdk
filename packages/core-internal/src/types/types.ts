@@ -902,6 +902,17 @@ export interface MessageClassification {
  */
 export interface MessageExtraInfo {
     /**
+     * Local transport-side completion of this inbound message's SDK processing.
+     * Called once after dispatch, awaited response sends and request-controller
+     * cleanup, including cancellation with no response. For a stdio listen,
+     * completion waits for subscription teardown rather than its acknowledgement.
+     * This does not prove downstream remote effects or consumer-detached work
+     * have finished. Never serialized onto the wire. Callback errors are reported
+     * through the receiving protocol/entry's error handler.
+     */
+    onMessageProcessed?: () => void;
+
+    /**
      * The original HTTP request.
      */
     request?: globalThis.Request;
