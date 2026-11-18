@@ -688,3 +688,31 @@ describe('peer-declared zod (review)', () => {
         expect(written.devDependencies?.zod).toBeUndefined();
     });
 });
+
+describe('zod comparator patch boundaries', () => {
+    it.each([
+        ['>=4.2.0 <4.2.1', undefined],
+        ['>=4.2.0 <4.2.10', undefined],
+        ['>=4.2.0 <v4.2.1', undefined],
+        ['>=4.2.0 <=4.2.0', undefined],
+        ['>=4.0.0 <4.2.0', 'TS2769'],
+        ['>=4.0.0 <4.2', 'TS2769'],
+        ['>=4.0.0 <4.0.1', 'TS2769'],
+        ['<4.0.0', 'tools/list']
+    ])('classifies %s without changing the declared zod range', (range, warning) => {
+        const manifest = writeJson('package.json', {
+            name: 'app',
+            dependencies: { '@modelcontextprotocol/sdk': '^1.29.0', zod: range }
+        });
+        const changes = updatePackageJson(discoverManifests(dir), new Map([[manifest, new Set(['@modelcontextprotocol/server'])]]), false);
+        expect(changes).toHaveLength(1);
+        expect(changes[0]!.applied).toBe(true);
+        if (warning === undefined) {
+            expect(changes[0]!.warnings).toBeUndefined();
+        } else {
+            expect(changes[0]!.warnings).toHaveLength(1);
+            expect(changes[0]!.warnings![0]).toContain(warning);
+        }
+        expect(readJson(manifest)).toMatchObject({ dependencies: { zod: range } });
+    });
+});
