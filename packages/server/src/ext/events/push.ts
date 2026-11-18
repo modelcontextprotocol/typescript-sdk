@@ -19,7 +19,7 @@ import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 import { makeContext } from './context';
 import type { BufferedEvent, EmitBuffer } from './emitBuffer';
 import type { SubscriptionSource } from './extension';
-import { checkedEvents, selectEvent } from './poll';
+import { checkedEvents, checkedSelection, selectEvent } from './poll';
 import type { RegisteredEvent } from './registry';
 import type { CheckContext, EventResult } from './types';
 import type { SubscriptionValidator } from './validation';
@@ -40,7 +40,8 @@ export interface PushDeps {
 }
 
 interface PushStream {
-    readonly entry: RegisteredEvent;
+    // The registration it serves; an update() replaces it with the updated one.
+    entry: RegisteredEvent;
     readonly args: Record<string, unknown>;
     readonly requestId: RequestId;
     readonly grant: number;
@@ -179,8 +180,13 @@ export class StreamSet implements SubscriptionSource {
             if (!stream.live || stream.entry.name !== name) continue;
             stream.position = cursor;
             const occurrence = selectEvent(stream.entry, stream.ctx, stream.args, buffered, this.#deps.report);
-            if (occurrence !== undefined) this.#write(stream, EVENTS_EVENT_NOTIFICATION, { ...occurrence, cursor });
+            if (occurrence !== undefined) this.#writeEvent(stream, { ...occurrence, cursor });
         }
+    }
+
+    // Moves the streams of `previous` to its updated registration, so their next batch parses with its schemas.
+    update(previous: RegisteredEvent, next: RegisteredEvent): void {
+        for (const stream of this.#streams) if (stream.entry === previous) stream.entry = next;
     }
 
     // Sends `terminated` on each matching stream, runs onUnsubscribe, and ends the request with its final result.
@@ -267,8 +273,13 @@ export class StreamSet implements SubscriptionSource {
                 heartbeatMs: stream.grant
             });
         }
-        for (const event of batch.events) this.#write(stream, EVENTS_EVENT_NOTIFICATION, event);
+        for (const event of batch.events) this.#writeEvent(stream, event);
         stream.position = batch.position;
+    }
+
+    // Writes an event that checkedSelection passes, in order with the stream's other writes.
+    #writeEvent(stream: PushStream, event: EventOccurrence): void {
+        this.#write(stream, EVENTS_EVENT_NOTIFICATION, checkedSelection(stream.entry, event, this.#deps.report));
     }
 
     #scheduleCheck(stream: PushStream): void {
@@ -294,10 +305,16 @@ export class StreamSet implements SubscriptionSource {
         this.#scheduleCheck(stream);
     }
 
-    #write(stream: PushStream, method: string, params: Record<string, unknown>): void {
-        const notification = { method, params: { ...params, _meta: { [SUBSCRIPTION_ID_META_KEY]: stream.requestId } } };
+    // Params that resolve to `undefined` (a dropped event) send nothing.
+    #write(stream: PushStream, method: string, params: Record<string, unknown> | Promise<Record<string, unknown> | undefined>): void {
+        const _meta = { [SUBSCRIPTION_ID_META_KEY]: stream.requestId };
         // A failed write means the client is gone.
-        stream.queue = stream.queue.then(() => stream.notify(notification)).catch(() => void this.#end(stream));
+        stream.queue = stream.queue
+            .then(async () => {
+                const resolved = await params;
+                if (resolved !== undefined) await stream.notify({ method, params: { ...resolved, _meta } });
+            })
+            .catch(() => void this.#end(stream));
         if (!stream.live) return;
         clearTimeout(stream.heartbeat);
         stream.heartbeat = unref(

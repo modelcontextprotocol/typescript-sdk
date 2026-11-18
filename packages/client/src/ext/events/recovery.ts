@@ -220,7 +220,15 @@ export class DriverLoop<T> {
         if (this.#first) {
             // A stale cursor passed to subscribe(): drop it and start from now, if the event type still offers this mode.
             if (isSchemaChange(error) && this.#cursor !== null) {
-                await requireOffered(connection, subscription.name, this.#mode, this.#abort.signal);
+                try {
+                    await requireOffered(connection, subscription.name, this.#mode, this.#abort.signal);
+                } catch (listError) {
+                    if (refusesSubscription(listError)) throw listError;
+                    // A transient re-list failure is retried in the background, from now, as a transient first exchange is.
+                    this.#restartFromNow();
+                    this.subscribed();
+                    return 'retry';
+                }
                 this.#restartFromNow();
                 return 'restarted';
             }

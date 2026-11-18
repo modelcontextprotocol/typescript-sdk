@@ -122,6 +122,24 @@ describe('options', () => {
         expect(() => new EventsExtension({ webhookTtlMs: value, webhookSender, getPrincipal: () => 'alice' })).toThrow(TypeError);
     });
 
+    it.each([1.5, 0.5])('refuses %s for a count option', value => {
+        expect(() => new EventsExtension({ maxSubscriptions: value })).toThrow(/maxSubscriptions must be a positive integer/);
+        expect(() => new EventsExtension({ emitBuffer: { maxEvents: value } })).toThrow(TypeError);
+        expect(() => new EventsExtension({ heartbeatMs: value })).not.toThrow();
+    });
+
+    it('serves at most 1024 subscriptions by default', async () => {
+        const events = new EventsExtension();
+        events.registerEvent('tick', { payloadSchema: P, check: tick });
+        const { rpc } = serve(events);
+        for (let n = 0; n < 1024; n++) resultOf(await rpc('events/poll', { name: 'tick', arguments: { n } }));
+        expect(errorOf(await rpc('events/poll', { name: 'tick', arguments: { n: 1024 } }))).toMatchObject({
+            code: -32_025,
+            data: { limit: 'subscriptions', max: 1024 }
+        });
+        resultOf(await rpc('events/poll', { name: 'tick', arguments: { n: 0 } }));
+    });
+
     it('accepts only exact origins as trustedOrigins', () => {
         expect(() => new EventsExtension({ trustedOrigins: ['http://127.0.0.1:9000', 'https://example.com'] })).not.toThrow();
         for (const origin of ['http://127.0.0.1:9000/', 'https://example.com/hook', 'HTTPS://EXAMPLE.COM', 'example.com', 'not a url']) {
@@ -210,6 +228,16 @@ describe('registerEvent', () => {
         expect(() => handle.update({ description: 'v3' })).toThrow(/removed or replaced/);
         handle.remove();
         expect(terminate).toHaveBeenCalledOnce();
+    });
+
+    it('update() takes only the fields it lists, whatever else the object carries', async () => {
+        const events = new EventsExtension();
+        const handle = events.registerEvent('tick', { payloadSchema: P, check: tick });
+        const changes = { description: 'v2', delivery: { poll: false }, emitOnly: true, check: undefined };
+        handle.update(changes);
+        expect((await listOf(events)).events).toMatchObject([{ name: 'tick', description: 'v2', delivery: ['poll', 'push'] }]);
+        // Still a check type: the poll runs check(), whose cursor is '0'.
+        expect(resultOf(await serve(events).rpc('events/poll', { name: 'tick', cursor: 'c' }))).toMatchObject({ cursor: '0' });
     });
 
     it('terminate() reaches every subscription source', async () => {

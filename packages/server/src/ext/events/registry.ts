@@ -9,6 +9,9 @@ export type AnyEventDefinition = EventDefinition<StandardSchemaWithJSON, Standar
 
 export type EventChanges = Parameters<EventHandle['update']>[0];
 
+// The fields update() changes; anything else on the object it is given is ignored.
+const UPDATABLE = ['description', 'inputSchema', 'payloadSchema', '_meta'] as const;
+
 export interface RegisteredEvent {
     readonly name: string;
     readonly kind: 'check' | 'emitOnly';
@@ -81,9 +84,9 @@ export class EventRegistry {
         return entry;
     }
 
-    // Rebuilds a registered event type with the defined fields of `changes` replaced.
+    // Rebuilds a registered event type with the defined updatable fields of `changes` replaced.
     update(entry: RegisteredEvent, changes: EventChanges): RegisteredEvent {
-        const defined = Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined));
+        const defined = Object.fromEntries(UPDATABLE.filter(key => changes[key] !== undefined).map(key => [key, changes[key]]));
         const next = createEntry(entry.name, { ...entry.definition, ...defined });
         this.#entries.set(entry.name, next);
         return next;

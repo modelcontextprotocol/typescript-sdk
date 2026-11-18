@@ -50,14 +50,7 @@ const NAMED_EVENT_METHODS = [EVENTS_POLL_METHOD, EVENTS_STREAM_METHOD, EVENTS_SU
 
 const EVENTS_METHODS = [EVENTS_LIST_METHOD, ...NAMED_EVENT_METHODS];
 
-const NUMERIC_OPTIONS = [
-    'webhookTtlMs',
-    'pollSubscriptionTtlMs',
-    'heartbeatMs',
-    'checkIntervalMs',
-    'defaultNextPollMs',
-    'maxSubscriptions'
-] as const;
+const NUMERIC_OPTIONS = ['webhookTtlMs', 'pollSubscriptionTtlMs', 'heartbeatMs', 'checkIntervalMs', 'defaultNextPollMs'] as const;
 
 const DEFAULT_EMIT_BUFFER_MAX_AGE_MS = 600_000;
 const DEFAULT_EMIT_BUFFER_MAX_EVENTS = 10_000;
@@ -65,6 +58,8 @@ const DEFAULT_POLL_SUBSCRIPTION_TTL_MS = 300_000;
 const DEFAULT_NEXT_POLL_MS = 30_000;
 const DEFAULT_HEARTBEAT_MS = 30_000;
 const DEFAULT_CHECK_INTERVAL_MS = 5000;
+// As `createMcpHandler` bounds `subscriptions/listen` streams.
+const DEFAULT_MAX_SUBSCRIPTIONS = 1024;
 
 // Servers with an events extension attached: one per server, as SEP-3371 rejects a duplicate extension identifier.
 const eventsServers = new WeakSet<McpServer>();
@@ -74,6 +69,12 @@ const ONE_PER_SERVER = 'another events extension is already attached to this ser
 function assertPositive(name: string, value: unknown): void {
     if (value !== undefined && !(typeof value === 'number' && Number.isFinite(value) && value > 0)) {
         throw new TypeError(`${name} must be a positive finite number (got ${String(value)})`);
+    }
+}
+
+function assertCount(name: string, value: unknown): void {
+    if (value !== undefined && !(typeof value === 'number' && Number.isInteger(value) && value > 0)) {
+        throw new TypeError(`${name} must be a positive integer (got ${String(value)})`);
     }
 }
 
@@ -148,8 +149,9 @@ export class EventsExtension {
     constructor(options: EventsOptions = {}) {
         assertWebhookOptions(options);
         for (const name of NUMERIC_OPTIONS) assertPositive(name, options[name]);
+        assertCount('maxSubscriptions', options.maxSubscriptions);
         assertPositive('emitBuffer.maxAgeMs', options.emitBuffer?.maxAgeMs);
-        assertPositive('emitBuffer.maxEvents', options.emitBuffer?.maxEvents);
+        assertCount('emitBuffer.maxEvents', options.emitBuffer?.maxEvents);
         for (const origin of options.trustedOrigins ?? []) assertOrigin(origin);
         this.#trustedOrigins = new Set(options.trustedOrigins);
         this.#webhookEnabled = options.webhookTtlMs !== undefined;
@@ -162,7 +164,7 @@ export class EventsExtension {
             registry: this.#registry,
             webhookEnabled: this.#webhookEnabled,
             getPrincipal: options.getPrincipal,
-            maxSubscriptions: options.maxSubscriptions,
+            maxSubscriptions: options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS,
             subscriptionCount: () => this.#poll.size + this.#push.size + (this.#webhooks?.size ?? 0)
         });
         this.#poll = new PollSource({
@@ -243,10 +245,6 @@ export class EventsExtension {
      * `events/*` methods. A legacy `initialize` result does not advertise
      * Events, and a server serving an earlier revision than `2026-07-28`
      * answers `events/*` requests with `-32601`.
-     *
-     * Experimental: Events (SEP-3415) is new; this API may change in a minor release.
-     *
-     * @experimental
      */
     attach(mcp: McpServer): void {
         if (this.#attached.has(mcp)) return;
@@ -286,7 +284,8 @@ export class EventsExtension {
      * Registers an event type: pass `check` for the default kind, or
      * `emitOnly: true` and call `emit()` on the returned handle. A mistake in
      * the definition throws `TypeError`, as does registering a name again with
-     * the same schemas. Registering it with a different `inputSchema` or
+     * the same schemas; a schema that cannot be converted to JSON Schema
+     * throws an `Error`. Registering it with a different `inputSchema` or
      * `payloadSchema` replaces the event type and ends its live subscriptions
      * with an `unsupported` error (`reason: 'schema_changed'`).
      */
@@ -307,6 +306,8 @@ export class EventsExtension {
         let current = this.#registry.register(name, definition);
         this.#checkHeaders(current);
         if (previous !== undefined) {
+            // Buffered events have the replaced schemas; their cursors read as a gap from now on.
+            this.#buffer.drop(name);
             const feature = changedSchema(previous, current)!;
             this.#terminateLater(
                 name,
@@ -322,12 +323,16 @@ export class EventsExtension {
             name,
             update: changes => {
                 assertCurrent();
+                const previous = current;
                 current = this.#registry.update(current, changes);
+                this.#push.update(previous, current);
+                this.#webhooks?.update(previous, current);
                 if (changes.inputSchema !== undefined) this.#checkHeaders(current);
             },
             remove: () => {
                 if (this.#registry.get(name) !== current) return;
                 this.#registry.remove(name);
+                this.#buffer.drop(name);
                 this.#terminateLater(name, new EventsError('notFound', 'Event type removed', { kind: 'event' }));
             },
             terminate: (error, options) => this.#terminate(name, error, options?.subscriptionId)

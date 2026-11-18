@@ -1,5 +1,4 @@
 ---
-status: experimental
 shape: how-to
 ---
 

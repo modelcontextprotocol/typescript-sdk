@@ -166,7 +166,7 @@ The Resource Server helpers did not move there: `requireBearerAuth`, `mcpAuthMet
 
 ## `SSE stream disconnected: TypeError: terminated`
 
-HTTP SSE streams emit a `: keepalive` comment every 15 seconds by default so client body-idle timeouts and intermediaries do not terminate an otherwise idle connection. Configure the interval with `keepAliveMs` on the transport or `createMcpHandler`; set it to `0` to disable heartbeats. The Events extension's `events/stream` streams are the exception: their `notifications/events/heartbeat` messages keep them alive instead.
+HTTP SSE streams emit a `: keepalive` comment every 15 seconds by default so client body-idle timeouts and intermediaries do not terminate an otherwise idle connection. Configure the interval with `keepAliveMs` on the transport or `createMcpHandler`; set it to `0` to disable heartbeats. The Events extension's `events/stream` streams are the exception under `createMcpHandler`: their `notifications/events/heartbeat` messages keep them alive instead. A custom HTTP entry built directly on `PerRequestHTTPServerTransport` applies the transport's `keepAliveMs` to them too, and must stream `events/stream` itself (`responseMode` `'auto'` or `'sse'`, never `'json'`).
 
 ## Recap
 

@@ -10,7 +10,7 @@ import { canonicalJson, EventsError, parseWebhookSecret } from '@modelcontextpro
 import { makeContext } from './context';
 import type { BufferedEvent, EmitBuffer } from './emitBuffer';
 import type { SubscriptionSource } from './extension';
-import { selectEvent } from './poll';
+import { checkedSelection, selectEvent } from './poll';
 import type { Batch } from './push';
 import { checkedBatch, errorObject, startCheck, TERMINAL_KINDS } from './push';
 import type { EventRegistry, RegisteredEvent } from './registry';
@@ -51,8 +51,8 @@ export interface WebhookDeps {
 // What this process runs for a subscription whose subscribe or refresh it handled: the expiry timer, and a check type's loop.
 interface Watched {
     readonly id: string;
-    // The registration it serves, so onUnsubscribe pairs with it after a removal or re-registration.
-    readonly entry: RegisteredEvent;
+    // The registration it serves, so onUnsubscribe pairs with it after a removal or re-registration; an update() replaces it with the updated one.
+    entry: RegisteredEvent;
     // Aborts when this process stops serving the subscription; the `signal` of its callbacks.
     readonly ended: AbortController;
     readonly ctx: CheckContext;
@@ -207,6 +207,11 @@ export class WebhookSubscriptions implements SubscriptionSource {
         enqueue(this.#byName, name, () => this.#deliverEmitted(entry, buffered, cursor, previous)).catch((error: unknown) =>
             this.#deps.report(error)
         );
+    }
+
+    // Moves the watches of `previous` to its updated registration, so their next check parses with its schemas.
+    update(previous: RegisteredEvent, next: RegisteredEvent): void {
+        for (const watched of this.#watched.values()) if (watched.entry === previous) watched.entry = next;
     }
 
     // Sends a `terminated` envelope to each matching subscription in the store, deletes it and runs onUnsubscribe.
@@ -502,7 +507,8 @@ export class WebhookSubscriptions implements SubscriptionSource {
                 continue;
             }
             const ctx = this.#watched.get(record.id)?.ctx ?? this.#contextOf(record, unwatchedSignal());
-            const occurrence = selectEvent(entry, ctx, record.arguments, buffered, this.#deps.report);
+            const selected = selectEvent(entry, ctx, record.arguments, buffered, this.#deps.report);
+            const occurrence = selected === undefined ? undefined : await checkedSelection(entry, selected, this.#deps.report);
             if (occurrence !== undefined) this.#engine.deliver(record, occurrence, cursor, previous);
         }
     }

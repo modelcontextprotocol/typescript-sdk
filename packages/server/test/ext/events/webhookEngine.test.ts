@@ -154,11 +154,73 @@ describe('endpoint verification', () => {
         [{ error: 'timeout' }, 'timeout'],
         [{ error: 'tls_error' }, 'tls_error']
     ];
-    it.each(failures)('fails verification with %o as %s', async (outcome, reason) => {
+    it.each(failures)('fails verification with %o as %s, and answers it again without a POST for 60 s', async (outcome, reason) => {
         const { engine, requests } = setup(() => outcome);
         await expect(engine.verify('u', HOOK_URL, SECRET, ID)).rejects.toMatchObject({ code: -32_027, data: { reason } });
+        await vi.advanceTimersByTimeAsync(59_999);
+        await expect(engine.verify('u', HOOK_URL, SECRET, 'sub_2')).rejects.toMatchObject({ code: -32_027, data: { reason } });
+        expect(requests).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(1);
         await expect(engine.verify('u', HOOK_URL, SECRET, ID)).rejects.toBeInstanceOf(EventsError);
         expect(requests).toHaveLength(2);
+    });
+
+    it('caches a failure per principal and url', async () => {
+        const { engine, requests } = setup(request => (request.url === HOOK_URL ? { error: 'connection_refused' } : echo(request)));
+        await expect(engine.verify('u', HOOK_URL, SECRET, ID)).rejects.toMatchObject({ data: { reason: 'connection_refused' } });
+        await engine.verify('u', `${HOOK_URL}/other`, SECRET, 'sub_2');
+        await expect(engine.verify('v', HOOK_URL, SECRET, 'sub_3')).rejects.toMatchObject({ data: { reason: 'connection_refused' } });
+        expect(requests).toHaveLength(3);
+    });
+
+    it('still caches a success: later subscriptions of the pair send no POST and never reach the host limit', async () => {
+        const { engine, requests } = setup(echo);
+        await engine.verify('u', HOOK_URL, SECRET, ID);
+        for (let n = 2; n <= 20; n++) await engine.verify('u', HOOK_URL, SECRET, `sub_${n}`);
+        expect(requests).toHaveLength(1);
+    });
+
+    it('sends one verification POST to a host at a time, refusing another pair with resourceExhausted', async () => {
+        const answers: Array<() => void> = [];
+        const { engine, requests, until } = setup(
+            request => new Promise(resolve => answers.push(() => resolve(echo(request) as WebhookSendOutcome)))
+        );
+        const first = engine.verify('u', HOOK_URL, SECRET, ID);
+        await until(1);
+        // The same pair waits for the handshake in flight; another pair to that host is refused; another host is not.
+        const samePair = engine.verify('u', HOOK_URL, SECRET, 'sub_2');
+        const refused = await engine.verify('v', 'https://HOOKS.example.com/other', SECRET, 'sub_3').catch((error: unknown) => error);
+        expect(refused).toBeInstanceOf(EventsError);
+        expect(refused).toMatchObject({ code: -32_025, data: { limit: 'verification', retryAfterMs: expect.any(Number) } });
+        const otherHost = engine.verify('v', 'https://elsewhere.example.com/mcp', SECRET, 'sub_4');
+        await until(2);
+        expect(requests.map(request => request.url)).toEqual([HOOK_URL, 'https://elsewhere.example.com/mcp']);
+
+        for (const answer of answers) answer();
+        await expect(Promise.all([first, samePair, otherHost])).resolves.toEqual([undefined, undefined, undefined]);
+        expect(requests).toHaveLength(2);
+        const next = engine.verify('v', 'https://hooks.example.com/other', SECRET, 'sub_3');
+        await until(3);
+        answers[2]!();
+        await expect(next).resolves.toBeUndefined();
+    });
+
+    it('sends at most 10 verification POSTs to a host per rolling 60 s', async () => {
+        const { engine, requests } = setup(echo);
+        for (let n = 1; n <= 10; n++) {
+            await engine.verify(`u${n}`, HOOK_URL, SECRET, `sub_${n}`);
+            await vi.advanceTimersByTimeAsync(1000);
+        }
+        await expect(engine.verify('u11', 'https://Hooks.Example.com/mcp', SECRET, 'sub_11')).rejects.toMatchObject({
+            code: -32_025,
+            data: { limit: 'verification', retryAfterMs: 50_000 }
+        });
+        await engine.verify('u11', 'https://elsewhere.example.com/mcp', SECRET, 'sub_12');
+        expect(requests).toHaveLength(11);
+
+        await vi.advanceTimersByTimeAsync(50_000);
+        await engine.verify('u11', HOOK_URL, SECRET, 'sub_11');
+        expect(requests).toHaveLength(12);
     });
 
     it('fails verification when a 404 echoes the challenge', async () => {
@@ -756,6 +818,23 @@ describe('forget and clear', () => {
 
         await engine.verify('u', HOOK_URL, SECRET, ID);
         expect(requests).toHaveLength(3);
+    });
+
+    it('clear() forgets failed verifications and the host limits', async () => {
+        let refuse = true;
+        const { engine, requests } = setup(request => (refuse ? { error: 'timeout' } : echo(request)));
+        await expect(engine.verify('u1', HOOK_URL, SECRET, 'sub_1')).rejects.toMatchObject({ data: { reason: 'timeout' } });
+        for (let n = 2; n <= 10; n++)
+            await expect(engine.verify(`u${n}`, HOOK_URL, SECRET, `sub_${n}`)).rejects.toBeInstanceOf(EventsError);
+        await expect(engine.verify('u11', HOOK_URL, SECRET, 'sub_11')).rejects.toMatchObject({ code: -32_025 });
+        await expect(engine.verify('u1', HOOK_URL, SECRET, 'sub_1')).rejects.toMatchObject({ code: -32_027 });
+        expect(requests).toHaveLength(10);
+
+        engine.clear();
+        refuse = false;
+        await engine.verify('u1', HOOK_URL, SECRET, 'sub_1');
+        await engine.verify('u11', HOOK_URL, SECRET, 'sub_11');
+        expect(requests).toHaveLength(12);
     });
 
     it('track() starts the watermark again for a subscription it already tracks', async () => {

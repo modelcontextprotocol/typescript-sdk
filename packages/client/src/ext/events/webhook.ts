@@ -193,6 +193,10 @@ class WebhookDriver implements Driver {
     }
 
     start(): Promise<void> {
+        // Checked as the secret is registered: a verification signed with it could bind another subscription's id here.
+        if (this.#receiver.holds(this.#secret)) {
+            return Promise.reject(new TypeError('webhook.secretProvider must return a secret no other open subscription uses'));
+        }
         this.#withdrawPending = this.#receiver.registerPending(this.#secret, id => this.#bind(id));
         return this.#loop.start(() => this.#run(), {
             closed: () => {
@@ -243,10 +247,8 @@ class WebhookDriver implements Driver {
             if (Number.isNaN(expiresAt)) return new SdkError(SdkErrorCode.InvalidResult, `Invalid refreshBefore: ${result.refreshBefore}`);
             this.#accept(result);
             if (this.#terminated === undefined) {
-                // A `null` grant (no expiry, which this client never asks for) is refreshed after the longest timer; the floor stops a skewed clock from refreshing back to back.
-                await loop.sleep(
-                    expiresAt === undefined ? MAX_TIMER_DELAY_MS : Math.max(this.#floorMs, REFRESH_AT * (expiresAt - Date.now()))
-                );
+                // A `null` grant (no expiry, which this client never asks for) is refreshed after the longest timer.
+                await loop.sleep(expiresAt === undefined ? MAX_TIMER_DELAY_MS : this.#refreshDelay(expiresAt - Date.now()));
             }
             if (this.#terminated !== undefined) {
                 this.#live = false;
@@ -254,6 +256,12 @@ class WebhookDriver implements Driver {
             }
         }
         return undefined;
+    }
+
+    // ¾ of the grant left, never sooner than the floor (so a skewed clock cannot refresh back to back), unless the floor would reach the grant's end.
+    #refreshDelay(remainingMs: number): number {
+        const delay = Math.max(this.#floorMs, REFRESH_AT * remainingMs);
+        return remainingMs > 0 && delay >= remainingMs ? REFRESH_AT * remainingMs : delay;
     }
 
     // `events/subscribe` with no `ttlMs` suggestion, so the server grants its default.

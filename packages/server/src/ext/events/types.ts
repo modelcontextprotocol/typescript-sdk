@@ -105,7 +105,13 @@ export interface EventDefinitionBase<I extends StandardSchemaWithJSON, P extends
 export interface CheckEventDefinition<I extends StandardSchemaWithJSON, P extends StandardSchemaWithJSON>
     extends EventDefinitionBase<I, P> {
     emitOnly?: false;
-    /** The events since `cursor`; with `cursor: null`, only the current cursor (no events). */
+    /**
+     * The events since `cursor`, and the cursor to resume from. A subscription that starts from now begins with
+     * a call with `cursor: null` whose events the SDK drops: it takes only the cursor returned. A type without
+     * replay returns `cursor: null`, so after that first call the SDK calls `check` with `null` every time and
+     * sends the events each call returns: return what happened since the previous call for the same
+     * `ctx.subscriptionId`.
+     */
     check(ctx: CheckContext, args: InferOutput<I>, cursor: string | null): EventResult<InferInput<P>> | Promise<EventResult<InferInput<P>>>;
     match?: never;
     transform?: never;
@@ -258,7 +264,8 @@ export interface WebhookSubscriptionStore {
 
 /**
  * Options for `new EventsExtension(options)`. Durations are in milliseconds;
- * every number must be positive and finite.
+ * every number must be positive and finite, and the counts
+ * (`maxSubscriptions`, `emitBuffer.maxEvents`) whole numbers.
  *
  * Experimental: Events (SEP-3415) is new; this API may change in a minor release.
  *
@@ -288,6 +295,7 @@ export interface EventsOptions {
     /**
      * The most subscriptions this process serves at once, counting poll leases, push streams and the webhook
      * subscriptions whose subscribe or refresh it handled or is still creating; more are refused with `resourceExhausted`.
+     * @default 1024
      */
     maxSubscriptions?: number;
     /** Receives errors nothing else can report (dropped payloads, hook failures, invalid `x-mcp-header` annotations). Default: `console.warn`. */

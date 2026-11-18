@@ -459,6 +459,29 @@ describe('poll delivery', () => {
         expect(onGap).toHaveBeenCalledOnce();
     });
 
+    it('resolves subscribe() when the re-list after a refused stale cursor fails transiently, and starts from now in the background', async () => {
+        const onGap = vi.fn();
+        let lists = 0;
+        const list: Handler = () => {
+            lists += 1;
+            if (lists === 2) throw new RpcError(-32_603, 'Internal error');
+            return { events: [descriptor('tick')] };
+        };
+        const { polls, subscribe } = await pollWith(params => {
+            if (params['cursor'] === 'stale')
+                throw new RpcError(-32_026, 'Unsupported', { feature: 'inputSchema', reason: 'schema_changed' });
+            return { events: [], cursor: 'v2:0', nextPollMs: 60_000 };
+        }, list);
+        const sub = await subscribe({ cursor: 'stale', onGap });
+
+        expect(polls().map(call => call.params['cursor'])).toEqual(['stale']);
+        expect(lists).toBe(2);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(polls().map(call => call.params['cursor'])).toEqual(['stale', null]);
+        expect(onGap).toHaveBeenCalledExactlyOnceWith('v2:0');
+        expect(sub.cursor).toBe('v2:0');
+    });
+
     it('rejects subscribe() after a schema change refuses its cursor when the type is gone or no longer polled', async () => {
         // The first poll refuses the stale cursor; the re-list that follows returns `relisted`.
         const staleCursorAgainst = async (relisted: ReturnType<typeof descriptor>[]) => {

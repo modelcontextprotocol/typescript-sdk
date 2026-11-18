@@ -42,6 +42,7 @@ describe('isSpecialPurposeAddress', () => {
         ['64:ff9b::/96 by its IPv4 part', '64:ff9b::127.0.0.1'],
         ['64:ff9b:1::/48', '64:ff9b:1:ffff::1'],
         ['100::/64', '100::ffff:ffff:ffff:ffff'],
+        ['100:0:0:1::/64', '100:0:0:1:ffff:ffff:ffff:ffff'],
         ['2001::/23', '2001:1ff::1'],
         ['2001:db8::/32', '2001:DB8:ffff::1'],
         ['2002::/16', '2002:c000:204::1'],
@@ -51,6 +52,9 @@ describe('isSpecialPurposeAddress', () => {
         ['fe80::/10', 'febf::1'],
         ['ff00::/8', 'ff02::1'],
         ['::ffff:0:0/96 by its IPv4 part', '::ffff:a00:1'],
+        ['::/96 by its IPv4 part', '::7f00:1'],
+        ['::/96 by its IPv4 part', '::a00:1'],
+        ['::/96 by its IPv4 part', '::2'],
         ['a zone id', 'fe80::1%lo0']
     ])('flags an address in %s (%s)', (_range, ip) => {
         expect(isSpecialPurposeAddress(ip)).toBe(true);
@@ -64,9 +68,10 @@ describe('isSpecialPurposeAddress', () => {
         '172.32.0.0',
         '198.20.0.0',
         '223.255.255.255',
-        '::2',
+        '::808:808',
         '64:ff9b::808:808',
         '64:ff9b:2::1',
+        '100:0:0:2::1',
         '2001:200::1',
         '2003::1',
         '3fff:1000::1',

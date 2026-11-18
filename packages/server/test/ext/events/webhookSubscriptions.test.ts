@@ -392,7 +392,8 @@ describe('events/subscribe: creating', () => {
             const alice = client(events);
             errorOf(await alice.subscribe({ name, arguments: { a: 1 } }));
             expect(hook.state()).toMatchObject({ webhookSubscriptions: 0, webhookExpiryTimers: 0 });
-            subscribed(await alice.subscribe({ name, arguments: { a: 2 } }));
+            // A failed verification is remembered for its principal and url, so that retry goes to another url.
+            subscribed(await alice.subscribe({ name, arguments: { a: 2 }, url: failure === 'verification' ? OTHER_HOOK : HOOK }));
             expect(hook.state()).toMatchObject({ webhookExpiryTimers: 1 });
         }
     );
@@ -723,6 +724,25 @@ describe('fan-out', () => {
             [high.id, 'direct', { n: 10 }]
         ]);
     });
+
+    it('drops a transform output that fails payloadSchema and reports it', async () => {
+        const onerror = vi.fn();
+        const { events, post } = replica({ onerror });
+        const handle = events.registerEvent('e', {
+            emitOnly: true,
+            payloadSchema: P,
+            transform: (_ctx, event) => (event.eventId === 'bad' ? { ...event, data: { n: 'x' } as unknown as { n: number } } : event)
+        });
+        subscribed(await client(events).subscribe());
+        await handle.emit({ eventId: 'bad', data: { n: 1 } });
+        await handle.emit({ eventId: 'good', data: { n: 2 } });
+        await post.until(2);
+        await settle();
+        expect(post.deliveries().map(request => bodyOf(request).eventId)).toEqual(['good']);
+        expect(onerror).toHaveBeenCalledWith(
+            expect.objectContaining({ message: expect.stringMatching(/transform output does not match/) })
+        );
+    });
 });
 
 describe('check-kind webhook subscriptions', () => {
@@ -758,6 +778,30 @@ describe('check-kind webhook subscriptions', () => {
         await vi.advanceTimersByTimeAsync(60_000);
         expect(check).toHaveBeenCalledTimes(calls);
         expect(post.requests).toHaveLength(2);
+    });
+
+    it('parses the next check of a watched subscription with the payloadSchema of an update()', async () => {
+        const labelled = { eventId: 'evt_1', data: { n: 1, label: '#1' } as { n: number } };
+        const check = vi
+            .fn<Check>()
+            .mockReturnValueOnce({ events: [], cursor: 'c0' })
+            .mockReturnValueOnce({ events: [labelled], cursor: 'c1' })
+            .mockReturnValueOnce({ events: [{ ...labelled, eventId: 'evt_2' }], cursor: 'c2' })
+            .mockReturnValue({ events: [], cursor: 'c2' });
+        const { events, post } = replica();
+        const handle = events.registerEvent('t', { payloadSchema: P, check });
+        subscribed(await client(events).subscribe({ name: 't' }));
+        await vi.advanceTimersByTimeAsync(5000);
+        await post.until(2);
+        await settle();
+        expect(bodyOf(post.requests[1]!)).toMatchObject({ eventId: 'evt_1' });
+        // The registered schema strips the unknown `label`.
+        expect(bodyOf(post.requests[1]!)['data']).toEqual({ n: 1 });
+
+        handle.update({ payloadSchema: z.object({ n: z.number(), label: z.string().optional() }) });
+        await vi.advanceTimersByTimeAsync(5000);
+        await post.until(3);
+        expect(bodyOf(post.requests[2]!)['data']).toEqual({ n: 1, label: '#1' });
     });
 
     it('replays from a cursor on create, and sends a gap envelope for a gap between refreshes', async () => {

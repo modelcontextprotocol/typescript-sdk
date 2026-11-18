@@ -286,6 +286,31 @@ describe('events/stream: a check type', () => {
         expect(check.mock.calls.map(call => call[2])).toEqual([null, 'h0', 'h0']);
     });
 
+    it('parses the next batch of an open stream with the payloadSchema of an update()', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const labelled = (eventId: string, n: number) => ({ eventId, data: { n, label: `#${n}` } as { n: number } });
+        const check = vi
+            .fn<Check>()
+            .mockReturnValueOnce({ events: [], cursor: 'h0' })
+            .mockReturnValueOnce({ events: [labelled('e1', 1)], cursor: 'h1' })
+            .mockReturnValueOnce({ events: [labelled('e2', 2)], cursor: 'h2' })
+            .mockReturnValue({ events: [], cursor: 'h2' });
+        const events = new EventsExtension();
+        const handle = events.registerEvent('tick', { payloadSchema: P, check });
+        const stream = await open(serve(events), { name: 'tick', cursor: null });
+        await next(stream);
+        const before = next(stream);
+        await vi.advanceTimersByTimeAsync(5000);
+        // The registered schema strips the unknown `label`.
+        expect(await before).toMatchObject({ method: EVENT, params: { eventId: 'e1' } });
+        expect(paramsOf(await before)['data']).toEqual({ n: 1 });
+
+        handle.update({ payloadSchema: z.object({ n: z.number(), label: z.string().optional() }) });
+        const after = next(stream);
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(paramsOf(await after)['data']).toEqual({ n: 2, label: '#2' });
+    });
+
     it('terminates when check throws forbidden', async () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
         const onUnsubscribe = vi.fn();
@@ -376,6 +401,28 @@ describe('events/stream: an emit-only type', () => {
         expect(await next(p3)).toMatchObject({ params: { eventId: 'inc-3', data: { reporter: 'bob' }, _meta: { [SUB]: p3.id } } });
         expect(await next(p3)).toMatchObject({ params: { eventId: 'inc-3b' } });
         expect(ids.get('P1')).not.toBe(ids.get('P3'));
+    });
+
+    it('drops a transform output that fails payloadSchema, replayed or live, and reports it', async () => {
+        const onerror = vi.fn();
+        const events = new EventsExtension({ onerror });
+        const handle = events.registerEvent('i', {
+            emitOnly: true,
+            payloadSchema: P,
+            transform: (_ctx, event) =>
+                event.eventId?.startsWith('bad') === true ? { ...event, data: { n: 'x' } as unknown as { n: number } } : event
+        });
+        const served = serve(events);
+        const { cursor } = resultOf(await served.rpc('events/poll', { name: 'i', cursor: null })) as PollEventsResult;
+        await handle.emit({ eventId: 'bad-1', data: { n: 1 } });
+        await handle.emit({ eventId: 'good-2', data: { n: 2 } });
+        const stream = await open(served, { name: 'i', cursor });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE });
+        expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'good-2', data: { n: 2 } } });
+        await handle.emit({ eventId: 'bad-3', data: { n: 3 } });
+        await handle.emit({ eventId: 'good-4', data: { n: 4 } });
+        expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'good-4' } });
+        expect(onerror).toHaveBeenCalledTimes(2);
     });
 
     it('replays from a cursor with each event at its own position, then goes live', async () => {

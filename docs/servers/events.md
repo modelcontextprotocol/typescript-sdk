@@ -1,5 +1,4 @@
 ---
-status: experimental
 shape: how-to
 ---
 
@@ -40,7 +39,7 @@ events.registerEvent('ticket.updated', {
 
 Clients subscribe by poll (`events/poll`) or push (`events/stream`), or by webhook (`events/subscribe`) once you turn it on, and the SDK runs each mode from this one definition. `check` returns the events since `cursor` and the cursor to resume from; for a subscription that starts now the SDK passes `cursor: null` and sends only the cursor you return. Return at most `ctx.maxEvents` events, set `hasMore` when more are waiting, and set `truncated: true` when the upstream no longer has the history since `cursor`.
 
-Clients resume from their cursor after a disconnect or a restart, for as long as your upstream accepts it. A `check` that returns `cursor: null` marks a type that cannot resume, and the SDK never reports `truncated` for it.
+Clients resume from their cursor after a disconnect or a restart, for as long as your upstream accepts it. A `check` that returns `cursor: null` marks a type that cannot resume. The SDK then calls `check` with `cursor: null` every time: it drops the events of a subscription's first call, as for any subscription that starts now, and sends the events of every later call, so return what happened since the previous call for the same `ctx.subscriptionId`. The SDK never reports `truncated` for such a type, and ignores `maxAgeMs` for it.
 
 ::: info
 Events is served on protocol 2026-07-28 only; a 2025-11-25 connection sees no Events capability and gets `-32601` for `events/*` — see [Protocol versions](../protocol-versions.md).
@@ -72,7 +71,7 @@ const incidents = events.registerEvent('incident.created', {
 await incidents.emit({ eventId: 'INC-7', data: { incidentId: 'INC-7', title: 'Checkout is down', severity: 'P1' } });
 ```
 
-`emit()` sends the event to every subscription that `match` accepts, or to one with `emit(event, { subscriptionId })`; `transform` reshapes it per subscription. The SDK drops an event whose `data` fails `payloadSchema` and reports it to `onerror`, for both kinds.
+`emit()` sends the event to every subscription that `match` accepts, or to one with `emit(event, { subscriptionId })`; `transform` reshapes it per subscription. The SDK drops an event whose `data` fails `payloadSchema`, or whose `transform` output does, and reports it to `onerror`, for both kinds.
 
 Poll clients read emit-only events from an in-memory buffer (`emitBuffer`, by default the last 10 minutes and at most 10 000 events), so events emitted before a restart are lost. `onSubscribe` and `onUnsubscribe` run as a subscription starts and ends, in every mode, and `ctx.subscriptionId` names it.
 
@@ -93,6 +92,10 @@ const handler = createMcpHandler(() => {
 Attach before connecting the server. Push streams under every `responseMode`, `'json'` included, as `subscriptions/listen` does.
 
 A push stream carries no SSE comment keepalive. The server sends `notifications/events/heartbeat` whenever the stream has been quiet for the granted interval, `heartbeatMs` (30 seconds by default) or a shorter one the client asks for, and the SDK's client reconnects after three intervals of silence. Keep `heartbeatMs` below your load balancer's idle timeout.
+
+Both hold under `createMcpHandler`. A custom HTTP entry built directly on `PerRequestHTTPServerTransport` must stream `events/stream` itself: serve it with `responseMode` `'auto'` or `'sse'`, never `'json'`, and the transport's `keepAliveMs` applies to it as to any stream.
+
+One `EventsExtension` serves at most `maxSubscriptions` subscriptions at once, 1024 by default, counting its poll leases, push streams and the webhook subscriptions this process handles; it refuses more with `resourceExhausted`.
 
 ## Deliver events to webhooks
 
@@ -117,7 +120,7 @@ const webhookEvents = new EventsExtension({
 
 Setting `webhookTtlMs` or `webhookSender` without the other two throws `TypeError`. `getPrincipal` has no default, since `AuthInfo` has no subject field: return the user from wherever your token verifier puts it. A webhook subscription for which `getPrincipal` returns `null` is refused with `forbidden`, on stdio too; poll and push use the principal when there is one.
 
-`webhookTtlMs` is the longest a webhook subscription lives without a refresh, and clients refresh before it lapses. The SDK verifies each endpoint with a challenge before the first delivery, signs every POST (Standard Webhooks), and retries a failed delivery up to five attempts in all. `nodeWebhookSender()` requires `https`, resolves the host at every send, refuses IANA special-purpose addresses (loopback, private, link-local and the like) and connects to the address it checked; it follows no redirects and gives up after 5 seconds.
+`webhookTtlMs` is the longest a webhook subscription lives without a refresh, and clients refresh before it lapses. The SDK verifies each endpoint with a challenge before the first delivery, signs every POST (Standard Webhooks), and retries a failed delivery up to five attempts in all. It sends each destination host one challenge at a time and at most ten in any 60 seconds, refusing a subscribe past that with `resourceExhausted` (`data.retryAfterMs` says when to try again), and answers a principal's subscribes to a URL whose challenge failed with that failure for 60 seconds, without another challenge. `nodeWebhookSender()` requires `https`, resolves the host at every send, refuses IANA special-purpose addresses (loopback, private, link-local and the like) and connects to the address it checked; it follows no redirects and gives up after 5 seconds.
 
 ::: warning
 `trustedOrigins` is for development only. Its exact origins, such as `http://127.0.0.1:9000`, are exempt from the `https` rule and the private-address check, so a receiver on your machine can take deliveries; endpoint verification, signing and the no-redirect rule still apply.
@@ -165,6 +168,7 @@ function sharedWebhookStore(kv: SharedKeyValue): WebhookSubscriptionStore {
     };
 }
 
+// `kv` is your SharedKeyValue client for that database, connected at startup.
 const replicated = new EventsExtension({
     webhookTtlMs: 30 * 60_000,
     webhookSender: nodeWebhookSender(),

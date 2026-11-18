@@ -21,6 +21,15 @@ const MAX_PARKED_MESSAGES = 10_000;
 const SUSPENSION_WINDOW_MS = 3_600_000;
 const SUSPENSION_MIN_ATTEMPTS = 100;
 const SUSPENSION_FAILURE_PERCENT = 95;
+// A failed verification of a (principal, url) is answered again for this long without a POST.
+const FAILED_VERIFICATION_MS = 60_000;
+// Verification POSTs to one destination host: one at a time, and at most 10 in any 60 s.
+const VERIFICATIONS_PER_WINDOW = 10;
+const VERIFICATION_WINDOW_MS = 60_000;
+// The retry hint while another verification to the host is in flight: nodeWebhookSender's 5 s timeout.
+const IN_FLIGHT_RETRY_MS = 5000;
+// The most failed pairs and destination hosts the verification limits remember.
+const MAX_REMEMBERED = 10_000;
 
 const encoder = new TextEncoder();
 
@@ -78,6 +87,22 @@ interface Tracked {
     recentFailures: number;
 }
 
+// One destination host's verification POSTs: whether one is in flight, and the send times of the last window, oldest first.
+interface HostVerifications {
+    inFlight: boolean;
+    readonly sent: number[];
+}
+
+// Adds `key` to `map`; at MAX_REMEMBERED it first drops the entries `stale` says are done, then the oldest.
+function remember<V>(map: Map<string, V>, key: string, value: V, stale: (held: V) => boolean): void {
+    map.delete(key);
+    if (map.size >= MAX_REMEMBERED) {
+        for (const [held, entry] of map) if (stale(entry)) map.delete(held);
+        if (map.size >= MAX_REMEMBERED) map.delete(map.keys().next().value!);
+    }
+    map.set(key, value);
+}
+
 // Retry timers never keep the process alive on their own.
 function unref(timer: ReturnType<typeof setTimeout>): ReturnType<typeof setTimeout> {
     (timer as { unref?: () => void }).unref?.();
@@ -130,6 +155,13 @@ function verificationError(reason: DeliveryErrorCategory): EventsError {
     return new EventsError('callbackEndpointError', `Webhook endpoint verification failed: ${reason}`, { reason });
 }
 
+function verificationLimit(retryAfterMs: number): EventsError {
+    return new EventsError('resourceExhausted', 'Too many webhook endpoint verifications for this host', {
+        limit: 'verification',
+        retryAfterMs
+    });
+}
+
 // Sends webhook POSTs: endpoint verification, signed event deliveries with per-message retries and the watermark cursor, and control bodies.
 export class WebhookEngine {
     readonly #sender: WebhookSender;
@@ -142,6 +174,12 @@ export class WebhookEngine {
     // Each verified `principal\0url` with the subscription ids it covers; it lasts while one of them does.
     readonly #verified = new Map<string, Set<string>>();
     readonly #verifiedKeyOf = new Map<string, string>();
+    // Each `principal\0url` handshake in flight, which another subscribe of the pair waits for.
+    readonly #handshakes = new Map<string, Promise<void>>();
+    // Each `principal\0url` whose verification failed lately: the failure, and until when it is answered without a POST.
+    readonly #failed = new Map<string, { readonly reason: DeliveryErrorCategory; readonly until: number }>();
+    // By lower-cased destination hostname (SEP-3415: rate-limited per destination host).
+    readonly #hosts = new Map<string, HostVerifications>();
     // Aborts verification sends in flight on clear(); made at first use, as Cloudflare Workers refuse it at module scope.
     #lifetime: AbortController | undefined;
 
@@ -158,19 +196,13 @@ export class WebhookEngine {
         return this.#tracked.size;
     }
 
-    // One attempt, which the subscribe call waits for; throws `callbackEndpointError` with the failure category as `data.reason`.
+    // One attempt, which the subscribe call waits for; throws `callbackEndpointError` with the failure category as `data.reason`, or `resourceExhausted` at the host's limit.
     async verify(principal: string, url: string, secret: string, subscriptionId: string): Promise<void> {
         const key = `${principal}\u0000${url}`;
+        if (!this.#verified.has(key)) await this.#verifyPair(key, url, secret, subscriptionId);
         let covered = this.#verified.get(key);
         if (covered === undefined) {
-            const challenge = challengeNonce();
-            const body = JSON.stringify({ type: 'verification', challenge });
-            const webhookId = generateWebhookId('verification');
-            this.#lifetime ??= new AbortController();
-            const outcome = await this.#post(url, subscriptionId, [secret], webhookId, body, this.#lifetime.signal);
-            if ('error' in outcome) throw verificationError(outcome.error);
-            if (!echoes(outcome, challenge)) throw verificationError('challenge_failed');
-            covered = this.#verified.get(key) ?? new Set();
+            covered = new Set();
             this.#verified.set(key, covered);
         }
         covered.add(subscriptionId);
@@ -260,8 +292,68 @@ export class WebhookEngine {
         for (const control of this.#controls) this.#stopControl(control);
         this.#verified.clear();
         this.#verifiedKeyOf.clear();
+        this.#handshakes.clear();
+        this.#failed.clear();
+        this.#hosts.clear();
         this.#lifetime?.abort();
         this.#lifetime = undefined;
+    }
+
+    // The pair's handshake in flight, or a new one.
+    #verifyPair(key: string, url: string, secret: string, subscriptionId: string): Promise<void> {
+        const pending = this.#handshakes.get(key);
+        if (pending !== undefined) return pending;
+        const handshake = this.#handshake(key, url, secret, subscriptionId).finally(() => {
+            if (this.#handshakes.get(key) === handshake) this.#handshakes.delete(key);
+        });
+        this.#handshakes.set(key, handshake);
+        return handshake;
+    }
+
+    // One verification POST, unless a failure of the pair is still remembered or the host is at its limit.
+    async #handshake(key: string, url: string, secret: string, subscriptionId: string): Promise<void> {
+        const now = this.#now();
+        const failed = this.#failed.get(key);
+        if (failed !== undefined && now < failed.until) throw verificationError(failed.reason);
+        this.#failed.delete(key);
+        const host = this.#claimHost(url, now);
+        this.#lifetime ??= new AbortController();
+        const { signal } = this.#lifetime;
+        try {
+            const challenge = challengeNonce();
+            const body = JSON.stringify({ type: 'verification', challenge });
+            const outcome = await this.#post(url, subscriptionId, [secret], generateWebhookId('verification'), body, signal);
+            let reason: DeliveryErrorCategory | undefined;
+            if ('error' in outcome) reason = outcome.error;
+            else if (!echoes(outcome, challenge)) reason = 'challenge_failed';
+            if (reason === undefined) return;
+            // A send that clear() aborted leaves nothing behind.
+            if (!signal.aborted) {
+                const until = this.#now() + FAILED_VERIFICATION_MS;
+                remember(this.#failed, key, { reason, until }, held => held.until <= this.#now());
+            }
+            throw verificationError(reason);
+        } finally {
+            host.inFlight = false;
+        }
+    }
+
+    // Takes the host's one verification slot and counts the POST, or throws `resourceExhausted` with a retry hint.
+    #claimHost(url: string, now: number): HostVerifications {
+        const name = new URL(url).hostname.toLowerCase();
+        const start = now - VERIFICATION_WINDOW_MS;
+        let host = this.#hosts.get(name);
+        if (host === undefined) {
+            host = { inFlight: false, sent: [] };
+            remember(this.#hosts, name, host, held => !held.inFlight && (held.sent.at(-1) ?? start) <= start);
+        }
+        const { sent } = host;
+        while (sent[0] !== undefined && sent[0] <= start) sent.shift();
+        if (host.inFlight) throw verificationLimit(IN_FLIGHT_RETRY_MS);
+        if (sent.length >= VERIFICATIONS_PER_WINDOW) throw verificationLimit(sent[0]! - start);
+        host.inFlight = true;
+        sent.push(now);
+        return host;
     }
 
     #start(id: string, watermark: string | null): Tracked {

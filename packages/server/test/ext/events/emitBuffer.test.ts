@@ -166,6 +166,28 @@ describe('EmitBuffer', () => {
         });
     });
 
+    it('drop() drops the events of one type and keeps its sequence, so earlier cursors read as a gap', () => {
+        const buffer = filled(2);
+        buffer.append('j', { occurrence: { ...occurrence(1), name: 'j' } });
+        const start = buffer.read('i', null, { maxEvents: 0, select: all }).cursor;
+        const middle = buffer.append('i', { occurrence: occurrence(3) });
+        const head = buffer.head('i');
+        buffer.drop('i');
+        buffer.drop('missing');
+        expect(buffer.sizes()).toEqual({ i: 0, j: 1 });
+        expect(buffer.head('i')).toBe(head);
+        for (const cursor of [start, middle]) {
+            expect(buffer.read('i', cursor, { maxEvents: 10, select: all })).toEqual({
+                events: [],
+                cursor: head,
+                truncated: true,
+                hasMore: false
+            });
+        }
+        buffer.append('i', { occurrence: occurrence(4) });
+        expect(ids(buffer.read('i', head, { maxEvents: 10, select: all }).events)).toEqual(['evt_4']);
+    });
+
     it('reports how many events each type holds', () => {
         const buffer = filled(3, { maxAgeMs: 60_000, maxEvents: 2 });
         buffer.append('j', { occurrence: { ...occurrence(1), name: 'j' } });

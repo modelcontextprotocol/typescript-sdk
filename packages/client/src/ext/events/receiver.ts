@@ -82,6 +82,13 @@ export class WebhookReceiver {
         return () => void this.#pending.delete(entry);
     }
 
+    // Whether a subscription, pending or bound, already signs with `secret`.
+    holds(secret: string): boolean {
+        const key = keyOf(secret);
+        const same = (other: Uint8Array): boolean => other.length === key.length && other.every((byte, index) => byte === key[index]);
+        return [...this.#pending].some(entry => same(entry.key)) || [...this.#bound.values()].some(entry => same(entry.key));
+    }
+
     // Routes deliveries for `id`, signed with `secret`, to `sink`.
     bind(id: string, secret: string, sink: WebhookSink): void {
         this.#bound.set(id, { key: keyOf(secret), sink });

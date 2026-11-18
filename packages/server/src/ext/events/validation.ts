@@ -9,7 +9,7 @@ export interface ValidatorDeps {
     readonly registry: EventRegistry;
     readonly webhookEnabled: boolean;
     readonly getPrincipal: EventsOptions['getPrincipal'];
-    readonly maxSubscriptions: number | undefined;
+    readonly maxSubscriptions: number;
     // Subscriptions this process serves now: poll leases, push streams, and the webhook subscriptions whose subscribe or refresh it handled or is still creating.
     subscriptionCount(): number;
 }
@@ -61,7 +61,7 @@ export class SubscriptionValidator {
     // The `maxSubscriptions` quota; call it before a new subscription's `onSubscribe`.
     assertCapacity(): void {
         const max = this.#deps.maxSubscriptions;
-        if (max !== undefined && this.#deps.subscriptionCount() >= max) {
+        if (this.#deps.subscriptionCount() >= max) {
             throw new EventsError('resourceExhausted', 'Subscription limit reached', { limit: 'subscriptions', max });
         }
     }

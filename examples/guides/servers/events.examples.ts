@@ -258,6 +258,7 @@ function sharedWebhookStore(kv: SharedKeyValue): WebhookSubscriptionStore {
     };
 }
 
+// `kv` is your SharedKeyValue client for that database, connected at startup.
 const replicated = new EventsExtension({
     webhookTtlMs: 30 * 60_000,
     webhookSender: nodeWebhookSender(),

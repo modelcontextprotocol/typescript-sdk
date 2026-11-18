@@ -100,6 +100,55 @@ describe('events/poll for a check type', () => {
         expect(await poller(events).poll({ name: 't', cursor: 'h1' })).toMatchObject({ events: [], cursor: null, truncated: false });
     });
 
+    it('delivers what check(null) returns from the second poll of a lease on, for a type without replay', async () => {
+        vi.useFakeTimers();
+        const onUnsubscribe = vi.fn();
+        const events = new EventsExtension({ pollSubscriptionTtlMs: 300_000 });
+        let beat = 0;
+        const check = vi.fn((_ctx: CheckContext, _args: unknown, _cursor: string | null) => {
+            beat += 1;
+            return { events: [{ eventId: `b${beat}`, data: { n: beat } }], cursor: null, hasMore: true };
+        });
+        events.registerEvent('pulse', { payloadSchema: P, check, onUnsubscribe });
+        const { poll } = poller(events);
+
+        expect(await poll({ name: 'pulse', cursor: null })).toMatchObject({ events: [], cursor: null, truncated: false, hasMore: false });
+        const second = await poll({ name: 'pulse', cursor: null });
+        expect(second.events.map(event => event.eventId)).toEqual(['b2']);
+        expect(second).toMatchObject({ cursor: null, truncated: false, hasMore: true });
+        expect((await poll({ name: 'pulse' })).events.map(event => event.eventId)).toEqual(['b3']);
+        expect(check.mock.calls.map(([, , cursor]) => cursor)).toEqual([null, null, null]);
+        const [subscriptionId, ...others] = new Set(check.mock.calls.map(([ctx]) => ctx.subscriptionId));
+        expect(others).toEqual([]);
+
+        await vi.advanceTimersByTimeAsync(300_001);
+        expect(onUnsubscribe).toHaveBeenCalledOnce();
+        expect((onUnsubscribe.mock.calls[0]![0] as EventContext).subscriptionId).toBe(subscriptionId);
+        // The next poll starts a new lease, which bootstraps again.
+        expect(await poll({ name: 'pulse', cursor: null })).toMatchObject({ events: [], cursor: null });
+        expect(check.mock.calls[3]![0].subscriptionId).not.toBe(subscriptionId);
+    });
+
+    it('starts a type with replay from now on every cursor: null poll', async () => {
+        const events = new EventsExtension();
+        events.registerEvent('t', { payloadSchema: P, check: () => ({ events: [{ data: { n: 1 } }], cursor: 'h1' }) });
+        const { poll } = poller(events);
+        expect(await poll({ name: 't', cursor: null })).toMatchObject({ events: [], cursor: 'h1' });
+        expect(await poll({ name: 't', cursor: null })).toMatchObject({ events: [], cursor: 'h1' });
+    });
+
+    it('ignores maxAgeMs for a result with cursor: null', async () => {
+        const events = new EventsExtension();
+        const old = new Date(Date.now() - 600_000).toISOString();
+        events.registerEvent('t', {
+            payloadSchema: P,
+            check: () => ({ events: [{ eventId: 'old', timestamp: old, data: { n: 1 } }], cursor: null })
+        });
+        const result = await poller(events).poll({ name: 't', cursor: 'h1', maxAgeMs: 300_000 });
+        expect(result.events.map(event => event.eventId)).toEqual(['old']);
+        expect(result.truncated).toBe(false);
+    });
+
     it('applies the maxAgeMs floor and flags truncated', async () => {
         const events = new EventsExtension();
         const old = new Date(Date.now() - 600_000).toISOString();
@@ -284,6 +333,30 @@ describe('events/poll for an emit-only type', () => {
         expect(await poll({ name: 'i', cursor })).toMatchObject({ events: [], cursor });
     });
 
+    it('drops a transform output that fails payloadSchema and reports it', async () => {
+        const onerror = vi.fn();
+        const events = new EventsExtension({ onerror });
+        const h = events.registerEvent('i', {
+            emitOnly: true,
+            payloadSchema: P,
+            transform: (_ctx, event) => ({
+                ...event,
+                data: event.data.n === 1 ? ({ n: 'one' } as unknown as { n: number }) : { n: event.data.n * 10 }
+            })
+        });
+        const { poll } = poller(events);
+        const { cursor } = await poll({ name: 'i', cursor: null });
+        await h.emit({ data: { n: 1 } });
+        await h.emit({ data: { n: 2 } });
+        const result = await poll({ name: 'i', cursor });
+        expect(result.events.map(event => event.data)).toEqual([{ n: 20 }]);
+        expect(await poll({ name: 'i', cursor: result.cursor })).toMatchObject({ events: [] });
+        expect(onerror).toHaveBeenCalledOnce();
+        expect(onerror.mock.calls[0]![0].message).toMatch(
+            /^event 'i': dropped an event whose transform output does not match payloadSchema: /
+        );
+    });
+
     it('skips an event whose match throws and reports it', async () => {
         const onerror = vi.fn();
         const events = new EventsExtension({ onerror });
@@ -321,6 +394,27 @@ describe('events/poll for an emit-only type', () => {
         expect(positions.previous).toBe(c0);
         expect(positions.cursor).not.toBe(c0);
         expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'push failed' }));
+    });
+
+    it('drops buffered events on remove() and on a schema change, so earlier cursors read as a gap', async () => {
+        const events = new EventsExtension();
+        const v1 = events.registerEvent('i', { emitOnly: true, payloadSchema: P });
+        // Distinct arguments, so each poll has a lease of its own that no termination reached.
+        const { poll } = poller(events);
+        const { cursor: c0 } = await poll({ name: 'i', arguments: { k: 0 }, cursor: null });
+        await v1.emit({ data: { n: 1 } });
+        const { cursor: c1 } = await poll({ name: 'i', arguments: { k: 1 }, cursor: null });
+
+        const v2 = events.registerEvent('i', { emitOnly: true, payloadSchema: z.object({ n: z.number(), v: z.literal(2) }) });
+        expect(testHook(events).state().emitBuffer).toEqual({ i: 0 });
+        expect(await poll({ name: 'i', arguments: { k: 2 }, cursor: c0 })).toMatchObject({ events: [], cursor: c1, truncated: true });
+        await v2.emit({ data: { n: 2, v: 2 } });
+        expect((await poll({ name: 'i', arguments: { k: 3 }, cursor: c1 })).events.map(event => event.data)).toEqual([{ n: 2, v: 2 }]);
+
+        v2.remove();
+        expect(testHook(events).state().emitBuffer).toEqual({ i: 0 });
+        events.registerEvent('i', { emitOnly: true, payloadSchema: P });
+        expect(await poll({ name: 'i', arguments: { k: 4 }, cursor: c1 })).toMatchObject({ events: [], truncated: true });
     });
 
     it('rejects emit() on a handle whose registration was removed', async () => {

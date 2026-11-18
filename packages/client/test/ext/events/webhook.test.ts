@@ -49,15 +49,23 @@ function granting(...answers: Array<Record<string, unknown> | RpcError>): Handle
     };
 }
 
-async function webhookWith(subscribe: Handler, options: { list?: Handler; unsubscribe?: Handler; secretProvider?: () => string } = {}) {
-    const { secretProvider } = options;
+async function webhookWith(
+    subscribe: Handler,
+    options: { list?: Handler; unsubscribe?: Handler; secretProvider?: () => string; pollIntervalFloorMs?: number } = {}
+) {
+    const { secretProvider, pollIntervalFloorMs } = options;
     const scripted = await connectEvents(
         {
             'events/list': options.list ?? listing(tick),
             'events/subscribe': subscribe,
             'events/unsubscribe': options.unsubscribe ?? (() => ({}))
         },
-        { events: { webhook: { url: WEBHOOK_URL, ...(secretProvider !== undefined && { secretProvider }) } } }
+        {
+            events: {
+                webhook: { url: WEBHOOK_URL, ...(secretProvider !== undefined && { secretProvider }) },
+                ...(pollIntervalFloorMs !== undefined && { pollIntervalFloorMs })
+            }
+        }
     );
     const handler = scripted.events.createWebhookHandler();
     const subscribes = () => callsTo(scripted.calls, 'events/subscribe');
@@ -180,6 +188,20 @@ describe('webhook delivery', () => {
         const good = await webhookWith(granting({}), { secretProvider: () => secret });
         await good.subscribe();
         expect(secretOf(good.subscribes()[0]!)).toBe(secret);
+    });
+
+    it('rejects a secretProvider value that another open subscription already uses', async () => {
+        const secret = generateWebhookSecret();
+        const { events, subscribes, subscribe } = await webhookWith(granting({}, { id: 'sub_2' }), { secretProvider: () => secret });
+        const [first, second] = await Promise.allSettled([1, 2].map(a => events.subscribe({ name: 'tick', arguments: { a } })));
+        expect(first?.status).toBe('fulfilled');
+        expect(second).toMatchObject({ status: 'rejected', reason: expect.any(TypeError) });
+        expect(subscribes()).toHaveLength(1);
+
+        // Once that subscription has ended, its secret is free again.
+        await (first as PromiseFulfilledResult<EventSubscription>).value.cancel();
+        await subscribe({ arguments: { a: 2 } });
+        expect(subscribes()).toHaveLength(2);
     });
 
     it('delivers events through the receiver once per eventId, persisting each watermark cursor', async () => {
@@ -383,6 +405,21 @@ describe('webhook delivery', () => {
             expect(subscribes()).toHaveLength(count - 1);
             await vi.advanceTimersByTimeAsync(1);
             expect(subscribes()).toHaveLength(count);
+        }
+    });
+
+    it('keeps a refresh before refreshBefore when pollIntervalFloorMs would reach it', async () => {
+        // A 60 s grant: a 50 s floor still fits before it, while a 60 s one would land on refreshBefore and falls back to ¾ of the grant.
+        for (const [pollIntervalFloorMs, refreshAt] of [
+            [50_000, 50_000],
+            [60_000, 45_000]
+        ] as const) {
+            const { subscribes, subscribe } = await webhookWith(granting({}, {}), { pollIntervalFloorMs });
+            await subscribe();
+            await vi.advanceTimersByTimeAsync(refreshAt - 1);
+            expect(subscribes()).toHaveLength(1);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(subscribes()).toHaveLength(2);
         }
     });
 

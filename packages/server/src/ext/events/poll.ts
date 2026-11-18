@@ -48,14 +48,14 @@ export async function toOccurrence(
     };
 }
 
-// A check result's events to send, for every mode: off-schema ones dropped (reported), ones older than `maxAgeMs` skipped with `truncated`.
+// A check result's events to send, for every mode: off-schema ones dropped (reported), ones older than `maxAgeMs` skipped with `truncated` unless the result has no replay (`cursor: null`), which `maxAgeMs` does not apply to.
 export async function checkedEvents(
     entry: RegisteredEvent,
     result: EventResult<unknown>,
     maxAgeMs: number | undefined,
     report: (error: unknown) => void
 ): Promise<{ events: EventOccurrence[]; truncated: boolean }> {
-    const floor = maxAgeMs === undefined ? undefined : Date.now() - maxAgeMs;
+    const floor = maxAgeMs === undefined || result.cursor === null ? undefined : Date.now() - maxAgeMs;
     let truncated = result.truncated === true;
     const events: EventOccurrence[] = [];
     for (const input of result.events) {
@@ -99,6 +99,23 @@ export function selectEvent(
     }
 }
 
+// A selected event whose `transform` output fails `payloadSchema` is dropped (reported), as an off-schema emit is; without a transform it was checked at emit.
+export async function checkedSelection(
+    entry: RegisteredEvent,
+    occurrence: EventOccurrence,
+    report: (error: unknown) => void
+): Promise<EventOccurrence | undefined> {
+    if (entry.definition.transform === undefined) return occurrence;
+    try {
+        const parsed = await entry.parsePayload(occurrence.data);
+        if (parsed.ok) return { ...occurrence, data: parsed.data };
+        report(new Error(`event '${entry.name}': dropped an event whose transform output does not match payloadSchema: ${parsed.error}`));
+    } catch (error) {
+        report(error);
+    }
+    return undefined;
+}
+
 // `events/poll`: every request carries one subscription, and leases drive `onSubscribe` / `onUnsubscribe` (SEP-3415 Appendix A).
 export class PollSource implements SubscriptionSource {
     readonly #deps: PollDeps;
@@ -123,7 +140,7 @@ export class PollSource implements SubscriptionSource {
             key = leaseKey(principal, params.name, rawArgs);
             this.#throwTerminated(key);
         });
-        const lease = await this.#lease(key, entry, principal, args);
+        const { lease, created } = await this.#lease(key, entry, principal, args);
         const fields = {
             name: entry.name,
             subscriptionId: lease.subscriptionId,
@@ -141,12 +158,17 @@ export class PollSource implements SubscriptionSource {
                 maxAgeMs: params.maxAgeMs,
                 select: buffered => selectEvent(entry, selectCtx, args, buffered, this.#deps.report)
             });
-            return { ...read, nextPollMs: this.#deps.defaultNextPollMs };
+            const checked = await Promise.all(read.events.map(occurrence => checkedSelection(entry, occurrence, this.#deps.report)));
+            const events = checked.filter((occurrence): occurrence is EventOccurrence => occurrence !== undefined);
+            return { ...read, events, nextPollMs: this.#deps.defaultNextPollMs };
         }
 
         const result = await check(makeContext({ ...fields, maxEvents, maxAgeMs: params.maxAgeMs }), args, cursor);
         const nextPollMs = result.nextPollMs ?? this.#deps.defaultNextPollMs;
-        if (cursor === null) return { events: [], cursor: result.cursor, truncated: false, hasMore: false, nextPollMs };
+        // `null` starts from now on a new lease or for a type with replay; on a lease's later polls a type without replay gets its events.
+        if (cursor === null && (created || result.cursor !== null)) {
+            return { events: [], cursor: result.cursor, truncated: false, hasMore: false, nextPollMs };
+        }
         const { events, truncated } = await checkedEvents(entry, result, params.maxAgeMs, this.#deps.report);
         return { events, cursor: result.cursor, truncated, hasMore: result.hasMore === true, nextPollMs };
     }
@@ -177,8 +199,13 @@ export class PollSource implements SubscriptionSource {
         throw terminated;
     }
 
-    // Renews the lease, or on first sight checks the quota and runs onSubscribe.
-    async #lease(key: string, entry: RegisteredEvent, principal: string | null, args: Record<string, unknown>): Promise<PollLease> {
+    // Renews the lease, or on first sight checks the quota and runs onSubscribe; `created` on first sight.
+    async #lease(
+        key: string,
+        entry: RegisteredEvent,
+        principal: string | null,
+        args: Record<string, unknown>
+    ): Promise<{ lease: PollLease; created: boolean }> {
         const pending = this.#starting.get(key);
         // Await only a pending start: an unconditional await would let a concurrent first poll in before `touch`.
         if (pending !== undefined) await pending;
@@ -191,7 +218,7 @@ export class PollSource implements SubscriptionSource {
             entry,
             ended: new AbortController()
         }));
-        if (!created) return lease;
+        if (!created) return { lease, created };
         const ctx = makeContext({
             name: entry.name,
             subscriptionId: lease.subscriptionId,
@@ -209,7 +236,7 @@ export class PollSource implements SubscriptionSource {
         } finally {
             this.#starting.delete(key);
         }
-        return lease;
+        return { lease, created };
     }
 
     async #unsubscribe(lease: PollLease): Promise<void> {

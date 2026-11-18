@@ -108,6 +108,14 @@ export class EmitBuffer {
         return sizes;
     }
 
+    // Drops the events of one type but keeps its sequence, so a cursor from before its head reads as a gap.
+    drop(name: string): void {
+        const ring = this.#rings.get(name);
+        if (ring === undefined) return;
+        ring.entries.length = 0;
+        ring.evicted = ring.last;
+    }
+
     // Drops every event and starts a new epoch, as a process restart would.
     clear(): void {
         this.#rings.clear();

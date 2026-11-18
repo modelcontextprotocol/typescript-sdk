@@ -140,6 +140,7 @@ const pulse = conformanceEvents.registerEvent(PULSE, {
         return take(gapNext, ctx) ? { events, cursor: null, truncated: true } : { events, cursor: null };
     },
     onUnsubscribe: ctx => void beatSeen.delete(ctx.subscriptionId),
+    // Poll would work; the suite's sep-3415-poll-mode-unsupported needs one type without it, and this is that type.
     delivery: { poll: false }
 });
 

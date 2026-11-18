@@ -697,7 +697,9 @@ describe('webhook delivery over http', () => {
     });
 
     it('serves one subscription from two replicas sharing a store: refresh, rotation, emit and unsubscribe on the second', async () => {
-        const events = new EventsClientExtension({ ...CLIENT_OPTIONS, webhook: { url: HOOK_URL, secretProvider: () => SECRET } });
+        // One secret per subscription, as the client requires: SECRET for the one under test, another for the witness.
+        const secrets = [SECRET, `whsec_${btoa('c'.repeat(32))}`];
+        const events = new EventsClientExtension({ ...CLIENT_OPTIONS, webhook: { url: HOOK_URL, secretProvider: () => secrets.shift()! } });
         const posts: Post[] = [];
         const store = new InMemoryWebhookSubscriptionStore();
         // A 2 s grant: the client refreshes after 1.5 s.

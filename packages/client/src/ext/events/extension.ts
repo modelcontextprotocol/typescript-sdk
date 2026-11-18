@@ -30,16 +30,19 @@ export interface EventsClientOptions {
      * Webhook delivery: the callback URL the server POSTs events to, where
      * {@linkcode EventsClientExtension.createWebhookHandler} is mounted. Each
      * server subscription signs with its own `whsec_` secret, random unless
-     * `secretProvider` supplies it; a value that is not a Standard Webhooks
-     * secret (`whsec_` and base64 of 24 to 64 bytes) makes `subscribe()`
-     * throw `TypeError`. With it set, a subscription prefers webhook where the
-     * event type offers it.
+     * `secretProvider` supplies it. `subscribe()` rejects with `TypeError`
+     * when the value is not a Standard Webhooks secret (`whsec_` and base64
+     * of 24 to 64 bytes), or when another open server subscription already
+     * signs with it, since the receiver could not tell their verification
+     * challenges apart: return a distinct secret each call. With it set, a
+     * subscription prefers webhook where the event type offers it.
      */
     webhook?: { url: string; secretProvider?: () => string };
     /**
      * The shortest wait between two polls, whatever `nextPollMs` the server
      * recommends, and between two webhook refreshes, whatever the grant
-     * (a skewed clock cannot make them back to back). Default 1000.
+     * (a skewed clock cannot make them back to back), unless it would reach
+     * the end of the grant: the refresh then comes at ¾ of it. Default 1000.
      */
     pollIntervalFloorMs?: number;
 }
@@ -164,7 +167,8 @@ export class EventsClientExtension {
      *   `ConnectionClosed` when the client closes before the first exchange answers, or another code when that
      *   exchange fails in the SDK (for example a request timeout).
      * @throws {ProtocolError} `-32020` when the server rejects the `Mcp-Param` headers again after a re-list.
-     * @throws {TypeError} when `webhook.secretProvider` returns something that is not a Standard Webhooks secret.
+     * @throws {TypeError} when `webhook.secretProvider` returns something that is not a Standard Webhooks secret, or a
+     *   secret another open server subscription signs with.
      */
     async subscribe<T = Record<string, unknown>>(options: SubscribeOptions): Promise<EventSubscription<T>> {
         const connection = this.#require('subscribe');
@@ -190,8 +194,9 @@ export class EventsClientExtension {
      * to mount at `webhook.url` in any fetch-style server; every handler it
      * returns serves this instance's subscriptions. It verifies each POST's
      * Standard Webhooks signature over the raw body, answers the server's
-     * verification challenge, delivers each `webhook-id` once, and routes
-     * events and `gap` and `terminated` bodies into their subscription.
+     * verification challenge, delivers each `webhook-id` once within the last
+     * 1 000 ids it delivered, and routes events and `gap` and `terminated`
+     * bodies into their subscription.
      * Answers: `405` to anything but POST, `413` to a body over 256 KiB,
      * `400` to a missing header, a timestamp more than 5 minutes off or a
      * malformed body, `401` to a bad signature, and `503` to a subscription
