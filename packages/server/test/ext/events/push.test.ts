@@ -543,4 +543,44 @@ describe('events/stream: response modes', () => {
         expect(text).not.toContain('notifications/progress');
         expect(JSON.parse(text)).toMatchObject({ id: 2, result: { content: [{ type: 'text', text: 'done' }] } });
     });
+
+    it('sends no SSE comment keepalive on events/stream, while another SSE exchange still gets one (SEP-3415 §Push)', async () => {
+        const events = new EventsExtension();
+        events.registerEvent('tick', { payloadSchema: P, check: () => ({ events: [], cursor: 'h0' }) });
+        const served = serve(events, {
+            keepAliveMs: 20,
+            setup: mcp =>
+                mcp.registerTool('slow', { inputSchema: z.object({}) }, async (_args, ctx) => {
+                    await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'tok', progress: 1 } });
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                    return { content: [{ type: 'text', text: 'done' }] };
+                })
+        });
+
+        const stream = await open(served, { name: 'tick', cursor: null });
+        expect(stream.response.headers.get('content-type')).toContain('text/event-stream');
+        const streamed = await rawFor(stream.response, 150);
+        expect(streamed).toContain(ACTIVE);
+        expect(streamed).not.toMatch(/^:/m);
+
+        const tool = await served.post({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'slow', arguments: {} } });
+        expect(tool.headers.get('content-type')).toContain('text/event-stream');
+        expect(await tool.text()).toMatch(/^: keepalive$/m);
+    });
 });
+
+// The raw SSE text a response delivers within `ms`, comment lines included.
+async function rawFor(response: Response, ms: number): Promise<string> {
+    const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+    const timer = setTimeout(() => void reader.cancel(), ms);
+    let text = '';
+    try {
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) return text;
+            text += value;
+        }
+    } finally {
+        clearTimeout(timer);
+    }
+}

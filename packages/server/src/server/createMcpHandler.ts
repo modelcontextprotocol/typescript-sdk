@@ -202,7 +202,9 @@ export interface CreateMcpHandlerOptions {
     maxSubscriptions?: number;
     /**
      * SSE comment-frame keepalive interval for every SSE stream this handler
-     * serves. In modern `auto` mode it starts after SSE upgrade. Set to `0` to disable.
+     * serves, except the Events extension's `events/stream` streams, whose
+     * heartbeat notifications keep them alive. In modern `auto` mode it starts
+     * after SSE upgrade. Set to `0` to disable.
      * @default 15000
      */
     keepAliveMs?: number;
@@ -902,14 +904,17 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         server.onclose = onExchangeClose;
 
         // A method the instance marks as streaming (`events/stream`) upgrades to SSE even under 'json'.
-        const exchangeMode = responseMode === 'json' && isStreamingMethod(server, route.message.method) ? 'auto' : responseMode;
+        const streaming = isStreamingMethod(server, route.message.method);
+        const exchangeMode = responseMode === 'json' && streaming ? 'auto' : responseMode;
+        // Its own heartbeat notifications keep a marked stream alive, so it gets no SSE comment keepalive (SEP-3415 §Push).
+        const keepAliveMs = streaming ? 0 : options.keepAliveMs;
         try {
             const response = await invoke(product, route.message, {
                 classification: route.classification,
                 request,
                 ...(authInfo !== undefined && { authInfo }),
                 ...(exchangeMode !== undefined && { responseMode: exchangeMode }),
-                ...(options.keepAliveMs !== undefined && { keepAliveMs: options.keepAliveMs })
+                ...(keepAliveMs !== undefined && { keepAliveMs })
             });
             if (route.messageKind === 'notification') {
                 // Notification exchanges have no terminal response to ride the
