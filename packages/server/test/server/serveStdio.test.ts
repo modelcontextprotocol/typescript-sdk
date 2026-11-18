@@ -18,7 +18,10 @@
  * - `legacy: 'reject'` answers legacy openings with the same error and never
  *   pins a legacy instance;
  * - malformed and unsupported envelope claims are answered by the entry,
- *   consistent with the HTTP entry's treatment, without pinning.
+ *   consistent with the HTTP entry's treatment, without pinning;
+ * - once the modern era is pinned, a later request naming a revision the
+ *   entry does not serve is answered `-32022` before the method runs.
+ *   An unknown method stays `-32601` and a malformed envelope stays `-32602`.
  */
 import { Readable, Writable } from 'node:stream';
 
@@ -574,6 +577,97 @@ describe('malformed and unsupported envelope claims (entry-answered, never pinne
             expect(data.requested).toBe('2099-01-01');
         }
         expect(eras).toEqual([]);
+
+        await handle.close();
+    });
+});
+
+describe('unsupported revision on a modern-pinned connection', () => {
+    it('answers -32022 and does not run the method when a later request names a revision the entry does not serve', async () => {
+        let calls = 0;
+        const eras: Array<'legacy' | 'modern'> = [];
+        const factory: McpServerFactory = ctx => {
+            eras.push(ctx.era);
+            const server = new McpServer({ name: 'serve-stdio-test-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+            server.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => {
+                calls += 1;
+                return { content: [{ type: 'text', text }] };
+            });
+            return server;
+        };
+        const { handle, request } = await startEntryWith(factory);
+
+        const pin = await request({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: envelope() } });
+        expect(isJSONRPCResultResponse(pin)).toBe(true);
+
+        const expectUnsupported = async (id: number, method: string, protocolVersion: string, params: Record<string, unknown> = {}) => {
+            const response = await request({
+                jsonrpc: '2.0',
+                id,
+                method,
+                params: { ...params, _meta: envelope({ [PROTOCOL_VERSION_META_KEY]: protocolVersion }) }
+            });
+            expect(isJSONRPCErrorResponse(response)).toBe(true);
+            if (isJSONRPCErrorResponse(response)) {
+                expect(response.error.code).toBe(-32_022);
+                expect(response.error.message).toBe(`Unsupported protocol version: ${protocolVersion}`);
+                const data = response.error.data as { supported?: string[]; requested?: string };
+                expect(data.supported).toEqual([MODERN]);
+                expect(data.requested).toBe(protocolVersion);
+            }
+        };
+
+        // The same requests the opening window rejects, after the pin.
+        await expectUnsupported(2, 'server/discover', '2099-01-01');
+        await expectUnsupported(3, 'tools/list', '2099-01-01');
+        await expectUnsupported(4, 'tools/call', '2099-01-01', { name: 'echo', arguments: { text: 'should not run' } });
+        await expectUnsupported(5, 'tools/list', '2025-11-25');
+        expect(calls).toBe(0);
+
+        const again = await request({ jsonrpc: '2.0', id: 6, method: 'tools/list', params: { _meta: envelope() } });
+        expect(isJSONRPCResultResponse(again)).toBe(true);
+        const ran = await request({
+            jsonrpc: '2.0',
+            id: 7,
+            method: 'tools/call',
+            params: { name: 'echo', arguments: { text: 'after' }, _meta: envelope() }
+        });
+        expect(isJSONRPCResultResponse(ran)).toBe(true);
+        expect(calls).toBe(1);
+        // The rejection did not rebuild the instance or unpin the connection.
+        expect(eras).toEqual(['modern']);
+
+        await handle.close();
+    });
+
+    it('keeps -32601 for an unknown method and -32602 for a malformed envelope ahead of the revision check', async () => {
+        const { handle, request } = await startEntry();
+        const pin = await request({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: envelope() } });
+        expect(isJSONRPCResultResponse(pin)).toBe(true);
+
+        const unknown = await request({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'nope',
+            params: { _meta: envelope({ [PROTOCOL_VERSION_META_KEY]: '2099-01-01' }) }
+        });
+        expect(isJSONRPCErrorResponse(unknown)).toBe(true);
+        if (isJSONRPCErrorResponse(unknown)) {
+            expect(unknown.error.code).toBe(-32_601);
+            expect(unknown.error.message).toBe('Method not found');
+        }
+
+        const malformed = await request({
+            jsonrpc: '2.0',
+            id: 3,
+            method: 'tools/list',
+            params: { _meta: { [PROTOCOL_VERSION_META_KEY]: '2099-01-01' } }
+        });
+        expect(isJSONRPCErrorResponse(malformed)).toBe(true);
+        if (isJSONRPCErrorResponse(malformed)) {
+            expect(malformed.error.code).toBe(-32_602);
+            expect(malformed.error.message).toContain('Invalid _meta envelope');
+        }
 
         await handle.close();
     });
