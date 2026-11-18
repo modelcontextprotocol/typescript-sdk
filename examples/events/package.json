@@ -1,0 +1,27 @@
+{
+    "name": "@mcp-examples/events",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@hono/node-server": "catalog:runtimeServerOnly",
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/hono": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "era": "modern",
+        "env": {
+            "EVENTS_RECEIVER_PORT": "8599"
+        },
+        "//": "Poll and push on both legs; webhook on the HTTP leg with an authenticated principal."
+    }
+}
