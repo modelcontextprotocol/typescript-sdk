@@ -27,9 +27,11 @@ describe('mediaTypeEssence', () => {
         // Headers.get() joins repeated headers with ', '. Without parameters
         // the comma lands in the first segment; with parameters it hides in
         // the tail — both must behave the same.
-        expect(mediaTypeEssence('application/json, application/json')).toBe('application/json, application/json');
+        expect(mediaTypeEssence('application/json, application/json')).toBeUndefined();
+        expect(mediaTypeEssence('text/plain, text/html')).toBeUndefined();
         expect(mediaTypeEssence('application/json; charset=utf-8, text/plain')).toBeUndefined();
         expect(mediaTypeEssence('application/json; charset=utf-8, application/json')).toBeUndefined();
+        expect(mediaTypeEssence('TEXT/PLAIN; a=b, c=d')).toBeUndefined();
     });
 });
 
