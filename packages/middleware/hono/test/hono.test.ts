@@ -219,4 +219,38 @@ describe('@modelcontextprotocol/hono', () => {
 
         expect(() => createMcpHonoApp({ maxRequestBodySize: 0 })).toThrow(RangeError);
     });
+
+    test('createMcpHonoApp skips JSON parsing on GET/HEAD/DELETE and empty-body requests with application/json', async () => {
+        const app = createMcpHonoApp();
+        app.get('/mcp', (c: Context) => c.json({ method: 'GET', hasParsedBody: c.get('parsedBody') !== undefined }));
+        app.delete('/mcp', (c: Context) => c.json({ method: 'DELETE', hasParsedBody: c.get('parsedBody') !== undefined }));
+        app.post('/mcp', (c: Context) => c.json({ method: 'POST', hasParsedBody: c.get('parsedBody') !== undefined }));
+
+        const getRes = await app.request('http://localhost/mcp', {
+            method: 'GET',
+            headers: jsonHeaders
+        });
+        expect(getRes.status).toBe(200);
+        expect(await getRes.json()).toEqual({ method: 'GET', hasParsedBody: false });
+
+        const headRes = await app.request('http://localhost/mcp', {
+            method: 'HEAD',
+            headers: jsonHeaders
+        });
+        expect(headRes.status).toBe(200);
+
+        const deleteRes = await app.request('http://localhost/mcp', {
+            method: 'DELETE',
+            headers: jsonHeaders
+        });
+        expect(deleteRes.status).toBe(200);
+        expect(await deleteRes.json()).toEqual({ method: 'DELETE', hasParsedBody: false });
+
+        const emptyPostRes = await app.request('http://localhost/mcp', {
+            method: 'POST',
+            headers: jsonHeaders
+        });
+        expect(emptyPostRes.status).toBe(200);
+        expect(await emptyPostRes.json()).toEqual({ method: 'POST', hasParsedBody: false });
+    });
 });
