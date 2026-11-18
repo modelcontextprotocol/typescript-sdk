@@ -271,6 +271,56 @@ describe('Zod v4', () => {
                 });
             });
 
+            it('should escape U+2028 and U+2029 in SSE data lines', async () => {
+                mcpServer.registerTool(
+                    'emit-line-separators',
+                    {
+                        description: 'Emits text containing U+2028 and U+2029',
+                        inputSchema: z.object({})
+                    },
+                    async (): Promise<CallToolResult> => {
+                        return {
+                            content: [
+                                {
+                                    type: 'text',
+                                    text: 'before\u2028middle\u2029after'
+                                }
+                            ]
+                        };
+                    }
+                );
+
+                sessionId = await initializeServer();
+
+                const toolCallMessage: JSONRPCMessage = {
+                    jsonrpc: '2.0',
+                    method: 'tools/call',
+                    params: { name: 'emit-line-separators', arguments: {} },
+                    id: 'ls-1'
+                };
+
+                const request = createRequest('POST', toolCallMessage, { sessionId });
+                const response = await transport.handleRequest(request);
+                expect(response.status).toBe(200);
+
+                const rawEvent = await readSSEEvent(response);
+
+                expect(rawEvent).not.toContain('\u2028');
+                expect(rawEvent).not.toContain('\u2029');
+                expect(rawEvent).toContain(String.raw`\u2028`);
+                expect(rawEvent).toContain(String.raw`\u2029`);
+
+                // The content still round-trips correctly after JSON.parse.
+                const eventData = parseSSEData(rawEvent);
+                expect(eventData).toMatchObject({
+                    jsonrpc: '2.0',
+                    id: 'ls-1',
+                    result: {
+                        content: [{ type: 'text', text: 'before\u2028middle\u2029after' }]
+                    }
+                });
+            });
+
             it('should reject requests without a valid session ID', async () => {
                 const request = createRequest('POST', TEST_MESSAGES.toolsList);
                 const response = await transport.handleRequest(request);
