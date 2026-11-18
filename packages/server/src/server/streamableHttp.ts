@@ -370,8 +370,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     private async _checkScopeChallenge(messages: JSONRPCMessage[], authInfo?: AuthInfo): Promise<Response | undefined> {
-        // Active whenever a connected McpServer supplied a resolver (it
-        // resolves per-primitive scopeChallenge callbacks); the challenge's
+        // Active whenever a resolver is set: by a connected server with a scope
+        // challenge handler (McpServer resolves its per-primitive callbacks),
+        // or directly on this transport; the challenge's
         // resource_metadata parameter is derived from the verified AuthInfo
         // and omitted when unavailable.
         if (!this._scopeChallengeResolver) {

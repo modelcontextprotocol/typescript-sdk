@@ -48,7 +48,6 @@ import type * as z from 'zod/v4';
 
 import { getCompleter, isCompletable } from './completable';
 import type { ScopeChallengeHandler } from './scopeChallenge';
-import { supportsScopeChallengeResolver } from './scopeChallenge';
 import type { ServerOptions } from './server';
 import { Server } from './server';
 
@@ -151,6 +150,8 @@ export class McpServer {
 
     constructor(serverInfo: Implementation, options?: McpServerOptions) {
         this.server = new Server(serverInfo, options);
+        this.server.setScopeChallengeHandler(context => this.resolveScopeChallenge(context));
+        this.server.setToolInputSchemaResolver(name => this.toolInputSchemaJson(name));
         this._maxToolInputElements = resolveMaxToolInputElements(options?.maxToolInputElements);
 
         // Per the MCP spec, a server that declares a primitive capability MUST respond to its
@@ -182,9 +183,6 @@ export class McpServer {
      * ```
      */
     async connect(transport: Transport): Promise<void> {
-        if (supportsScopeChallengeResolver(transport)) {
-            transport.setScopeChallengeResolver(context => this.resolveScopeChallenge(context));
-        }
         return await this.server.connect(transport);
     }
 
