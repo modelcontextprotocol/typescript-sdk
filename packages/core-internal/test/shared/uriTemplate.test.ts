@@ -191,6 +191,31 @@ describe('UriTemplate', () => {
             expect(template.variableNames).toEqual(['q', 'page']);
         });
 
+        it('should match query templates when optional parameters are omitted', () => {
+            const template = new UriTemplate('dom://{pageId}{?selector,includeAttributes,includeText,includeChildren}');
+            const match = template.match('dom://5a072bc8-a8c7-43c3-84ac-154651ac5d44');
+
+            expect(match).toEqual({ pageId: '5a072bc8-a8c7-43c3-84ac-154651ac5d44' });
+        });
+
+        it('should match query template parameters in any order', () => {
+            const template = new UriTemplate('dom://{pageId}{?selector,includeAttributes,includeText,includeChildren}');
+            const match = template.match('dom://5a072bc8-a8c7-43c3-84ac-154651ac5d44?includeText=true&selector=body');
+
+            expect(match).toEqual({
+                pageId: '5a072bc8-a8c7-43c3-84ac-154651ac5d44',
+                selector: 'body',
+                includeText: 'true'
+            });
+        });
+
+        it('should preserve encoded query values when matching query templates', () => {
+            const template = new UriTemplate('/search{?q}');
+            const match = template.match('/search?q=value%20with%20spaces');
+
+            expect(match).toEqual({ q: 'value%20with%20spaces' });
+        });
+
         it('should handle partial matches correctly', () => {
             const template = new UriTemplate('/users/{id}');
             expect(template.match('/users/123/extra')).toBeNull();
