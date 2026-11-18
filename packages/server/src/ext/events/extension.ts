@@ -18,6 +18,7 @@ import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 
 import type { McpServer } from '../../server/mcp';
 import { markModernOnlyExtension } from '../../server/modernOnlyExtensions';
+import { registerParamHeaderSource } from '../../server/paramHeaderSources';
 import { markStreamingMethod } from '../../server/streamingMethods';
 import type { BufferedEvent } from './emitBuffer';
 import { EmitBuffer } from './emitBuffer';
@@ -43,7 +44,10 @@ export type EmitFanOut = (name: string, buffered: BufferedEvent, positions: { cu
 
 type DefaultSchema = StandardSchemaWithJSON<Record<string, unknown>>;
 
-const EVENTS_METHODS = [EVENTS_LIST_METHOD, EVENTS_POLL_METHOD, EVENTS_STREAM_METHOD, EVENTS_SUBSCRIBE_METHOD, EVENTS_UNSUBSCRIBE_METHOD];
+// The `events/*` requests that name an event type in `params.name`.
+const NAMED_EVENT_METHODS = [EVENTS_POLL_METHOD, EVENTS_STREAM_METHOD, EVENTS_SUBSCRIBE_METHOD, EVENTS_UNSUBSCRIBE_METHOD];
+
+const EVENTS_METHODS = [EVENTS_LIST_METHOD, ...NAMED_EVENT_METHODS];
 
 const NUMERIC_OPTIONS = [
     'webhookTtlMs',
@@ -266,6 +270,7 @@ export class EventsExtension {
         server.registerCapabilities({ extensions: { [EVENTS_EXTENSION_ID]: {} } });
         markModernOnlyExtension(server, EVENTS_EXTENSION_ID);
         markStreamingMethod(server, EVENTS_STREAM_METHOD);
+        registerParamHeaderSource(mcp, NAMED_EVENT_METHODS, name => this.#registry.get(name)?.inputJson);
         this.#attached.add(mcp);
         eventsServers.add(mcp);
     }

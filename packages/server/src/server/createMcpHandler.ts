@@ -62,6 +62,7 @@ import {
 import { invoke } from './invoke';
 import { createListenRouter, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
 import { McpServer } from './mcp';
+import { paramHeaderSchemaFor } from './paramHeaderSources';
 import type { PerRequestResponseMode } from './perRequestTransport';
 import { DEFAULT_MAX_REQUEST_BODY_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody';
 import { createScopeChallengeResponse, findScopeChallenge, scopeChallengeResourceMetadataUrl } from './scopeChallenge';
@@ -817,8 +818,10 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         }
 
         // SEP-2243 `Mcp-Param-*` server-side validation (pre-dispatch ladder
-        // rung): for a `tools/call`, look up the named tool's JSON inputSchema
-        // on the just-produced instance and compare every `x-mcp-header`
+        // rung): look up the JSON inputSchema that `params.name` names on the
+        // just-produced instance (for a `tools/call` the named tool's; for
+        // another method the one an extension registered a lookup for, see
+        // `paramHeaderSources.ts`) and compare every `x-mcp-header`
         // declaration against the request's `Mcp-Param-{Name}` headers and the
         // body `arguments`. A mismatch (or a missing header for a present body
         // value, or an invalid Base64 sentinel) emits the same `400` /
@@ -826,13 +829,19 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // applied when the factory returns an `McpServer` (the registry is the
         // schema source); a low-level `Server` factory has no registry, so
         // there is nothing to validate against.
-        if (route.messageKind === 'request' && route.message.method === 'tools/call' && product instanceof McpServer) {
+        if (route.messageKind === 'request' && product instanceof McpServer) {
+            const { method } = route.message;
             const callParams = route.message.params as { name?: string; arguments?: Record<string, unknown> } | undefined;
-            const toolName = typeof callParams?.name === 'string' ? callParams.name : undefined;
-            const inputSchema = toolName === undefined ? undefined : product.toolInputSchemaJson(toolName);
+            const name = typeof callParams?.name === 'string' ? callParams.name : undefined;
+            const inputSchema =
+                name === undefined
+                    ? undefined
+                    : method === 'tools/call'
+                      ? product.toolInputSchemaJson(name)
+                      : paramHeaderSchemaFor(product, method, name);
             if (inputSchema !== undefined) {
                 const scan = scanXMcpHeaderDeclarations(inputSchema);
-                // A tool that is invalid only for a `number`-typed declaration is still checked.
+                // A schema that is invalid only for a `number`-typed declaration is still checked.
                 if (scan.declarations !== undefined && scan.declarations.length > 0) {
                     const rejection = validateMcpParamHeaders(scan.declarations, callParams?.arguments, request.headers);
                     if (rejection !== undefined) {
