@@ -1141,7 +1141,12 @@ export class StreamableHTTPClientTransport implements Transport {
                 // claim stays true and existing
                 // `e instanceof SdkHttpError && e.status === 400` callers do
                 // not silently stop matching.
-                if (response.status === 400 && typeof text === 'string' && this._isModernEnvelopedRequest(message)) {
+                // A 404 with a matching JSON-RPC error body (an unimplemented method answers -32601) is handled the same way.
+                if (
+                    (response.status === 400 || response.status === 404) &&
+                    typeof text === 'string' &&
+                    this._isModernEnvelopedRequest(message)
+                ) {
                     try {
                         const parsed = JSONRPCMessageSchema.parse(JSON.parse(text));
                         const requests = (Array.isArray(message) ? message : [message]).filter(m => isJSONRPCRequest(m));

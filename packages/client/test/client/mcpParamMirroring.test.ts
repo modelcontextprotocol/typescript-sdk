@@ -541,4 +541,20 @@ describe('SEP-2243 Streamable HTTP transport seams', () => {
             status: 400
         });
     });
+
+    it('an HTTP 404 carrying a -32601 JSON-RPC error is delivered in-band on a modern-enveloped request; a bare or legacy 404 still throws', async () => {
+        const errorBody = { jsonrpc: '2.0', id: 1, error: { code: -32_601, message: 'Method not found' } };
+        let body = JSON.stringify(errorBody);
+        const fetch = vi.fn(async () => new Response(body, { status: 404, headers: { 'content-type': 'application/json' } }));
+        const tx = new StreamableHTTPClientTransport(new URL('http://example.test/mcp'), { fetch: fetch as typeof globalThis.fetch });
+        const seen: JSONRPCMessage[] = [];
+        tx.onmessage = m => seen.push(m);
+        await tx.start();
+        await expect(tx.send(modernRequest('completion/complete', {}))).resolves.toBeUndefined();
+        expect(seen[0]).toMatchObject({ id: 1, error: { code: -32_601 } });
+
+        await expect(tx.send({ jsonrpc: '2.0', id: 2, method: 'completion/complete', params: {} })).rejects.toMatchObject({ status: 404 });
+        body = 'Not Found';
+        await expect(tx.send(modernRequest('completion/complete', {}))).rejects.toMatchObject({ status: 404 });
+    });
 });

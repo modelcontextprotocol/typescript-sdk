@@ -7,7 +7,7 @@
 import type { Server as HttpServer } from 'node:http';
 import { createServer } from 'node:http';
 
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { Client, ProtocolErrorCode, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -66,6 +66,25 @@ describe('createMcpHandler over HTTP (legacy postures end to end)', () => {
 
         const result = await client.callTool({ name: 'greet', arguments: { name: 'modern' } });
         expect(result.content).toEqual([{ type: 'text', text: 'hello modern (modern)' }]);
+    });
+
+    it('surfaces a method the server does not implement as a -32601 ProtocolError on the modern path', async () => {
+        const { baseUrl } = await startEndpoint();
+
+        const client = new Client({ name: 'auto-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+        const errors: Error[] = [];
+        client.onerror = error => errors.push(error);
+        await client.connect(new StreamableHTTPClientTransport(baseUrl));
+        cleanups.push(() => client.close());
+        expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
+
+        await expect(client.complete({ ref: { type: 'ref/prompt', name: 'p' }, argument: { name: 'a', value: '' } })).rejects.toMatchObject(
+            { code: ProtocolErrorCode.MethodNotFound }
+        );
+        expect(errors).toEqual([]);
+
+        const result = await client.callTool({ name: 'greet', arguments: { name: 'after' } });
+        expect(result.content).toEqual([{ type: 'text', text: 'hello after (modern)' }]);
     });
 
     it("rejects a plain 2025 client on a strict (legacy: 'reject') endpoint with the unsupported-protocol-version error", async () => {
