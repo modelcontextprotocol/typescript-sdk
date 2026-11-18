@@ -104,6 +104,14 @@ The in-memory bus never leaves the process, so one process needs nothing more. R
 
 When forwarding another server's notifications, include their params on the event: `bus.publish({ kind: 'tools_list_changed', params: notification.params })`. The router preserves custom `_meta` and extension params while replacing the subscription ID with the receiving stream's ID. For `resource_updated`, the event's `uri` controls both filtering and the delivered URI.
 
+## Deliver extension notifications on listen streams
+
+An extension can add its own fields to the `subscriptions/listen` filter, such as the Tasks extension's `taskIds`. Pass a `ListenExtension` for it in the `listenExtensions` option of `createMcpHandler` or `serveStdio`. It names the notification `methods` it delivers. `honor(requested, capabilities)` returns the fields it honors from the raw requested filter; they appear in the acknowledged filter. `accepts(honored, event)` decides whether one of its events matches a subscription. The optional `validate(requested)` returns a message to reject a malformed field with `-32602`.
+
+Behind `createMcpHandler`, publish with `handler.notify.extension(method, params)`. On `serveStdio`, send the notification from the instance as usual (`server.server.notification({ method, params })`); on a modern connection it is delivered to each subscription that accepts it and dropped otherwise.
+
+The core filter is honored first and an extension cannot add a core field. If `honor()` throws, the subscription is served without that extension's fields and the error goes to `onerror`.
+
 ## Recap
 
 - `sendToolListChanged()`, `sendPromptListChanged()`, and `sendResourceListChanged()` push a list-changed notification to connected clients.
@@ -111,3 +119,4 @@ When forwarding another server's notifications, include their params on the even
 - `McpServer` advertises `listChanged` as you register; only the low-level `Server` declares it up front.
 - Behind `createMcpHandler`, publish through `handler.notify`; delivery reaches every open subscription stream that opted in.
 - One process needs no `bus`; more than one shares a `ServerEventBus`.
+- `listenExtensions` lets an extension honor its own filter fields and deliver its notifications on listen streams.

@@ -32,8 +32,15 @@ import type {
 } from '@modelcontextprotocol/core-internal';
 import { codecForVersion, MODERN_WIRE_REVISION, SERVER_INFO_META_KEY, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core-internal';
 
-import type { ServerEventBus } from './serverEventBus';
-import { honoredSubset, listenFilterAccepts, serverEventToNotification } from './serverEventBus';
+import type { HonoredListen, ListenExtension, ServerEvent, ServerEventBus } from './serverEventBus';
+import {
+    assertListenExtensions,
+    CORE_CHANGE_NOTIFICATION_METHODS,
+    honoredListenAccepts,
+    honorListen,
+    serverEventToNotification,
+    validateListenExtensions
+} from './serverEventBus';
 import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 
 /** Default capacity guard: refuse a new subscription when this many are already open. */
@@ -47,6 +54,8 @@ export interface ListenRouterOptions {
     maxSubscriptions?: number;
     /** SSE comment-frame keepalive interval; `0` disables keepalive (default 15000). */
     keepAliveMs?: number;
+    /** Extensions that honor their own filter fields and deliver their own notifications (see {@linkcode ListenExtension}). */
+    extensions?: readonly ListenExtension[];
     /** Out-of-band error reporting (never alters the response). */
     onerror?: (error: Error) => void;
 }
@@ -92,6 +101,40 @@ export function parseListenFilter(message: JSONRPCRequest): SubscriptionFilter |
 }
 
 /**
+ * The raw `params.notifications` object of a listen request, unknown fields
+ * included. The wire schema strips fields outside the core filter; this is
+ * what {@linkcode ListenExtension} hooks read their own fields from.
+ */
+function rawListenFilter(message: JSONRPCRequest): Record<string, unknown> {
+    const notifications: unknown = (message.params as { notifications?: unknown } | undefined)?.notifications;
+    return typeof notifications === 'object' && notifications !== null && !Array.isArray(notifications)
+        ? (notifications as Record<string, unknown>)
+        : {};
+}
+
+const INVALID_FILTER_MESSAGE = "Invalid params: 'notifications' is required and must be a valid SubscriptionFilter";
+
+/**
+ * Parse, validate and honor a listen request's filter, shared by the HTTP and
+ * stdio routers so both entries apply the same rules. Returns the honored
+ * listen, or the `-32602` message to answer with.
+ */
+function honorListenRequest(
+    message: JSONRPCRequest,
+    capabilities: ServerCapabilities,
+    extensions: readonly ListenExtension[],
+    onerror: ((error: Error) => void) | undefined
+): HonoredListen | { invalid: string } {
+    const filter = parseListenFilter(message);
+    if (filter === undefined) return { invalid: INVALID_FILTER_MESSAGE };
+    if (extensions.length === 0) return honorListen(filter, {}, capabilities, extensions, onerror);
+    const requested = rawListenFilter(message);
+    const invalid = validateListenExtensions(requested, extensions, onerror);
+    if (invalid !== undefined) return { invalid: `Invalid params: ${invalid}` };
+    return honorListen(filter, requested, capabilities, extensions, onerror);
+}
+
+/**
  * The HTTP listen router: holds the set of open subscriptions and serves
  * each listen request as an SSE response.
  */
@@ -121,6 +164,8 @@ export interface ListenRouter {
 
 export function createListenRouter(options: ListenRouterOptions): ListenRouter {
     const { bus, onerror } = options;
+    const extensions = options.extensions ?? [];
+    assertListenExtensions(extensions);
     const maxSubscriptions = options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS;
     const keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
 
@@ -137,11 +182,10 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
             onerror?.(new Error(`subscriptions/listen refused: subscription limit reached (${maxSubscriptions})`));
             return jsonRpcError(message.id, -32_603, 'Subscription limit reached');
         }
-        const filter = parseListenFilter(message);
-        if (filter === undefined) {
-            return jsonRpcError(message.id, -32_602, "Invalid params: 'notifications' is required and must be a valid SubscriptionFilter");
+        const honored = honorListenRequest(message, capabilities, extensions, onerror);
+        if ('invalid' in honored) {
+            return jsonRpcError(message.id, -32_602, honored.invalid);
         }
-        const honored = honoredSubset(filter, capabilities);
         // The spec carries the listen request's JSON-RPC id verbatim as the
         // subscription id; demux is per-connection (each HTTP listen has its
         // own SSE stream) so client-chosen ids cannot route across requests.
@@ -208,20 +252,20 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
                 // Ack-first MUST: the acknowledged notification is the first
                 // frame on the stream, stamped with the subscription id.
                 const ack = stampSubscriptionId(
-                    { method: 'notifications/subscriptions/acknowledged', params: { notifications: honored } },
+                    { method: 'notifications/subscriptions/acknowledged', params: { notifications: honored.ack } },
                     subscriptionId
                 );
                 writeNotification(ack.method, ack.params);
 
                 // Nothing honored means nothing can ever be delivered: complete the subscription instead of holding the stream.
-                if (Object.keys(honored).length === 0) {
+                if (Object.keys(honored.ack).length === 0) {
                     teardown(true);
                     return;
                 }
 
                 // Only after the ack frame is enqueued does delivery activate.
                 unsubscribe = bus.subscribe(event => {
-                    if (closed || !listenFilterAccepts(honored, event)) return;
+                    if (closed || !honoredListenAccepts(honored, event, onerror)) return;
                     const note = stampSubscriptionId(serverEventToNotification(event), subscriptionId);
                     writeNotification(note.method, note.params);
                 });
@@ -284,13 +328,6 @@ export interface ListenCloseFrame {
     };
 }
 
-const CHANGE_NOTIFICATION_METHODS: ReadonlySet<string> = new Set([
-    'notifications/tools/list_changed',
-    'notifications/prompts/list_changed',
-    'notifications/resources/list_changed',
-    'notifications/resources/updated'
-]);
-
 /**
  * Per-connection listen state for the stdio entry. One instance is held by
  * `serveStdio` for the connection lifetime; it routes inbound
@@ -301,7 +338,9 @@ const CHANGE_NOTIFICATION_METHODS: ReadonlySet<string> = new Set([
  */
 export class StdioListenRouter {
     /** Active subscriptions, keyed by the listen request's JSON-RPC id verbatim. */
-    private readonly _subs = new Map<RequestId, SubscriptionFilter>();
+    private readonly _subs = new Map<RequestId, HonoredListen>();
+    /** Notification methods some extension delivers through listen subscriptions. */
+    private readonly _extensionMethods: ReadonlySet<string>;
     /**
      * The serving instance's declared capabilities. Filled in by the entry
      * once the modern instance is constructed (the router is created before
@@ -319,10 +358,14 @@ export class StdioListenRouter {
     constructor(
         private readonly _maxSubscriptions: number = DEFAULT_MAX_SUBSCRIPTIONS,
         serverCapabilities?: ServerCapabilities,
-        serverInfo?: Implementation
+        serverInfo?: Implementation,
+        private readonly _extensions: readonly ListenExtension[] = [],
+        private readonly _onerror?: (error: Error) => void
     ) {
         this._serverCapabilities = serverCapabilities;
         this._serverInfo = serverInfo;
+        assertListenExtensions(_extensions);
+        this._extensionMethods = new Set(_extensions.flatMap(extension => extension.methods));
     }
 
     /**
@@ -361,17 +404,15 @@ export class StdioListenRouter {
         if (this._subs.size >= this._maxSubscriptions) {
             return { jsonrpc: '2.0', id: message.id, error: { code: -32_603, message: 'Subscription limit reached' } };
         }
-        const filter = parseListenFilter(message);
-        if (filter === undefined) {
-            return {
-                jsonrpc: '2.0',
-                id: message.id,
-                error: { code: -32_602, message: "Invalid params: 'notifications' is required and must be a valid SubscriptionFilter" }
-            };
+        const honored = honorListenRequest(message, this._serverCapabilities, this._extensions, this._onerror);
+        if ('invalid' in honored) {
+            return { jsonrpc: '2.0', id: message.id, error: { code: -32_602, message: honored.invalid } };
         }
-        const honored = honoredSubset(filter, this._serverCapabilities);
         this._subs.set(message.id, honored);
-        return stampSubscriptionId({ method: 'notifications/subscriptions/acknowledged', params: { notifications: honored } }, message.id);
+        return stampSubscriptionId(
+            { method: 'notifications/subscriptions/acknowledged', params: { notifications: honored.ack } },
+            message.id
+        );
     }
 
     /**
@@ -386,22 +427,27 @@ export class StdioListenRouter {
     /**
      * Route an outbound notification through the active subscriptions.
      *
-     * - For a subscription-gated change notification, returns one stamped copy
+     * - For a subscription-gated change notification, or a notification whose
+     *   method a {@linkcode ListenExtension} declares, returns one stamped copy
      *   per subscription that opted in to it (an empty array means it is
      *   dropped — the modern era never delivers an un-requested change type).
      * - For any other outbound message, returns `'passthrough'` (the entry
      *   forwards it as-is).
      */
     routeOutbound(message: { method: string; params?: { [key: string]: unknown } }): NotificationBody[] | 'passthrough' {
-        if (!CHANGE_NOTIFICATION_METHODS.has(message.method)) {
+        let event: ServerEvent;
+        if (CORE_CHANGE_NOTIFICATION_METHODS.has(message.method)) {
+            const uriParam: unknown = message.params?.['uri'];
+            const uri = typeof uriParam === 'string' ? uriParam : undefined;
+            event = notificationToServerEvent(message.method, uri);
+        } else if (this._extensionMethods.has(message.method)) {
+            event = { kind: 'extension', method: message.method, ...(message.params !== undefined && { params: message.params }) };
+        } else {
             return 'passthrough';
         }
-        const uriParam: unknown = message.params?.['uri'];
-        const uri = typeof uriParam === 'string' ? uriParam : undefined;
-        const event = notificationToServerEvent(message.method, uri);
         const out: NotificationBody[] = [];
-        for (const [subscriptionId, filter] of this._subs) {
-            if (listenFilterAccepts(filter, event)) {
+        for (const [subscriptionId, listen] of this._subs) {
+            if (honoredListenAccepts(listen, event, this._onerror)) {
                 out.push(stampSubscriptionId({ method: message.method, params: message.params ?? {} }, subscriptionId));
             }
         }
@@ -435,7 +481,7 @@ export class StdioListenRouter {
     }
 }
 
-function notificationToServerEvent(method: string, uri: string | undefined): import('./serverEventBus').ServerEvent {
+function notificationToServerEvent(method: string, uri: string | undefined): ServerEvent {
     switch (method) {
         case 'notifications/tools/list_changed': {
             return { kind: 'tools_list_changed' };

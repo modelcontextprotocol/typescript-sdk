@@ -79,6 +79,7 @@ import { DEFAULT_MAX_SUBSCRIPTIONS, StdioListenRouter } from './listenRouter';
 import { McpServer } from './mcp';
 import type { Server } from './server';
 import { installModernOnlyHandlers, serverIdentityOf } from './server';
+import type { ListenExtension } from './serverEventBus';
 import { StdioServerTransport } from './stdio';
 
 /** Options for {@linkcode serveStdio}. */
@@ -114,6 +115,16 @@ export interface ServeStdioOptions {
      * @default 1024
      */
     maxSubscriptions?: number;
+    /**
+     * Extensions that honor their own fields of the `subscriptions/listen`
+     * filter (for example the Tasks extension's `taskIds`) and deliver their
+     * own notifications. On a modern connection, a notification the pinned
+     * instance sends with a method an extension declares is routed like a
+     * change notification: delivered, stamped, to each subscription the
+     * extension accepts it on, and dropped when none does. See
+     * {@linkcode ListenExtension}.
+     */
+    listenExtensions?: readonly ListenExtension[];
 }
 
 /** The handle returned by {@linkcode serveStdio}. */
@@ -411,7 +422,13 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
      * change notifications pass straight through (the 2025 unsolicited
      * delivery model is unchanged).
      */
-    const listenRouter = new StdioListenRouter(options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS);
+    const listenRouter = new StdioListenRouter(
+        options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS,
+        undefined,
+        undefined,
+        options.listenExtensions,
+        reportError
+    );
 
     /** Outbound intercept installed on a modern instance's channel. */
     const modernOutboundIntercept = (message: JSONRPCMessage): 'handled' | undefined => {
