@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import * as events from '../../src/ext/events/index';
 import * as skills from '../../src/ext/skills/index';
 import * as skillsNode from '../../src/ext/skills/node';
 import * as barrel from '../../src/index';
 
-/** Every public entry that can export an error class: the root and the skills extension's subpaths. */
-const SURFACES: ReadonlyArray<Record<string, unknown>> = [barrel, skills, skillsNode];
+/** Every public entry that can export an error class: the root and the extensions' subpaths. */
+const SURFACES: ReadonlyArray<Record<string, unknown>> = [barrel, skills, skillsNode, events];
 
 /**
  * Server-side twin of the client's errorBrandConformance test: every error
@@ -39,6 +40,7 @@ describe('error brand conformance (server export surface)', () => {
         expect(classes.length).toBeGreaterThanOrEqual(5);
         expect(classes.map(([n]) => n)).toContain('ProtocolError');
         expect(classes.map(([n]) => n)).toContain('SkillCatalogError');
+        expect(classes.map(([n]) => n)).toContain('EventsError');
     });
 
     it('every exported error class is branded (or explicitly allowlisted)', () => {
@@ -85,7 +87,7 @@ describe('error brand conformance (server export surface)', () => {
         'UnsupportedProtocolVersionError',
         'UrlElicitationRequiredError'
     ]);
-    const SERVER_LOCAL_BRANDS: Record<string, string> = { SkillCatalogError: 'mcp.SkillCatalogError' };
+    const SERVER_LOCAL_BRANDS: Record<string, string> = { EventsError: 'mcp.EventsError', SkillCatalogError: 'mcp.SkillCatalogError' };
 
     it('pins every server-local brand string (add new entries here — renames must be deliberate)', () => {
         const brands = Object.fromEntries(

@@ -18,6 +18,7 @@
             "@modelcontextprotocol/client/ext/skills": ["./node_modules/@modelcontextprotocol/client/src/ext/skills/index.ts"],
             "@modelcontextprotocol/server/ext/skills": ["./node_modules/@modelcontextprotocol/server/src/ext/skills/index.ts"],
             "@modelcontextprotocol/server/ext/skills/node": ["./node_modules/@modelcontextprotocol/server/src/ext/skills/node.ts"],
+            "@modelcontextprotocol/server/ext/events": ["./node_modules/@modelcontextprotocol/server/src/ext/events/index.ts"],
             "@modelcontextprotocol/core": ["./node_modules/@modelcontextprotocol/core/src/index.ts"],
             "@modelcontextprotocol/express": ["./node_modules/@modelcontextprotocol/express/src/index.ts"],
             "@modelcontextprotocol/fastify": ["./node_modules/@modelcontextprotocol/fastify/src/index.ts"],

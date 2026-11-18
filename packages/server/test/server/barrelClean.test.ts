@@ -122,18 +122,21 @@ describe('@modelcontextprotocol/server root entry is browser-safe', () => {
     });
 });
 
-describe('@modelcontextprotocol/server root and ext/skills are runtime-neutral', () => {
+describe('@modelcontextprotocol/server root, ext/skills and ext/events are runtime-neutral', () => {
     beforeAll(async () => {
         await ensureBuilt(pkgDir);
     }, 180_000);
 
-    test.each(['index.mjs', 'ext/skills/index.mjs'])('%s and every chunk it imports have no node: imports', entry => {
-        for (const file of moduleGraphOf(join(distDir, entry))) {
-            expect({ file, content: readFileSync(file, 'utf8') }).not.toEqual(
-                expect.objectContaining({ content: expect.stringMatching(NODE_BUILTIN_IMPORT) })
-            );
+    test.each(['index.mjs', 'ext/skills/index.mjs', 'ext/events/index.mjs'])(
+        '%s and every chunk it imports have no node: imports',
+        entry => {
+            for (const file of moduleGraphOf(join(distDir, entry))) {
+                expect({ file, content: readFileSync(file, 'utf8') }).not.toEqual(
+                    expect.objectContaining({ content: expect.stringMatching(NODE_BUILTIN_IMPORT) })
+                );
+            }
         }
-    });
+    );
 
     test('ext/skills/node exports the folder adapter and is where the node: imports live', () => {
         const node = join(distDir, 'ext/skills/node.mjs');
@@ -147,6 +150,22 @@ describe('@modelcontextprotocol/server root and ext/skills are runtime-neutral',
         expect(rootExportBlockOf(readFileSync(join(distDir, 'index.mjs'), 'utf8'))).not.toMatch(
             /\b(?:SkillsExtension|SkillCatalog|loadSkills|nodeSkillFiles)\b/
         );
+    });
+
+    test('the root entry does not export the events extension', () => {
+        expect(rootExportBlockOf(readFileSync(join(distDir, 'index.mjs'), 'utf8'))).not.toMatch(
+            /\b(?:EventsExtension|InMemoryWebhookSubscriptionStore)\b/
+        );
+    });
+
+    test('the ext/events declarations carry no test hook', () => {
+        const graph = declarationGraphOf(join(distDir, 'ext/events/index.d.mts'));
+        expect(graph.some(file => /\bdeclare class EventsExtension\b/.test(readFileSync(file, 'utf8')))).toBe(true);
+        for (const file of graph) {
+            expect({ file, content: readFileSync(file, 'utf8') }).not.toEqual(
+                expect.objectContaining({ content: expect.stringMatching(/testHook|TestHook/) })
+            );
+        }
     });
 
     test('dist/index.mjs and every chunk it imports carry no skills code and no @modelcontextprotocol/core/ext/skills import', () => {
