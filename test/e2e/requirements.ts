@@ -2813,6 +2813,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['entryStateless', 'entryModern'],
         note: 'Runs on the createMcpHandler entry arms; the malformed body is POSTed through wired.fetch so the HTTP status and JSON-RPC error code are observed directly.'
     },
+    'typescript:hosting:entry:tool-missing-capability-400': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic#_meta',
+        behavior:
+            'A tool that throws MissingRequiredClientCapabilityError is answered HTTP 400 by a createMcpHandler endpoint on a 2026-07-28 request, with the -32021 JSON-RPC error and its requiredCapabilities as the body.',
+        transports: ['entryModern'],
+        note: 'The spec ties the 400 to the 2026-07-28 error; the status is read through wired.fetch. A response whose stream is already open keeps its 200 and carries the error in-stream.'
+    },
     'typescript:hosting:entry:legacy-accept-406': {
         source: 'sdk',
         behavior:

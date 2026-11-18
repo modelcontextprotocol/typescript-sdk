@@ -61,7 +61,7 @@ The model reads the message, sees `welcome` in it, and retries with an id that e
 
 ## Let a thrown exception become a tool error
 
-Throw instead: the SDK catches anything a tool handler throws and converts it to the same `isError: true` shape.
+Throw instead: the SDK catches what a tool handler throws and converts it to the same `isError: true` shape. The two exceptions are `UrlElicitationRequiredError` and `MissingRequiredClientCapabilityError`, which reach the client as protocol errors (see [Throw a protocol error](#throw-a-protocol-error)).
 
 ```ts source="../../examples/guides/servers/errors.examples.ts#registerTool_throw"
 server.registerTool(
@@ -175,9 +175,9 @@ The error carries the requested URI in `data` and the code the spec mandates for
 
 Three more subclasses cover the other structured protocol errors:
 
-- `UrlElicitationRequiredError(elicitations)` — `-32042`; the only error a tool handler can propagate. See [Elicitation](./elicitation.md).
+- `UrlElicitationRequiredError(elicitations)` — `-32042`; a tool handler can propagate it. See [Elicitation](./elicitation.md).
 - `UnsupportedProtocolVersionError({ supported, requested })` — `-32022`; `data.supported` lets the peer pick a version and retry.
-- `MissingRequiredClientCapabilityError({ requiredCapabilities })` — `-32021`; `data.requiredCapabilities` names exactly what the client must declare.
+- `MissingRequiredClientCapabilityError({ requiredCapabilities })` — `-32021`; `data.requiredCapabilities` names exactly what the client must declare. A tool handler can propagate it too; over HTTP on 2026-07-28 it is answered with status 400 unless the response stream is already open.
 
 Match these by `code` and `data` shape when peers may run pre-brand SDK copies or hand you plain wire shapes; on brand-aware releases `instanceof` also matches across separately bundled copies of the SDK. The same check is available as an explicit static guard — `ProtocolError.isInstance(err)`, `ResourceNotFoundError.isInstance(err)` — which narrows in TypeScript and reads the same brand.
 
