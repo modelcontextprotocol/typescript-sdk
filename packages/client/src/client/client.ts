@@ -54,6 +54,8 @@ import type {
     XMcpHeaderScanResult
 } from '@modelcontextprotocol/core-internal';
 import {
+    assertExtensionCapabilitiesUnowned,
+    assertWrappable,
     buildMcpParamHeaders,
     codecForVersion,
     DEFAULT_REQUEST_TIMEOUT_MSEC,
@@ -83,6 +85,8 @@ import {
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
+import type { ClientExtension } from './extension';
+import { installClientExtensions } from './extension';
 import { defaultInstrumentation } from './openTelemetry';
 import type { PriorDiscovery } from './probeClassifier';
 import type { CacheMode, CacheScope, ResponseCacheStore } from './responseCache';
@@ -185,6 +189,18 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
 }
 
 export type ClientOptions = ProtocolOptions & {
+    /**
+     * Extensions to set up at construction, in order. Each is advertised under
+     * `capabilities.extensions[id]` as `{}`, then its `setup` runs with a
+     * `ClientExtensionContext`. A duplicate id fails construction before any
+     * extension is set up.
+     *
+     * Experimental: may change in a minor release while the extensions SEPs settle.
+     *
+     * @experimental
+     */
+    extensions?: readonly ClientExtension[];
+
     /**
      * Capabilities to advertise as being supported by this client.
      */
@@ -697,6 +713,8 @@ export class Client extends Protocol<ClientContext> {
         if (options?.listChanged) {
             this._listChangedConfig = options.listChanged;
         }
+
+        installClientExtensions(this, options?.extensions ?? [], options?.capabilities);
     }
 
     protected override buildContext(ctx: BaseContext, _transportInfo?: MessageExtraInfo): ClientContext {
@@ -829,6 +847,7 @@ export class Client extends Protocol<ClientContext> {
         if (this.transport) {
             throw new Error('Cannot register capabilities after connecting to transport');
         }
+        assertExtensionCapabilitiesUnowned(this, capabilities);
 
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
     }
@@ -1536,6 +1555,10 @@ export class Client extends Protocol<ClientContext> {
                 break;
             }
         }
+    }
+
+    protected override assertMiddlewareMethod(method: string): void {
+        assertWrappable('client', method);
     }
 
     protected assertRequestHandlerCapability(method: string): void {
