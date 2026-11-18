@@ -14,13 +14,13 @@ An **extension** packages protocol behaviour outside the core specification, suc
 
 An extension is an `id` and a `setup(ctx)` function. What is both required and declarative sits on the object, which today is just the `id`. Everything else happens in `setup`, which runs once while the server is constructed: optional declarations first (`ctx.capability`, `ctx.require`), then handlers, middleware and anything registered on `ctx.mcp`. Everything `setup` adds goes through `ctx`:
 
-| Member                                          | What it does                                                                                                                                                                      |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ctx.capability(settings)`                      | Sets what the server advertises under `capabilities.extensions[id]`. Without a call, the server advertises `{}`.                                                                  |
-| `ctx.require(extensionId)`                      | Declares that this extension needs another extension. Construction fails, naming both, when the server doesn't install it. Order in `extensions` doesn't matter.                  |
-| `ctx.setRequestHandler(name, schemas, handler)` | Registers the handler for a custom request method, with the same arguments as `setRequestHandler`. Throws for a core method name, or for a method another handler already serves. |
-| `ctx.use(method, middleware)`                   | Middleware around whatever handler serves a request `method` this side receives, core or custom.                                                                                  |
-| `ctx.mcp`                                       | The `McpServer`, for `registerTool`, `registerResource` and `ResourceTemplate`.                                                                                                   |
+| Member                                          | What it does                                                                                                                                                                                       |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctx.capability(settings)`                      | Sets what the server advertises under `capabilities.extensions[id]`. Without a call, the server advertises `{}`.                                                                                   |
+| `ctx.require(extensionId)`                      | Declares that this extension needs another extension. Construction fails, naming both, when the server doesn't install it. Order in `extensions` doesn't matter.                                   |
+| `ctx.setRequestHandler(name, schemas, handler)` | Registers the handler for a custom request method, with the same arguments as `setRequestHandler`. Throws for a core request or notification name, or for a method another handler already serves. |
+| `ctx.use(method, middleware)`                   | Middleware around whatever handler serves a request `method` this side receives, core or custom.                                                                                                   |
+| `ctx.mcp`                                       | The `McpServer`, for `registerTool`, `registerResource` and `ResourceTemplate`.                                                                                                                    |
 
 This extension adds a custom method, and refuses `tools/call` from clients that didn't declare it. It reads the 2026-07-28 per-request envelope, so as written it refuses every 2025-11-25 request:
 
@@ -139,7 +139,7 @@ Several middleware nest in registration order, the first outermost. Extension mi
 
 An extension wraps the methods it doesn't own with `ctx.use`, and never registers them again; `ctx.setRequestHandler` refuses to. Something every peer must know about the extension belongs in its advertised capability (`ctx.capability`), not in per-request `_meta`. Where a result does carry extension `_meta`, the middleware adds its own namespaced key, and the encoder still stamps the SDK's reserved keys and `resultType` on top.
 
-A thrown `ProtocolError` becomes the JSON-RPC error response. Inside a tool handler, `McpServer` converts most throws into an `isError` tool result. The exceptions are the protocol-level errors the client must see as errors: `UrlElicitationRequiredError` and `MissingRequiredClientCapabilityError` (`-32021`).
+A `ProtocolError` thrown from middleware becomes the JSON-RPC error response. A tool handler is different: `McpServer` converts most of what it throws into an `isError` tool result, so refuse a request from middleware when the client must see a JSON-RPC error.
 
 ## Recap
 
