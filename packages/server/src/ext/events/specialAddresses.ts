@@ -79,7 +79,6 @@ const IPV4_SPECIAL = [
 const IPV6_SPECIAL = [
     '::/128',
     '::1/128',
-    '64:ff9b::/96',
     '64:ff9b:1::/48',
     '100::/64',
     '2001::/23',
@@ -91,13 +90,15 @@ const IPV6_SPECIAL = [
     'fe80::/10',
     'ff00::/8'
 ].map(cidr => blockOf(cidr, 128n, parseIpv6));
+// IPv4-mapped (`::ffff:0:0/96`) and well-known-prefix NAT64 (`64:ff9b::/96`) addresses carry an IPv4 address in their low 32 bits.
+const EMBEDS_IPV4 = ['::ffff:0:0/96', '64:ff9b::/96'].map(cidr => blockOf(cidr, 128n, parseIpv6));
 
-// Whether `ip` is in a special-purpose range, an IPv4-mapped IPv6 address (`::ffff:0:0/96`) by its IPv4 part; anything that is not an IP address counts as special.
+// Whether `ip` is in a special-purpose range, an address that embeds an IPv4 address by that IPv4 part; anything that is not an IP address counts as special.
 export function isSpecialPurposeAddress(ip: string): boolean {
     const ipv4 = parseIpv4(ip);
     if (ipv4 !== undefined) return within(ipv4, IPV4_SPECIAL);
     const ipv6 = parseIpv6(ip);
     if (ipv6 === undefined) return true;
-    if (ipv6 >> 32n === 0xff_ffn) return within(ipv6 & 0xff_ff_ff_ffn, IPV4_SPECIAL);
+    if (within(ipv6, EMBEDS_IPV4)) return within(ipv6 & 0xff_ff_ff_ffn, IPV4_SPECIAL);
     return within(ipv6, IPV6_SPECIAL);
 }
