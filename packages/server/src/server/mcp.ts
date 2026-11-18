@@ -500,6 +500,19 @@ export class McpServer {
         this._completionHandlerInitialized = true;
     }
 
+    private enablePromptCompletions(argsSchema: StandardSchemaWithJSON | undefined): void {
+        const shape = argsSchema && getSchemaShape(argsSchema);
+        if (shape && Object.values(shape).some(field => isCompletable(unwrapOptionalSchema(field)))) {
+            this.setCompletionRequestHandler();
+        }
+    }
+
+    private enableResourceTemplateCompletions(template: ResourceTemplate): void {
+        if (template.uriTemplate.variableNames.some(name => !!template.completeCallback(name))) {
+            this.setCompletionRequestHandler();
+        }
+    }
+
     private async handlePromptCompletion(request: CompleteRequestPrompt, ref: PromptReference): Promise<CompleteResult> {
         const prompt = this._registeredPrompts[ref.name];
         if (!prompt) {
@@ -853,6 +866,7 @@ export class McpServer {
             enable: () => registeredResourceTemplate.update({ enabled: true }),
             remove: () => registeredResourceTemplate.update({ name: null }),
             update: updates => {
+                if (updates.template !== undefined) this.enableResourceTemplateCompletions(updates.template);
                 if (updates.name !== undefined && updates.name !== name) {
                     delete this._registeredResourceTemplates[name];
                     if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
@@ -873,12 +887,7 @@ export class McpServer {
         };
         this._registeredResourceTemplates[name] = registeredResourceTemplate;
 
-        // If the resource template has any completion callbacks, enable completions capability
-        const variableNames = template.uriTemplate.variableNames;
-        const hasCompleter = Array.isArray(variableNames) && variableNames.some(v => !!template.completeCallback(v));
-        if (hasCompleter) {
-            this.setCompletionRequestHandler();
-        }
+        this.enableResourceTemplateCompletions(template);
 
         return registeredResourceTemplate;
     }
@@ -910,6 +919,7 @@ export class McpServer {
             enable: () => registeredPrompt.update({ enabled: true }),
             remove: () => registeredPrompt.update({ name: null }),
             update: updates => {
+                if (updates.argsSchema !== undefined) this.enablePromptCompletions(updates.argsSchema);
                 if (updates.name !== undefined && updates.name !== name) {
                     delete this._registeredPrompts[name];
                     if (updates.name) this._registeredPrompts[updates.name] = registeredPrompt;
@@ -943,19 +953,7 @@ export class McpServer {
         };
         this._registeredPrompts[name] = registeredPrompt;
 
-        // If any argument uses a Completable schema, enable completions capability
-        if (argsSchema) {
-            const shape = getSchemaShape(argsSchema);
-            if (shape) {
-                const hasCompletable = Object.values(shape).some(field => {
-                    const inner = unwrapOptionalSchema(field);
-                    return isCompletable(inner);
-                });
-                if (hasCompletable) {
-                    this.setCompletionRequestHandler();
-                }
-            }
-        }
+        this.enablePromptCompletions(argsSchema);
 
         return registeredPrompt;
     }
