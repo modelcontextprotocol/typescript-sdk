@@ -1778,6 +1778,86 @@ test('should handle partial listChanged capability support', async () => {
     expect(promptNotifications).toHaveLength(0);
 });
 
+/***
+ * Test: A throwing listChanged callback is reported on onerror, once
+ */
+test('should report a throwing listChanged callback on onerror without calling it again', async () => {
+    const notifications: [Error | null, Tool[] | null][] = [];
+    const errors: Error[] = [];
+
+    const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: { listChanged: true } } });
+
+    server.setRequestHandler('tools/list', async () => ({
+        tools: [{ name: 'test-tool', inputSchema: { type: 'object' } }]
+    }));
+
+    const client = new Client(
+        { name: 'test-client', version: '1.0.0' },
+        {
+            listChanged: {
+                tools: {
+                    debounceMs: 0,
+                    onChanged: (err, tools) => {
+                        notifications.push([err, tools]);
+                        throw new Error('callback failed');
+                    }
+                }
+            }
+        }
+    );
+    client.onerror = error => errors.push(error);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await server.notification({ method: 'notifications/tools/list_changed' });
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // The refresh succeeded, so the callback sees the tools once and never its own error
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]![0]).toBeNull();
+    expect(notifications[0]![1]).toHaveLength(1);
+    expect(errors.map(error => error.message)).toEqual(['Uncaught error in tools listChanged callback: Error: callback failed']);
+});
+
+/***
+ * Test: A throwing listChanged callback is reported on onerror with manual refresh and debounce
+ */
+test('should report a throwing listChanged callback on onerror with manual refresh', async () => {
+    const notifications: [Error | null, Tool[] | null][] = [];
+    const errors: Error[] = [];
+
+    const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: { listChanged: true } } });
+
+    const client = new Client(
+        { name: 'test-client', version: '1.0.0' },
+        {
+            listChanged: {
+                tools: {
+                    autoRefresh: false,
+                    debounceMs: 10,
+                    onChanged: (err, tools) => {
+                        notifications.push([err, tools]);
+                        throw new Error('callback failed');
+                    }
+                }
+            }
+        }
+    );
+    client.onerror = error => errors.push(error);
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await server.notification({ method: 'notifications/tools/list_changed' });
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    expect(notifications).toEqual([[null, null]]);
+    expect(errors.map(error => error.message)).toEqual(['Uncaught error in tools listChanged callback: Error: callback failed']);
+});
+
 describe('outputSchema validation', () => {
     /***
      * Test: Validate structuredContent Against outputSchema

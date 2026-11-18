@@ -2636,7 +2636,15 @@ export class Client extends Protocol<ClientContext> {
         }
 
         const { autoRefresh, debounceMs } = parseResult.data;
-        const { onChanged } = options;
+
+        // A throwing callback is reported on `onerror`; it must not be called again with its own error as a failed refresh.
+        const onChanged = (error: Error | null, items: T[] | null): void => {
+            try {
+                options.onChanged(error, items);
+            } catch (callbackError) {
+                this.onerror?.(new Error(`Uncaught error in ${listType} listChanged callback: ${callbackError}`));
+            }
+        };
 
         const refresh = async () => {
             if (!autoRefresh) {
