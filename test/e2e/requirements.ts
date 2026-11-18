@@ -711,6 +711,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'sdk',
         behavior: "Registering a tool whose name violates the spec's tool-naming conventions emits a warning; registration still succeeds."
     },
+    'mcpserver:tool:missing-client-capability-error': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic#_meta',
+        behavior:
+            'A tool that throws MissingRequiredClientCapabilityError answers tools/call with JSON-RPC error -32021 and its requiredCapabilities, not an isError tool result.'
+    },
     'mcpserver:tool:url-elicitation-error': {
         source: 'sdk',
         behavior:
