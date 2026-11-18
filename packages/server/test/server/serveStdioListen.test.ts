@@ -113,7 +113,7 @@ describe('serveStdio — subscriptions/listen', () => {
     it('handle.close() emits one empty subscriptions/listen result per active subscription id (graceful-close signal)', async () => {
         const { handle, inbound, send, flush } = await bootModern();
         await send(listenReq('s1', { toolsListChanged: true }));
-        await send(listenReq('s2', { promptsListChanged: true }));
+        await send(listenReq('s2', { toolsListChanged: true }));
         await flush();
         inbound.length = 0;
         await handle.close();
@@ -157,6 +157,57 @@ describe('serveStdio — subscriptions/listen', () => {
             params: { _meta: { [SUBSCRIPTION_ID_META_KEY]: 42 }, notifications: { toolsListChanged: true } }
         });
         await handle.close();
+    });
+
+    it('acks and completes immediately when capabilities honor nothing, without holding a subscription slot', async () => {
+        const { handle, inbound, send, flush } = await bootModern({ maxSubscriptions: 1 });
+        await send(listenReq(7, { promptsListChanged: true, resourcesListChanged: true, resourceSubscriptions: ['file:///a'] }));
+        await flush();
+        expect(inbound).toEqual([
+            {
+                jsonrpc: '2.0',
+                method: 'notifications/subscriptions/acknowledged',
+                params: { notifications: {}, _meta: { [SUBSCRIPTION_ID_META_KEY]: 7 } }
+            },
+            {
+                jsonrpc: '2.0',
+                id: 7,
+                result: {
+                    resultType: 'complete',
+                    _meta: {
+                        [SUBSCRIPTION_ID_META_KEY]: 7,
+                        'io.modelcontextprotocol/serverInfo': { name: 's', version: '1' }
+                    }
+                }
+            }
+        ]);
+
+        inbound.length = 0;
+        await send(listenReq(8, { toolsListChanged: true }));
+        await flush();
+        expect(inbound).toEqual([
+            {
+                jsonrpc: '2.0',
+                method: 'notifications/subscriptions/acknowledged',
+                params: { notifications: { toolsListChanged: true }, _meta: { [SUBSCRIPTION_ID_META_KEY]: 8 } }
+            }
+        ]);
+
+        inbound.length = 0;
+        await handle.close();
+        expect(inbound).toEqual([
+            {
+                jsonrpc: '2.0',
+                id: 8,
+                result: {
+                    resultType: 'complete',
+                    _meta: {
+                        [SUBSCRIPTION_ID_META_KEY]: 8,
+                        'io.modelcontextprotocol/serverInfo': { name: 's', version: '1' }
+                    }
+                }
+            }
+        ]);
     });
 
     it('rejects an entry-handled listen with -32602 when the per-request envelope is absent', async () => {
@@ -245,5 +296,29 @@ describe('StdioListenRouter — capability gate', () => {
             method: 'notifications/subscriptions/acknowledged',
             params: { notifications: { toolsListChanged: true } }
         });
+    });
+
+    it('serve() completes immediately without tracking the id when nothing is honored', () => {
+        const router = new StdioListenRouter(1, { tools: { listChanged: true } }, { name: 's', version: '1' });
+        const outcome = router.serve(listenReq('empty-1', { promptsListChanged: true }));
+        expect(outcome).toEqual([
+            {
+                method: 'notifications/subscriptions/acknowledged',
+                params: { notifications: {}, _meta: { [SUBSCRIPTION_ID_META_KEY]: 'empty-1' } }
+            },
+            {
+                jsonrpc: '2.0',
+                id: 'empty-1',
+                result: {
+                    resultType: 'complete',
+                    _meta: {
+                        [SUBSCRIPTION_ID_META_KEY]: 'empty-1',
+                        'io.modelcontextprotocol/serverInfo': { name: 's', version: '1' }
+                    }
+                }
+            }
+        ]);
+        expect(router.has('empty-1')).toBe(false);
+        expect(router.teardownAll()).toEqual([]);
     });
 });
