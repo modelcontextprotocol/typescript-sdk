@@ -6,11 +6,13 @@
  * The entry owns the stdio transport and the era decision for the connection.
  * It classifies the connection's opening exchange exactly once (using the
  * same body-primary rules as the HTTP entry), constructs ONE server instance
- * from the consumer's factory for the era the client opened with, pins that
- * instance for the lifetime of the connection, and passes every later message
- * straight through to it. No per-message era classification ever runs after
- * the connection is pinned — exactly mirroring how `createMcpHandler`
- * classifies an HTTP request before any instance exists.
+ * from the consumer's factory for the era the client opened with, and pins
+ * that instance for the lifetime of the connection. Later messages pass
+ * through to that instance. A modern request whose envelope names a revision
+ * this entry does not serve is answered with `-32022` before the instance
+ * runs it. No per-message era classification ever runs after the connection
+ * is pinned — exactly mirroring how `createMcpHandler` classifies an HTTP
+ * request before any instance exists.
  *
  * The opening exchange:
  *
@@ -59,6 +61,7 @@ import type {
 } from '@modelcontextprotocol/core-internal';
 import {
     carriesValidModernEnvelopeClaim,
+    codecForVersion,
     envelopeClaimVersion,
     extensionsSettled,
     hasEnvelopeClaim,
@@ -66,6 +69,7 @@ import {
     isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
+    MODERN_WIRE_REVISION,
     modernOnlyStrictRejection,
     ProtocolErrorCode,
     requestMetaOf,
@@ -339,6 +343,32 @@ function classifyOpeningMessage(message: JSONRPCRequest | JSONRPCNotification): 
     return { kind: 'modern', revision: claimedVersion, classification: { era: 'modern', revision: claimedVersion } };
 }
 
+/**
+ * Revision a modern-pinned request must be rejected for before dispatch.
+ * `undefined` leaves the answer to the instance: an unknown method is
+ * `-32601` and a missing or malformed envelope is `-32602`, and both outrank
+ * an unsupported revision.
+ */
+function unsupportedPinnedRevision(message: JSONRPCRequest): string | undefined {
+    // Method existence is the instance's -32601. Only a method the modern
+    // registry actually serves can reach the revision check.
+    if (!codecForVersion(MODERN_WIRE_REVISION).hasRequestMethod(message.method)) {
+        return undefined;
+    }
+    if (!hasEnvelopeClaim(message.params)) {
+        return undefined;
+    }
+    const meta = requestMetaOf(message.params);
+    if (meta === undefined || validateEnvelopeMeta(meta).length > 0) {
+        return undefined;
+    }
+    const claimedVersion = envelopeClaimVersion(message.params);
+    if (claimedVersion !== undefined && SUPPORTED_MODERN_PROTOCOL_VERSIONS.includes(claimedVersion)) {
+        return undefined;
+    }
+    return claimedVersion ?? 'unknown';
+}
+
 /* ------------------------------------------------------------------------ *
  * The entry
  * ------------------------------------------------------------------------ */
@@ -605,6 +635,20 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
                 // Closed while entry listen routing was being checked (a
                 // buffered final message can race stdin EOF): stay closed.
                 return;
+            }
+            if (state.era === 'modern' && isJSONRPCRequest(message)) {
+                const requested = unsupportedPinnedRevision(message);
+                if (requested !== undefined) {
+                    // Same -32022 the opening classifier and the HTTP entry
+                    // answer, before the pinned instance can run the method.
+                    const error = new UnsupportedProtocolVersionError({
+                        supported: [...SUPPORTED_MODERN_PROTOCOL_VERSIONS],
+                        requested
+                    });
+                    reportError(error);
+                    await writeErrorResponse(message.id, error.code, error.message, error.data);
+                    return;
+                }
             }
             state.instance.channel.deliver(message);
             return;
