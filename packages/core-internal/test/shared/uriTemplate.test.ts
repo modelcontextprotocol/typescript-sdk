@@ -312,3 +312,12 @@ describe('UriTemplate', () => {
         });
     });
 });
+
+describe('exploded path matching', () => {
+    it('matches the slash-separated array produced by expand', () => {
+        const template = new UriTemplate('/files{/segments*}');
+        const expanded = template.expand({ segments: ['src', 'index.ts'] });
+        expect(expanded).toBe('/files/src/index.ts');
+        expect(template.match(expanded)).toEqual({ segments: ['src', 'index.ts'] });
+    });
+});
