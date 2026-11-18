@@ -334,6 +334,31 @@ describe('clientInternals.onClose', () => {
         await client.close();
     });
 
+    it('runs listeners when the client reconnects without closing, after the request streams end', async () => {
+        const { client } = await scriptedStreams();
+        const order: string[] = [];
+        clientInternals.openStream(client, streamRequest('a'), { onNotification: () => {}, onEnd: () => void order.push('stream end') });
+        clientInternals.onClose(client, () => void order.push('listener'));
+        const next = await scriptedServer();
+
+        await client.connect(next.clientTx);
+
+        expect(order).toEqual(['stream end', 'listener']);
+        await client.close();
+    });
+
+    it('runs the listeners registered when the connection closed, not those they add', async () => {
+        const { client, clientTx } = await scriptedStreams();
+        const added = vi.fn();
+        clientInternals.onClose(client, () => void clientInternals.onClose(client, added));
+
+        await clientTx.close();
+
+        expect(added).not.toHaveBeenCalled();
+        await client.close();
+        expect(added).toHaveBeenCalled();
+    });
+
     it('a throwing listener goes to onerror and the other listeners and pending requests still settle', async () => {
         const { client, clientTx } = await scriptedStreams();
         const errors: Error[] = [];

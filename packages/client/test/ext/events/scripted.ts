@@ -1,6 +1,6 @@
 import type { EventDescriptor, EventOccurrence } from '@modelcontextprotocol/core/ext/events';
 import { EVENTS_EXTENSION_ID } from '@modelcontextprotocol/core/ext/events';
-import type { JSONRPCRequest, RequestId, ServerCapabilities, Transport } from '@modelcontextprotocol/core-internal';
+import type { JSONRPCMessage, JSONRPCRequest, RequestId, ServerCapabilities, Transport } from '@modelcontextprotocol/core-internal';
 import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
 
 import type { ClientOptions } from '../../../src/client/client';
@@ -49,26 +49,27 @@ export interface ScriptedOptions {
     beforeConnect?: (client: Client) => void;
 }
 
+/** A scripted client, with the scripted server's side of its connection. */
+export interface Scripted {
+    client: Client;
+    calls: Call[];
+    notifications: Notification[];
+    /** Sends a message from the server on the current connection. */
+    send(message: JSONRPCMessage): Promise<void>;
+    /** Connects the client again over a fresh pair to the same scripted server, without closing it first. */
+    reconnect(): Promise<void>;
+}
+
 /**
  * A client connected over an in-memory pair to a scripted server: the handshake declares
  * `capabilities`, every other request goes to `handlers` and is recorded in `calls`. On
  * 2026-07-28 results carry `resultType: "complete"`, as a conforming server's do.
  */
-export async function scriptedClient(
-    handlers: Record<string, Handler>,
-    options: ScriptedOptions = {}
-): Promise<{ client: Client; calls: Call[]; notifications: Notification[] }> {
+export async function scriptedClient(handlers: Record<string, Handler>, options: ScriptedOptions = {}): Promise<Scripted> {
     const { capabilities = EVENTS_CAPABILITIES, revision = MODERN } = options;
-    const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
     const calls: Call[] = [];
     const notifications: Notification[] = [];
     const headersById = new Map<RequestId, Record<string, string>>();
-    const transport: Transport = clientTx;
-    const send = transport.send.bind(transport);
-    transport.send = (message, sendOptions) => {
-        if ('id' in message && 'method' in message) headersById.set(message.id, { ...sendOptions?.headers });
-        return send(message, sendOptions);
-    };
     const answer = async (request: JSONRPCRequest): Promise<Record<string, unknown>> => {
         if (revision === MODERN && request.method === 'server/discover') {
             return {
@@ -91,46 +92,65 @@ export async function scriptedClient(
         if (handler === undefined) throw new RpcError(-32_601, `Method not found: ${request.method}`);
         return handler(call.params, call);
     };
-    serverTx.onmessage = message => {
-        const request = message as JSONRPCRequest;
-        if (request.id === undefined) {
-            notifications.push({ method: request.method, params: (request.params ?? {}) as Record<string, unknown> });
-            return;
-        }
-        void answer(request).then(
-            result =>
-                serverTx.send({
-                    jsonrpc: '2.0',
-                    id: request.id,
-                    result: revision === MODERN ? { resultType: 'complete', ...result } : result
-                }),
-            (error: unknown) =>
-                serverTx.send({
-                    jsonrpc: '2.0',
-                    id: request.id,
-                    error: {
-                        code: error instanceof RpcError ? error.code : -32_603,
-                        message: error instanceof Error ? error.message : String(error),
-                        ...(error instanceof RpcError && error.data !== undefined && { data: error.data })
-                    }
-                })
-        );
+    let serverTx: Transport | undefined;
+    // A fresh in-memory pair to the scripted server; its server side becomes the one `send` uses.
+    const link = async (): Promise<Transport> => {
+        const [clientTx, server] = InMemoryTransport.createLinkedPair();
+        serverTx = server;
+        const transport: Transport = clientTx;
+        const send = transport.send.bind(transport);
+        transport.send = (message, sendOptions) => {
+            if ('id' in message && 'method' in message) headersById.set(message.id, { ...sendOptions?.headers });
+            return send(message, sendOptions);
+        };
+        server.onmessage = message => {
+            const request = message as JSONRPCRequest;
+            if (request.id === undefined) {
+                notifications.push({ method: request.method, params: (request.params ?? {}) as Record<string, unknown> });
+                return;
+            }
+            void answer(request).then(
+                result =>
+                    server.send({
+                        jsonrpc: '2.0',
+                        id: request.id,
+                        result: revision === MODERN ? { resultType: 'complete', ...result } : result
+                    }),
+                (error: unknown) =>
+                    server.send({
+                        jsonrpc: '2.0',
+                        id: request.id,
+                        error: {
+                            code: error instanceof RpcError ? error.code : -32_603,
+                            message: error instanceof Error ? error.message : String(error),
+                            ...(error instanceof RpcError && error.data !== undefined && { data: error.data })
+                        }
+                    })
+            );
+        };
+        await server.start();
+        return transport;
     };
-    await serverTx.start();
     const client = new Client(
         { name: 'events-test-client', version: '1.0.0' },
         revision === MODERN ? { versionNegotiation: { mode: { pin: MODERN } }, ...options.clientOptions } : options.clientOptions
     );
     options.beforeConnect?.(client);
-    await client.connect(clientTx);
-    return { client, calls, notifications };
+    await client.connect(await link());
+    return {
+        client,
+        calls,
+        notifications,
+        send: message => serverTx!.send(message),
+        reconnect: async () => client.connect(await link())
+    };
 }
 
 /** An `EventsClientExtension` attached to a scripted client before it connects. */
 export async function connectEvents(
     handlers: Record<string, Handler>,
     options: ScriptedOptions & { events?: EventsClientOptions } = {}
-): Promise<{ events: EventsClientExtension; client: Client; calls: Call[]; notifications: Notification[] }> {
+): Promise<Scripted & { events: EventsClientExtension }> {
     const events = new EventsClientExtension(options.events);
     const connected = await scriptedClient(handlers, { ...options, beforeConnect: client => events.attach(client) });
     return { events, ...connected };

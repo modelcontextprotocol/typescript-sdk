@@ -1,4 +1,4 @@
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
+import { ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Client } from '../../../src/client/client';
@@ -34,14 +34,16 @@ async function pollWith(
     client: Client;
     calls: Call[];
     notifications: Notification[];
+    reconnect: () => Promise<void>;
     polls: () => Call[];
     subscribe: (options?: Partial<SubscribeOptions>) => Promise<EventSubscription>;
 }> {
-    const { events, client, calls, notifications } = await connectEvents({ 'events/list': list, 'events/poll': poll });
+    const { events, client, calls, notifications, reconnect } = await connectEvents({ 'events/list': list, 'events/poll': poll });
     return {
         client,
         calls,
         notifications,
+        reconnect,
         polls: () => callsTo(calls, 'events/poll'),
         subscribe: async (options = {}) => {
             const subscription = await events.subscribe({ name: 'tick', delivery: 'poll', ...options });
@@ -212,6 +214,82 @@ describe('poll delivery', () => {
         expect(callsTo(calls, 'events/list')).toHaveLength(2);
     });
 
+    it('ends the loop on resourceExhausted, callbackEndpointError and an unsupported that is not a schema change', async () => {
+        for (const refusal of [
+            new RpcError(-32_025, 'Too many subscriptions', { limit: 'subscriptions' }),
+            new RpcError(-32_027, 'Callback endpoint error', { reason: 'timeout' }),
+            new RpcError(-32_026, 'Unsupported', { feature: 'deliveryMode', value: 'poll' })
+        ]) {
+            const { calls, polls, subscribe } = await pollWith(script({ events: [], cursor: 'c1', nextPollMs: 0 }, refusal));
+            const sub = await subscribe();
+            const pending = sub[Symbol.asyncIterator]()
+                .next()
+                .catch((error_: unknown) => error_);
+            await vi.advanceTimersByTimeAsync(1000);
+
+            const error = await pending;
+            expect(error).toBeInstanceOf(EventsError);
+            expect(error).toMatchObject({ code: refusal.code });
+            expect(vi.getTimerCount()).toBe(0);
+            await vi.advanceTimersByTimeAsync(120_000);
+            expect(polls()).toHaveLength(2);
+            expect(callsTo(calls, 'events/list')).toHaveLength(1);
+        }
+    });
+
+    it('ends the loop on a second -32020 after the re-list', async () => {
+        const mismatch = new RpcError(-32_020, 'Mcp-Param-Region header mismatch');
+        const { calls, polls, subscribe } = await pollWith(script({ events: [], cursor: 'c1', nextPollMs: 0 }, mismatch, mismatch));
+        const sub = await subscribe();
+        const pending = sub[Symbol.asyncIterator]()
+            .next()
+            .catch((error_: unknown) => error_);
+        await vi.advanceTimersByTimeAsync(1000);
+
+        const error = await pending;
+        expect(error).toBeInstanceOf(ProtocolError);
+        expect(error).toMatchObject({ code: -32_020 });
+        expect(polls()).toHaveLength(3);
+        expect(callsTo(calls, 'events/list')).toHaveLength(2);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('rejects subscribe() when the first poll mismatches Mcp-Param headers again after a re-list', async () => {
+        const mismatch = new RpcError(-32_020, 'Mcp-Param-Region header mismatch');
+        const { calls, polls, subscribe } = await pollWith(script(mismatch, mismatch));
+        const error = await subscribe().catch((error_: unknown) => error_);
+
+        expect(error).toBeInstanceOf(ProtocolError);
+        expect(error).toMatchObject({ code: -32_020 });
+        expect(polls()).toHaveLength(2);
+        expect(callsTo(calls, 'events/list')).toHaveLength(2);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('reports a throwing onGap to onerror and keeps polling', async () => {
+        const failure = new Error('onGap failed');
+        const { client, polls, subscribe } = await pollWith(
+            script(
+                { events: [], cursor: 'c5', truncated: true, nextPollMs: 0 },
+                { events: [occurrence('e1')], cursor: 'c6', nextPollMs: 60_000 }
+            )
+        );
+        const errors: Error[] = [];
+        client.onerror = error => void errors.push(error);
+        const sub = await subscribe({
+            cursor: 'c0',
+            onGap: () => {
+                throw failure;
+            }
+        });
+
+        expect(errors).toEqual([failure]);
+        expect(sub.cursor).toBe('c5');
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(polls()).toHaveLength(2);
+        expect(await nextEventId(sub[Symbol.asyncIterator]())).toBe('e1');
+    });
+
     it('retries other errors after max(floor, nextPollMs), doubling to 60 s', async () => {
         const failures = Array.from({ length: 9 }, () => new RpcError(-32_603, 'Internal error'));
         const { polls, subscribe } = await pollWith(
@@ -330,6 +408,22 @@ describe('poll delivery', () => {
         expect(error).toBeInstanceOf(SdkError);
         expect(error).toMatchObject({ code: SdkErrorCode.ConnectionClosed });
         expect(vi.getTimerCount()).toBe(0);
+        expect(polls()).toHaveLength(1);
+    });
+
+    it('ends the loop with ConnectionClosed when the client reconnects without closing', async () => {
+        const { polls, reconnect, subscribe } = await pollWith(script({ events: [], cursor: 'c1', nextPollMs: 600_000 }));
+        const sub = await subscribe();
+        const pending = sub[Symbol.asyncIterator]()
+            .next()
+            .catch((error_: unknown) => error_);
+
+        await reconnect();
+        const error = await pending;
+        expect(error).toBeInstanceOf(SdkError);
+        expect(error).toMatchObject({ code: SdkErrorCode.ConnectionClosed });
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(600_000);
         expect(polls()).toHaveLength(1);
     });
 

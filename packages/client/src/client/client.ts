@@ -454,7 +454,7 @@ export const clientInternals = {} as {
         handlers: { onNotification(notification: JSONRPCNotification): void; onEnd(end: StreamEnd): void },
         options?: { headers?: Readonly<Record<string, string>> }
     ): StreamHandle;
-    // Runs `listener` whenever the client's connection closes, until the returned function removes it.
+    // Runs `listener` whenever the client's connection closes or a fresh connect replaces it, until the returned function removes it.
     onClose(client: Client, listener: () => void): () => void;
     enforceStrictCapabilities(client: Client): boolean;
     walkPages<R extends { nextCursor?: string }>(
@@ -605,7 +605,7 @@ export class Client extends Protocol<ClientContext> {
     // Live `openStream` requests keyed by their `stream:N` id; an entry is removed when its stream ends.
     private _streamState = new Map<string, { onNotification(notification: JSONRPCNotification): void; end(end: StreamEnd): void }>();
     private _nextStreamId = 0;
-    // Run by `_onclose` after the request streams end; added through `clientInternals.onClose`.
+    // Run by `_onclose` and `_resetConnectionState` after the request streams end; added through `clientInternals.onClose`.
     private _closeListeners = new Set<() => void>();
     /** The auto-opened subscription backing ClientOptions.listChanged on a modern connection. */
     private _autoOpenedSubscription?: McpSubscription;
@@ -652,6 +652,7 @@ export class Client extends Protocol<ClientContext> {
         }
         this._listenState.clear();
         this._endStreams();
+        this._runCloseListeners();
         // Debounce timers are connection-scoped: a callback armed on a
         // connection that is now gone must not fire onto whatever connection
         // (if any) replaces it.
@@ -2268,7 +2269,8 @@ export class Client extends Protocol<ClientContext> {
 
     // Runs the `clientInternals.onClose` listeners from a snapshot; a throwing one goes to `onerror` and the rest still run.
     private _runCloseListeners(): void {
-        for (const listener of this._closeListeners) {
+        const listeners = [...this._closeListeners];
+        for (const listener of listeners) {
             try {
                 listener();
             } catch (error) {

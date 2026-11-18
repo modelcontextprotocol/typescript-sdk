@@ -6,6 +6,7 @@ import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal/publ
 import type { Client } from '../../client/client';
 import { NoCompatibleDeliveryModeError } from './errors';
 import { PollDriver } from './poll';
+import { PushDriver } from './push';
 import { EventsConnection } from './request';
 import type { Driver, DriverContext, EventSubscription, SubscribeOptions } from './subscription';
 import { SubscriptionQueue } from './subscription';
@@ -123,13 +124,15 @@ export class EventsClientExtension {
      * Subscribes to an event type, looking its descriptor up in the last
      * `events/list` (fetched again when it is not there), and resolves once
      * the first exchange with the server succeeds (for poll, the first
-     * `events/poll` response). A transient failure of that exchange (a
+     * `events/poll` response; for push, the first
+     * `notifications/events/active`). A transient failure of that exchange (a
      * transport error, or a JSON-RPC error that is not an Events kind) does
      * not reject: delivery is retried in the background. A `cursor` the
      * server refuses because the event type's schema changed is dropped: the
      * event types are listed again, the subscription starts from now, and
-     * `onGap` reports the fresh cursor. Once subscribed, the server ending the
-     * subscription ends its loop (see {@linkcode EventSubscription}).
+     * `onGap` reports the fresh cursor. A `-32020` lists the event types again
+     * and retries once. Once subscribed, every mode recovers from errors as
+     * {@linkcode EventSubscription} describes.
      *
      * @throws {EventsError} when the server refuses the subscription: `notFound` for an event type it does not list or
      *   no longer serves, `invalidParams` for arguments its `inputSchema` rejects, `forbidden`, or another kind.
@@ -138,6 +141,7 @@ export class EventsClientExtension {
      * @throws {SdkError} `CapabilityNotSupported` when {@linkcode EventsClientExtension.supported} is `false`,
      *   `ConnectionClosed` when the client closes before the first exchange answers, or another code when that
      *   exchange fails in the SDK (for example a request timeout).
+     * @throws {ProtocolError} `-32020` when the server rejects the `Mcp-Param` headers again after a re-list.
      */
     async subscribe<T = Record<string, unknown>>(options: SubscribeOptions): Promise<EventSubscription<T>> {
         const connection = this.#require('subscribe');
@@ -160,6 +164,7 @@ export class EventsClientExtension {
 
     #driver<T>(mode: DeliveryMode, context: DriverContext<T>): Driver {
         if (mode === 'poll') return new PollDriver(context, this.#floorMs);
+        if (mode === 'push') return new PushDriver(context);
         throw new SdkError(SdkErrorCode.CapabilityNotSupported, `${mode} delivery is not available yet`);
     }
 

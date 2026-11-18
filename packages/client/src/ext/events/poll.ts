@@ -1,14 +1,20 @@
 import type { PollEventsResult } from '@modelcontextprotocol/core/ext/events';
 import { EVENTS_POLL_METHOD, PollEventsResultSchema } from '@modelcontextprotocol/core/ext/events';
-import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 
-import { NoCompatibleDeliveryModeError } from './errors';
 import type { Driver, DriverContext } from './subscription';
-import { closedError, connectionClosed, isSchemaChange, recoveryFor, refusesSubscription, stillOffered } from './subscription';
+import {
+    closedError,
+    connectionClosed,
+    isSchemaChange,
+    MAX_TIMER_DELAY_MS,
+    recoveryFor,
+    refusesSubscription,
+    reportGap,
+    requireOffered,
+    stillOffered
+} from './subscription';
 
 const MAX_RETRY_DELAY_MS = 60_000;
-// setTimeout fires at once beyond this, which would bypass the floor.
-const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 // Poll delivery (spec §6.3): one `events/poll` loop, again at once on `hasMore`, otherwise after `nextPollMs` but never sooner than the floor.
 export class PollDriver<T> implements Driver {
@@ -79,8 +85,10 @@ export class PollDriver<T> implements Driver {
                 first = false;
                 subscribed();
                 const recovery = recoveryFor(error);
+                // A -32020 here is the second: the request already re-listed once and retried with fresh headers.
                 const gone =
                     recovery === 'fail' ||
+                    recovery === 'mismatch' ||
                     (recovery === 'relist' && (await stillOffered(connection, subscription.name, 'poll', this.#abort.signal)) === false);
                 if (gone) {
                     queue.fail(error);
@@ -107,16 +115,7 @@ export class PollDriver<T> implements Driver {
 
     // The first poll's cursor was refused for a schema change (a stale one passed to subscribe()): re-list, then poll from now or throw why not.
     async #restartFromNow(): Promise<void> {
-        const { connection, subscription } = this.#context;
-        try {
-            await connection.list(undefined, { signal: this.#abort.signal });
-        } catch (error) {
-            throw connectionClosed(connection, error) ?? error;
-        }
-        const descriptor = connection.descriptor(subscription.name);
-        if (descriptor === undefined) throw new EventsError('notFound', 'Event type not found', { kind: 'event' });
-        if (!descriptor.delivery.includes('poll'))
-            throw new NoCompatibleDeliveryModeError(subscription.name, descriptor.delivery, ['poll']);
+        await requireOffered(this.#context.connection, this.#context.subscription.name, 'poll', this.#abort.signal);
         this.#cursor = null;
         this.#reset = true;
     }
@@ -131,7 +130,7 @@ export class PollDriver<T> implements Driver {
     }
 
     #deliver(result: PollEventsResult): void {
-        const { queue, subscription } = this.#context;
+        const { connection, queue, subscription } = this.#context;
         const cursor = result.cursor ?? null;
         const reset = this.#reset;
         this.#maxAgeMs = undefined;
@@ -139,7 +138,7 @@ export class PollDriver<T> implements Driver {
         this.#schemaChanged = false;
         this.#reset = false;
         // A type without replay has no position to have skipped past (SEP: ignore `truncated`).
-        if (reset || (result.truncated === true && cursor !== null)) subscription.onGap?.(cursor);
+        if (reset || (result.truncated === true && cursor !== null)) reportGap(subscription, connection, cursor);
         for (const event of result.events) queue.push(event);
         this.#cursor = cursor;
         queue.setCursor(cursor);

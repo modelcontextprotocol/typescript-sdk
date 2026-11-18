@@ -1,8 +1,13 @@
 import type { DeliveryMode, DeliveryStatus, EventOccurrence } from '@modelcontextprotocol/core/ext/events';
+import { HEADER_MISMATCH_ERROR_CODE, ProtocolError } from '@modelcontextprotocol/core-internal';
 import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal/public';
 
+import { NoCompatibleDeliveryModeError } from './errors';
 import type { EventsConnection } from './request';
+
+// setTimeout fires at once beyond this.
+export const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 /**
  * What to subscribe to, and how.
@@ -22,20 +27,40 @@ export interface SubscribeOptions {
     cursor?: string | null;
     /** Replays no event older than this many milliseconds, however old `cursor` is. */
     maxAgeMs?: number;
-    /** Called with the fresh cursor when the server reports that events were skipped (`truncated`). */
+    /**
+     * Called with the fresh cursor when events may have been skipped: the
+     * server reports `truncated`, or delivery started again from now after a
+     * schema change. An error it throws goes to the client's `onerror`, and
+     * delivery goes on.
+     */
     onGap?: (cursor: string | null) => void;
 }
 
 /**
- * One subscription's events. The `for await` loop is the same for every
- * delivery mode. A refusal of the subscription itself comes from
- * `subscribe()`; once subscribed, the loop ends with an `EventsError` when the
- * server ends the subscription (`kind` says why: `forbidden`,
- * `invalidParams`, or `notFound` and a schema change once the event type is no
- * longer listed). Other failures are retried. Closing the client ends its
- * subscriptions: the loop rejects with an `SdkError` (`ConnectionClosed`) at
- * once when a request is in flight, otherwise when the next one would be sent;
- * after reconnecting, subscribe again and pass {@linkcode EventSubscription.cursor}.
+ * One subscription's events. The `for await` loop, and how a subscription
+ * recovers from errors, are the same in every delivery mode. A refusal of the
+ * subscription itself comes from `subscribe()`. Once subscribed, a server
+ * error is handled by its kind:
+ *
+ * - `notFound`, or `unsupported` for a schema change: the event types are
+ *   listed again, and delivery goes on while the event type is still listed
+ *   with this delivery mode; otherwise the loop ends with that `EventsError`.
+ *   After a schema change delivery resumes from the last cursor; when the
+ *   server refuses that cursor too, it starts again from now and `onGap`
+ *   reports it.
+ * - Any other `EventsError` (`forbidden`, `invalidParams`, `resourceExhausted`,
+ *   `callbackEndpointError`, any other `unsupported`): the loop ends with it,
+ *   and `kind` says why.
+ * - A `ProtocolError` `-32020` (the `Mcp-Param` headers do not match the
+ *   arguments): the event types are listed again and the request is retried
+ *   once with fresh headers; a second `-32020` ends the loop with it.
+ * - Anything else (a network or transport failure, another JSON-RPC error, a
+ *   push stream that ends or goes silent): retried after a backoff.
+ *
+ * Closing the client, or connecting it again, ends its subscriptions: the loop
+ * rejects with an `SdkError` (`ConnectionClosed`) at once when a request is in
+ * flight, otherwise when the next one would be sent; after reconnecting,
+ * subscribe again and pass {@linkcode EventSubscription.cursor}.
  * `T` types `data` and is not checked against the event type's
  * `payloadSchema`. Leaving the loop early cancels the subscription.
  *
@@ -72,9 +97,14 @@ export interface DriverContext<T> {
     readonly connection: EventsConnection;
 }
 
-// An error of the first exchange that subscribe() rejects with; any other (transport, non-Events JSON-RPC) is retried in the background.
+// An error of the first exchange that subscribe() rejects with (a -32020 only once its re-list is spent); any other (transport, non-Events JSON-RPC) is retried in the background.
 export function refusesSubscription(error: unknown): boolean {
-    return error instanceof EventsError || error instanceof SdkError;
+    return error instanceof EventsError || error instanceof SdkError || isHeaderMismatch(error);
+}
+
+// A -32020: the request's `Mcp-Param` headers do not match its arguments (D26).
+export function isHeaderMismatch(error: unknown): boolean {
+    return error instanceof ProtocolError && error.code === HEADER_MISMATCH_ERROR_CODE;
 }
 
 // What a subscription ends with when its client's connection closes.
@@ -99,11 +129,32 @@ export function isSchemaChange(error: unknown): boolean {
     );
 }
 
-// After a server error once subscribed (spec §6.3): re-list and go on if the event type is still offered, end the subscription, or retry later.
-export function recoveryFor(error: unknown): 'relist' | 'fail' | 'retry' {
+// Every mode's recovery once subscribed (spec §6.3): `relist` and go on while still offered, `mismatch` (re-list and retry once, then end), `fail` (end with the error), or `retry` later.
+export function recoveryFor(error: unknown): 'relist' | 'mismatch' | 'fail' | 'retry' {
+    if (isHeaderMismatch(error)) return 'mismatch';
     if (!(error instanceof EventsError)) return 'retry';
-    if (error.kind === 'notFound' || isSchemaChange(error)) return 'relist';
-    return error.kind === 'forbidden' || error.kind === 'invalidParams' ? 'fail' : 'retry';
+    return error.kind === 'notFound' || isSchemaChange(error) ? 'relist' : 'fail';
+}
+
+// Reports a possible gap at `cursor` through onGap; a throwing onGap goes to the client's onerror, and delivery goes on.
+export function reportGap(subscription: SubscribeOptions, connection: EventsConnection, cursor: string | null): void {
+    try {
+        subscription.onGap?.(cursor);
+    } catch (error) {
+        connection.report(error);
+    }
+}
+
+// Re-lists, then throws why `name` cannot be subscribed with `mode`: notFound when unlisted, NoCompatibleDeliveryModeError when `mode` is not offered.
+export async function requireOffered(connection: EventsConnection, name: string, mode: DeliveryMode, signal: AbortSignal): Promise<void> {
+    try {
+        await connection.list(undefined, { signal });
+    } catch (error) {
+        throw connectionClosed(connection, error) ?? error;
+    }
+    const descriptor = connection.descriptor(name);
+    if (descriptor === undefined) throw new EventsError('notFound', 'Event type not found', { kind: 'event' });
+    if (!descriptor.delivery.includes(mode)) throw new NoCompatibleDeliveryModeError(name, descriptor.delivery, [mode]);
 }
 
 // Re-lists, then whether `name` is still listed with `mode`; `undefined` when the list fails.
