@@ -242,6 +242,40 @@ describe('toNodeHandler', () => {
         ).resolves.toBeUndefined();
     });
 
+    it('cancels an idle response stream as soon as the client closes', async () => {
+        const cancel = vi.fn();
+        const node = toNodeHandler({ fetch: async () => new Response(new ReadableStream({ cancel })) });
+
+        const closeListeners: Array<(...args: unknown[]) => void> = [];
+        let headersWritten = false;
+        const res: NodeServerResponseLike = {
+            writeHead() {
+                headersWritten = true;
+                return this;
+            },
+            write() {
+                return true;
+            },
+            end() {
+                return this;
+            },
+            on(event: string, listener: (...args: unknown[]) => void) {
+                if (event === 'close') closeListeners.push(listener);
+                return this;
+            }
+        };
+
+        const { req } = nodeRequestResponse({});
+        const served = node(req, res);
+        await vi.waitFor(() => expect(headersWritten).toBe(true));
+
+        // No chunk ever arrives, as on a session GET stream between keep-alives.
+        for (const listener of closeListeners) listener();
+
+        await served;
+        expect(cancel).toHaveBeenCalledOnce();
+    });
+
     it('does not park on backpressure when the response was already destroyed before the adapter listened', async () => {
         // 'close' fired during async middleware BEFORE toNodeHandler registered
         // its listener — `res.destroyed` is the entry-time witness. The
