@@ -771,3 +771,13 @@ describe('integration', () => {
         expect(v2Gaps.length).toBe(0);
     });
 });
+
+it('declares the replacement package for a backtick dynamic import', () => {
+    const dir = createTempDir();
+    writePkgJson(dir, { dependencies: { '@modelcontextprotocol/sdk': '^1' } });
+    writeFileSync(path.join(dir, 'server.ts'), 'const { McpServer } = await import(`@modelcontextprotocol/sdk/server/mcp.js`);');
+    run(migration, { targetDir: dir });
+    const output = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+    expect(output.dependencies).toHaveProperty('@modelcontextprotocol/server');
+    expect(output.dependencies).not.toHaveProperty('@modelcontextprotocol/sdk');
+});
