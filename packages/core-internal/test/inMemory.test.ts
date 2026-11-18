@@ -163,3 +163,28 @@ describe('InMemoryTransport', () => {
         expect(receivedMessage).toEqual(message);
     });
 });
+
+describe('queued messages on close', () => {
+    test('discards messages queued before a transport closes', async () => {
+        const [sender, receiver] = InMemoryTransport.createLinkedPair();
+        await sender.send({ jsonrpc: '2.0', method: 'queued', id: 1 });
+        await receiver.close();
+        const received: JSONRPCMessage[] = [];
+        receiver.onmessage = message => received.push(message);
+        await receiver.start();
+        expect(received).toEqual([]);
+    });
+
+    test('stops queued delivery when the first handler closes the transport', async () => {
+        const [sender, receiver] = InMemoryTransport.createLinkedPair();
+        await sender.send({ jsonrpc: '2.0', method: 'queued', id: 1 });
+        await sender.send({ jsonrpc: '2.0', method: 'queued', id: 2 });
+        const received: JSONRPCMessage[] = [];
+        receiver.onmessage = message => {
+            received.push(message);
+            void receiver.close();
+        };
+        await receiver.start();
+        expect(received).toHaveLength(1);
+    });
+});
