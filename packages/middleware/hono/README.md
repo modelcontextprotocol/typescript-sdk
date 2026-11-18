@@ -29,9 +29,10 @@ npm install @modelcontextprotocol/server @modelcontextprotocol/hono hono
 ```ts
 import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { createMcpHonoApp } from '@modelcontextprotocol/hono';
+import type { Context } from 'hono';
 
 const app = createMcpHonoApp();
-app.all('/mcp', async c => {
+app.all('/mcp', async (c: Context) => {
     // Stateless example: create a server and a transport per request.
     const server = new McpServer({ name: 'my-server', version: '1.0.0' });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
