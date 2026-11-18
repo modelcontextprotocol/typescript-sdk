@@ -86,7 +86,7 @@ const diagnosticServer = new McpServer({ name: 'file-processor', version: '1.0.0
 
 `Client` and `createMcpHandler` take the same option. The low-level `Server` has no diagnostics of its own, so it does not take one. The SDK logs at two levels, `debug` and `warn`. Both methods are optional, and an omitted one discards diagnostics at that level. The default is `console`, and a logger that throws is ignored.
 
-The client's OAuth helpers run outside a `Client`, so they read the logger from the auth provider instead: set `logger` on your `OAuthClientProvider`, or pass it to a built-in provider such as `ClientCredentialsProvider`.
+The client's OAuth helpers run outside a `Client`, so they read the logger from the auth provider instead: set `sdkLogger` on your `OAuthClientProvider`, or pass `logger` to a built-in provider such as `ClientCredentialsProvider`.
 
 This logger stays local to the process. It does not send MCP `notifications/message`; use `ctx.mcpReq.log` for that deprecated protocol feature.
 

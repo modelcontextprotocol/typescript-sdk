@@ -284,7 +284,7 @@ describe('expectedIssuer', () => {
         const fetchFn = createMockOAuthFetch({ resourceServerUrl: RESOURCE_SERVER_URL, authServerUrl: AUTH_SERVER_URL });
 
         const provider = create({ logger: { warn } });
-        expect(provider.logger).toEqual({ warn });
+        expect(provider.sdkLogger).toEqual({ warn });
         expect(await auth(provider, { serverUrl: RESOURCE_SERVER_URL, fetchFn })).toBe('AUTHORIZED');
         expect(warn).toHaveBeenCalledTimes(1);
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('Omitting `expectedIssuer` is deprecated'));

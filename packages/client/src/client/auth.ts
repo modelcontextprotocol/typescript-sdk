@@ -281,7 +281,7 @@ export interface OAuthClientProvider {
      *
      * @default console
      */
-    logger?: SdkLogger;
+    sdkLogger?: SdkLogger;
 
     /**
      * Metadata about this OAuth client.
@@ -1089,7 +1089,7 @@ function warnCredentialInvalidation(provider: OAuthClientProvider, error: OAuthE
     // JSON-stringify the AS-supplied values so attacker-supplied control characters cannot
     // forge log lines — the authorization server is resolved from the resource server's
     // metadata, and both `code` and `message` are echoed from its response verbatim.
-    guardLogger(provider.logger).warn?.(
+    guardLogger(provider.sdkLogger).warn?.(
         `[mcp-sdk] OAuth ${JSON.stringify(error.code)} — ${action}. Cause: ${JSON.stringify(error.message)}`
     );
 }
@@ -1177,7 +1177,7 @@ async function authInternal(
         forceReauthorization
     }: AuthOptions
 ): Promise<AuthResult> {
-    const logger = guardLogger(provider.logger);
+    const logger = guardLogger(provider.sdkLogger);
     // SEP-837 / SEP-2207: resolve spec defaults for the DCR body. determineScope()
     // intentionally reads the raw provider.clientMetadata instead.
     const clientMetadata = resolveClientMetadata(provider);

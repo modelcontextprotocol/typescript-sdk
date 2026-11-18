@@ -3280,7 +3280,7 @@ describe('OAuth Authorization', () => {
             warn.mockRestore();
         });
 
-        it("routes auth() warnings to the provider's logger instead of console", async () => {
+        it("routes auth() warnings to the provider's sdkLogger instead of console", async () => {
             mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day'));
 
             (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
@@ -3288,7 +3288,7 @@ describe('OAuth Authorization', () => {
             (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
             const warn = vi.fn();
             const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-            const provider: OAuthClientProvider = Object.create(mockProvider, { logger: { value: { warn } } });
+            const provider: OAuthClientProvider = Object.create(mockProvider, { sdkLogger: { value: { warn } } });
 
             await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
 
@@ -3297,7 +3297,7 @@ describe('OAuth Authorization', () => {
             consoleWarn.mockRestore();
         });
 
-        it('auth() still completes when the provider logger throws', async () => {
+        it('auth() still completes when the provider sdkLogger throws', async () => {
             mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day'));
 
             (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
@@ -3306,7 +3306,7 @@ describe('OAuth Authorization', () => {
             const warn = vi.fn(() => {
                 throw new Error('log sink closed');
             });
-            const provider: OAuthClientProvider = Object.create(mockProvider, { logger: { value: { warn } } });
+            const provider: OAuthClientProvider = Object.create(mockProvider, { sdkLogger: { value: { warn } } });
 
             await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
             expect(warn).toHaveBeenCalled();

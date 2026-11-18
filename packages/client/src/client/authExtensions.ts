@@ -179,7 +179,7 @@ export interface ClientCredentialsProviderOptions {
  * ```
  */
 export class ClientCredentialsProvider implements OAuthClientProvider {
-    readonly logger?: SdkLogger;
+    readonly sdkLogger?: SdkLogger;
     private _tokens?: StoredOAuthTokens;
     private _clientInfo: StoredOAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
@@ -188,7 +188,7 @@ export class ClientCredentialsProvider implements OAuthClientProvider {
     /** @deprecated Pass `expectedIssuer` so the credentials are only sent to that authorization server. */
     constructor(options: ClientCredentialsProviderOptions);
     constructor(options: ClientCredentialsProviderOptions) {
-        this.logger = options.logger;
+        this.sdkLogger = options.logger;
         this._clientInfo = {
             client_id: options.clientId,
             client_secret: options.clientSecret,
@@ -327,7 +327,7 @@ export interface PrivateKeyJwtProviderOptions {
  * ```
  */
 export class PrivateKeyJwtProvider implements OAuthClientProvider {
-    readonly logger?: SdkLogger;
+    readonly sdkLogger?: SdkLogger;
     private _tokens?: StoredOAuthTokens;
     private _clientInfo: StoredOAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
@@ -337,7 +337,7 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
     /** @deprecated Pass `expectedIssuer` so the credentials are only sent to that authorization server. */
     constructor(options: PrivateKeyJwtProviderOptions);
     constructor(options: PrivateKeyJwtProviderOptions) {
-        this.logger = options.logger;
+        this.sdkLogger = options.logger;
         this._clientInfo = {
             client_id: options.clientId,
             issuer: checkedExpectedIssuer(options.expectedIssuer, guardLogger(options.logger))
@@ -450,7 +450,7 @@ export interface StaticPrivateKeyJwtProviderOptions {
  * uses it directly for authentication.
  */
 export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
-    readonly logger?: SdkLogger;
+    readonly sdkLogger?: SdkLogger;
     private _tokens?: StoredOAuthTokens;
     private _clientInfo: StoredOAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
@@ -460,7 +460,7 @@ export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
     /** @deprecated Pass `expectedIssuer` so the credentials are only sent to that authorization server. */
     constructor(options: StaticPrivateKeyJwtProviderOptions);
     constructor(options: StaticPrivateKeyJwtProviderOptions) {
-        this.logger = options.logger;
+        this.sdkLogger = options.logger;
         this._clientInfo = {
             client_id: options.clientId,
             issuer: checkedExpectedIssuer(options.expectedIssuer, guardLogger(options.logger))
@@ -667,7 +667,7 @@ export interface CrossAppAccessProviderOptions {
  * ```
  */
 export class CrossAppAccessProvider implements OAuthClientProvider {
-    readonly logger?: SdkLogger;
+    readonly sdkLogger?: SdkLogger;
     private _tokens?: StoredOAuthTokens;
     private _clientInfo: StoredOAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
@@ -681,7 +681,7 @@ export class CrossAppAccessProvider implements OAuthClientProvider {
     /** @deprecated Pass `expectedIssuer` so the credentials are only sent to that authorization server. */
     constructor(options: CrossAppAccessProviderOptions);
     constructor(options: CrossAppAccessProviderOptions) {
-        this.logger = options.logger;
+        this.sdkLogger = options.logger;
         this._clientInfo = {
             client_id: options.clientId,
             client_secret: options.clientSecret,
