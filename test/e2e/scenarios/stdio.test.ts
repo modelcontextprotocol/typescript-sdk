@@ -198,14 +198,20 @@ verifies('transport:stdio:shutdown-escalation', async (_args: TestArgs) => {
         const echoed = await client.callTool({ name: 'echo', arguments: { text: 'about to ignore shutdown' } });
         expect(echoed.content).toEqual([{ type: 'text', text: 'about to ignore shutdown' }]);
 
-        // The fixture survives stdin EOF and swallows SIGTERM, so close() must
-        // walk the whole escalation ladder (two grace periods, ~4s wall clock).
+        // The fixture survives stdin EOF and swallows SIGTERM, so on POSIX close()
+        // walks the whole escalation ladder (two grace periods, ~4s wall clock).
+        const closeStarted = performance.now();
         await client.close();
+        // Surviving rung 1 (stdin EOF) costs the first 2s grace period on every platform, Windows included.
+        expect(performance.now() - closeStarted).toBeGreaterThanOrEqual(1900);
 
-        // SIGTERM really was delivered and ignored — surviving rung 1 (stdin
-        // EOF) and rung 2 (SIGTERM) is proven by the marker, so the child's
-        // termination below can only have come from the SIGKILL escalation.
-        await vi.waitFor(() => expect(captured).toContain('[stdio-server] sigterm ignored'), { timeout: 1000, interval: 25 });
+        // Windows has no POSIX signals: kill('SIGTERM') terminates the child outright, so it can't be ignored there.
+        if (process.platform !== 'win32') {
+            // SIGTERM really was delivered and ignored — surviving rung 1 (stdin
+            // EOF) and rung 2 (SIGTERM) is proven by the marker, so the child's
+            // termination below can only have come from the SIGKILL escalation.
+            await vi.waitFor(() => expect(captured).toContain('[stdio-server] sigterm ignored'), { timeout: 1000, interval: 25 });
+        }
         await vi.waitFor(() => expect(processAlive(pid)).toBe(false), { timeout: 2000, interval: 25 });
     } finally {
         await transport.close();
