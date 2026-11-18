@@ -67,6 +67,7 @@ export interface NodeIncomingMessageLike extends AsyncIterable<unknown> {
 /** Minimal duck-typed shape of a Node.js `ServerResponse` accepted by {@linkcode toNodeHandler}. */
 export interface NodeServerResponseLike {
     writeHead(statusCode: number, headers?: Record<string, string>): unknown;
+    flushHeaders?: () => void;
     write(chunk: string | Uint8Array): unknown;
     end(chunk?: string | Uint8Array): unknown;
     on(event: string, listener: (...args: unknown[]) => void): unknown;
@@ -127,6 +128,19 @@ export interface ToNodeHandlerOptions {
  * conversion / `handler.fetch` throw) before the `500` response is written.
  */
 export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandlerOptions): NodeMcpRequestHandler {
+    return toNodeHandlerInternal(handler, opts);
+}
+
+/**
+ * Internal adapter entry for wrappers whose own error callback also covers
+ * oversized bodies. Public `toNodeHandler` deliberately treats its 413 answer
+ * as a normal response rather than an adapter failure.
+ */
+export function toNodeHandlerInternal(
+    handler: FetchLikeMcpHandler,
+    opts: ToNodeHandlerOptions | undefined,
+    onRequestBodyTooLarge?: (error: Error) => void
+): NodeMcpRequestHandler {
     const maxRequestBodySize = resolveMaxRequestBodySize(opts?.maxRequestBodySize);
     return async (req, res, parsedBody) => {
         // Express passes (req, res, next) when the handler is mounted as a
@@ -155,6 +169,11 @@ export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandler
             });
         } catch (error) {
             if (error instanceof RequestBodyTooLargeError) {
+                try {
+                    onRequestBodyTooLarge?.(error);
+                } catch {
+                    // Reporting must never alter the response.
+                }
                 // A normal answer, not an adapter failure. `connection: close` has
                 // an HTTP/1.1 server end the socket after answering instead of
                 // idling a connection whose request stream was left partly unread.
@@ -177,6 +196,7 @@ export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandler
             headers[name] = value;
         }
         res.writeHead(response.status, headers);
+        res.flushHeaders?.();
         if (response.body === null) {
             finished = true;
             res.end();
@@ -184,12 +204,16 @@ export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandler
         }
         // Honor write backpressure: when write() reports a full buffer (Node's
         // `false` return), wait for the response to drain before pulling the
-        // next chunk. The abort signal (wired to 'close' above, and seeded
-        // from `res.destroyed` at entry to cover the pre-registration window
-        // when 'close' already fired during async middleware) is the single
-        // termination source — racing it against the drain wait means a
-        // vanished client cannot park the loop, and breaking out of the async
-        // iterator calls return() to cancel the upstream stream.
+        // next chunk. Closing the response cancels the reader so an idle body
+        // read finishes and upstream stream cleanup runs immediately.
+        const reader = response.body.getReader();
+        const cancelReader = () => {
+            void reader.cancel().catch(() => {});
+        };
+        abort.signal.addEventListener('abort', cancelReader, { once: true });
+        if (abort.signal.aborted) {
+            cancelReader();
+        }
         let drainResolve: (() => void) | undefined;
         const releaseDrainWait = () => {
             drainResolve?.();
@@ -200,11 +224,12 @@ export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandler
             abort.signal.addEventListener('abort', () => resolve(), { once: true });
         });
         try {
-            for await (const chunk of response.body) {
-                if (abort.signal.aborted) {
+            while (!abort.signal.aborted) {
+                const { done, value } = await reader.read();
+                if (done) {
                     break;
                 }
-                if (res.write(chunk) === false) {
+                if (res.write(value) === false) {
                     await Promise.race([
                         new Promise<void>(resolve => {
                             drainResolve = resolve;
@@ -214,7 +239,14 @@ export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandler
                 }
             }
         } catch {
-            // Stream aborted upstream; the abort signal already cancelled the exchange.
+            try {
+                await reader.cancel();
+            } catch {
+                // The stream is already closed or errored.
+            }
+        } finally {
+            abort.signal.removeEventListener('abort', cancelReader);
+            reader.releaseLock();
         }
         finished = true;
         res.end();
@@ -266,8 +298,10 @@ export async function toWebRequest(req: NodeIncomingMessageLike, parsedBody?: un
     const method = (req.method ?? 'GET').toUpperCase();
     // HTTP/2 requests carry their authority as the `:authority` pseudo-header,
     // usually with no `host` entry at all (mirrors Node's `request.authority`).
+    const socket = (req as NodeIncomingMessageLike & { socket?: { encrypted?: boolean } }).socket;
+    const scheme = singleHeaderValue(req.headers[':scheme']) ?? (socket?.encrypted === true ? 'https' : 'http');
     const host = singleHeaderValue(req.headers['host']) ?? singleHeaderValue(req.headers[':authority']) ?? 'localhost';
-    const url = `http://${host}${req.url ?? '/'}`;
+    const url = `${scheme}://${host}${req.url ?? '/'}`;
 
     const headers = new Headers();
     for (const [name, value] of Object.entries(req.headers)) {

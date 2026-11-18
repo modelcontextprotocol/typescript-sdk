@@ -9,7 +9,6 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-import { getRequestListener } from '@hono/node-server';
 import type {
     AuthInfo,
     JSONRPCMessage,
@@ -20,6 +19,8 @@ import type {
     WebStandardStreamableHTTPServerTransportOptions
 } from '@modelcontextprotocol/server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+
+import { toNodeHandlerInternal } from './toNodeHandler';
 
 /**
  * Configuration options for {@linkcode NodeStreamableHTTPServerTransport}
@@ -33,7 +34,6 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  * It supports both SSE streaming and direct HTTP responses.
  *
  * This is a wrapper around {@linkcode WebStandardStreamableHTTPServerTransport} that provides Node.js HTTP compatibility.
- * It uses the `@hono/node-server` library to convert between Node.js HTTP and Web Standard APIs.
  *
  * In stateful mode:
  * - Session ID is generated and included in response headers
@@ -77,27 +77,19 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  */
 export class NodeStreamableHTTPServerTransport implements Transport {
     private _webStandardTransport: WebStandardStreamableHTTPServerTransport;
-    private _requestListener: ReturnType<typeof getRequestListener>;
-    // Store auth and parsedBody per request for passing through to handleRequest
-    private _requestContext: WeakMap<Request, { authInfo?: AuthInfo; parsedBody?: unknown }> = new WeakMap();
+    private _requestListener: ReturnType<typeof toNodeHandlerInternal>;
 
     constructor(options: StreamableHTTPServerTransportOptions = {}) {
         this._webStandardTransport = new WebStandardStreamableHTTPServerTransport(options);
-
-        // Create a request listener that wraps the web standard transport
-        // getRequestListener converts Node.js HTTP to Web Standard and properly handles SSE streaming
-        // overrideGlobalObjects: false prevents Hono from overwriting global Response, which would
-        // break frameworks like Next.js whose response classes extend the native Response
-        this._requestListener = getRequestListener(
-            async (webRequest: Request) => {
-                // Get context if available (set during handleRequest)
-                const context = this._requestContext.get(webRequest);
-                return this._webStandardTransport.handleRequest(webRequest, {
-                    authInfo: context?.authInfo,
-                    parsedBody: context?.parsedBody
-                });
+        this._requestListener = toNodeHandlerInternal(
+            {
+                fetch: (webRequest, requestOptions) => this._webStandardTransport.handleRequest(webRequest, requestOptions)
             },
-            { overrideGlobalObjects: false }
+            {
+                maxRequestBodySize: options.maxRequestBodySize,
+                onerror: error => this._webStandardTransport.onerror?.(error)
+            },
+            error => this._webStandardTransport.onerror?.(error)
         );
     }
 
@@ -190,26 +182,7 @@ export class NodeStreamableHTTPServerTransport implements Transport {
      * @param parsedBody - Optional pre-parsed body from body-parser middleware
      */
     async handleRequest(req: IncomingMessage & { auth?: AuthInfo }, res: ServerResponse, parsedBody?: unknown): Promise<void> {
-        // Store context for this request to pass through auth and parsedBody
-        // We need to intercept the request creation to attach this context
-        const authInfo = req.auth;
-
-        // Create a custom handler that includes our context
-        // overrideGlobalObjects: false prevents Hono from overwriting global Response, which would
-        // break frameworks like Next.js whose response classes extend the native Response
-        const handler = getRequestListener(
-            async (webRequest: Request) => {
-                return this._webStandardTransport.handleRequest(webRequest, {
-                    authInfo,
-                    parsedBody
-                });
-            },
-            { overrideGlobalObjects: false }
-        );
-
-        // Delegate to the request listener which handles all the Node.js <-> Web Standard conversion
-        // including proper SSE streaming support
-        await handler(req, res);
+        await this._requestListener(req, res, parsedBody);
     }
 
     /**

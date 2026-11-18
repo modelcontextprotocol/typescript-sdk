@@ -123,6 +123,19 @@ describe('toNodeHandler', () => {
         expect(await body()).toContain('node-client');
     });
 
+    it('derives HTTPS request URLs from TLS sockets and HTTP/2 scheme metadata', async () => {
+        const { req } = nodeRequestResponse(undefined);
+        const tlsRequest = Object.assign(req, { socket: { encrypted: true } });
+        await expect(toWebRequest(tlsRequest).then(request => request.url)).resolves.toBe('https://localhost:3000/mcp');
+
+        const http2Request = Object.assign(Readable.from([]), {
+            method: 'POST',
+            url: '/mcp',
+            headers: { ':scheme': 'https', ':authority': 'example.test' }
+        });
+        await expect(toWebRequest(http2Request).then(request => request.url)).resolves.toBe('https://example.test/mcp');
+    });
+
     it('skips HTTP/2 pseudo-headers when copying node request headers', async () => {
         const { factory } = testFactory();
         const node = toNodeHandler(createMcpHandler(factory));
@@ -138,6 +151,46 @@ describe('toNodeHandler', () => {
 
         expect(res.statusCode).toBe(200);
         expect(await body()).toContain('http2 served');
+    });
+
+    it('flushes headers before waiting for the first streamed chunk', async () => {
+        let closeBody!: () => void;
+        const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+                closeBody = () => controller.close();
+            }
+        });
+        const node = toNodeHandler({ fetch: async () => new Response(body) });
+        const { req } = nodeRequestResponse(undefined);
+        const events: string[] = [];
+        const res: NodeServerResponseLike = {
+            writeHead() {
+                events.push('writeHead');
+                return this;
+            },
+            flushHeaders() {
+                events.push('flushHeaders');
+            },
+            write() {
+                events.push('write');
+                return true;
+            },
+            end() {
+                events.push('end');
+                return this;
+            },
+            on() {
+                return this;
+            }
+        };
+
+        const served = node(req, res);
+        try {
+            await vi.waitFor(() => expect(events).toEqual(['writeHead', 'flushHeaders']));
+        } finally {
+            closeBody();
+        }
+        await served;
     });
 
     it('waits for drain before writing the next chunk when res.write reports backpressure', async () => {
@@ -240,6 +293,44 @@ describe('toNodeHandler', () => {
         await expect(
             Promise.race([served, new Promise((_, reject) => setTimeout(() => reject(new Error('parked')), 500))])
         ).resolves.toBeUndefined();
+    });
+
+    it('cancels an idle response body when the client disconnects', async () => {
+        const cancel = vi.fn();
+        const body = new ReadableStream<Uint8Array>({ cancel });
+        const node = toNodeHandler({ fetch: async () => new Response(body) });
+        const { req } = nodeRequestResponse(undefined);
+        const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+        const res: NodeServerResponseLike & { statusCode: number } = {
+            statusCode: 0,
+            writeHead(statusCode: number) {
+                this.statusCode = statusCode;
+                return this;
+            },
+            write() {
+                return true;
+            },
+            end() {
+                return this;
+            },
+            on(event: string, listener: (...args: unknown[]) => void) {
+                const existing = listeners.get(event) ?? [];
+                existing.push(listener);
+                listeners.set(event, existing);
+                return this;
+            }
+        };
+
+        const served = node(req, res);
+        await vi.waitFor(() => expect(res.statusCode).toBe(200));
+        for (const listener of listeners.get('close') ?? []) {
+            listener();
+        }
+
+        await expect(
+            Promise.race([served, new Promise((_, reject) => setTimeout(() => reject(new Error('idle body not cancelled')), 500))])
+        ).resolves.toBeUndefined();
+        expect(cancel).toHaveBeenCalledTimes(1);
     });
 
     it('does not park on backpressure when the response was already destroyed before the adapter listened', async () => {
