@@ -120,13 +120,19 @@ export class UriTemplate {
     ): string {
         if (part.operator === '?' || part.operator === '&') {
             const pairs = part.names
-                .map(name => {
+                .flatMap(name => {
                     const value = variables[name];
-                    if (value === undefined) return '';
+                    if (value === undefined) return [];
                     const encoded = Array.isArray(value)
-                        ? value.map(v => this.encodeValue(v, part.operator)).join(',')
-                        : this.encodeValue(value.toString(), part.operator);
-                    return `${name}=${encoded}`;
+                        ? value.map(v => this.encodeValue(v, part.operator))
+                        : [this.encodeValue(value.toString(), part.operator)];
+                    // RFC 6570 3.2.8: an exploded list repeats the name
+                    // (`?keys=a&keys=b`); otherwise the values share one name
+                    // separated by commas (`?keys=a,b`).
+                    if (part.exploded) {
+                        return encoded.map(single => `${name}=${single}`);
+                    }
+                    return [`${name}=${encoded.join(',')}`];
                 })
                 .filter(pair => pair.length > 0);
 
@@ -161,7 +167,9 @@ export class UriTemplate {
                 return '.' + encoded.join('.');
             }
             case '/': {
-                return '/' + encoded.join('/');
+                // RFC 6570 3.2.6 (exploded) puts one segment per value;
+                // 3.2.7 (plain) joins them with commas.
+                return part.exploded ? '/' + encoded.join('/') : '/' + encoded.join(',');
             }
             default: {
                 return encoded.join(',');
@@ -227,7 +235,10 @@ export class UriTemplate {
 
         switch (part.operator) {
             case '': {
-                pattern = part.exploded ? '([^/,]+(?:,[^/,]+)*)' : '([^/,]+)';
+                // A plain value may contain the comma that a list is joined
+                // with; the exploded form spells that out so it can be split
+                // back into a list.
+                pattern = part.exploded ? '([^/,]+(?:,[^/,]+)*)' : '([^/]+)';
                 break;
             }
             case '+':
@@ -236,11 +247,14 @@ export class UriTemplate {
                 break;
             }
             case '.': {
-                pattern = String.raw`\.([^/,]+)`;
+                pattern = String.raw`\.([^/]+)`;
                 break;
             }
             case '/': {
-                pattern = '/' + (part.exploded ? '([^/,]+(?:,[^/,]+)*)' : '([^/,]+)');
+                // The exploded form is what `expand` emits for this part, one
+                // path segment per value, so match has to span segments. The
+                // plain form stays inside one segment and may carry commas.
+                pattern = part.exploded ? '/(.+)' : '/([^/]+)';
                 break;
             }
             default: {
@@ -255,7 +269,7 @@ export class UriTemplate {
     match(uri: string): Variables | null {
         UriTemplate.validateLength(uri, MAX_TEMPLATE_LENGTH, 'URI');
         let pattern = '^';
-        const names: Array<{ name: string; exploded: boolean }> = [];
+        const names: Array<{ name: string; exploded: boolean; operator: string }> = [];
 
         for (const part of this.parts) {
             if (typeof part === 'string') {
@@ -264,7 +278,7 @@ export class UriTemplate {
                 const patterns = this.partToRegExp(part);
                 for (const { pattern: partPattern, name } of patterns) {
                     pattern += partPattern;
-                    names.push({ name, exploded: part.exploded });
+                    names.push({ name, exploded: part.exploded, operator: part.operator });
                 }
             }
         }
@@ -278,11 +292,17 @@ export class UriTemplate {
 
         const result: Variables = {};
         for (const [i, name_] of names.entries()) {
-            const { name, exploded } = name_!;
+            const { name, exploded, operator } = name_!;
             const value = match[i + 1]!;
             const cleanName = name.replace('*', '');
 
-            result[cleanName] = exploded && value.includes(',') ? value.split(',') : value;
+            if (!exploded) {
+                result[cleanName] = value;
+            } else if (operator === '/') {
+                result[cleanName] = value.split('/');
+            } else {
+                result[cleanName] = value.includes(',') ? value.split(',') : value;
+            }
         }
 
         return result;

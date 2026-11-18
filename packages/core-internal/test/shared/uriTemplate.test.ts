@@ -104,10 +104,28 @@ describe('UriTemplate', () => {
             expect(match).toBeNull();
         });
 
+        // RFC 6570 3.2.6: the explode modifier puts one path segment per
+        // value, so `{/list*}` spans segments and `{/list}` keeps the values
+        // joined by commas inside one segment.
         it('should handle exploded arrays', () => {
             const template = new UriTemplate('{/list*}');
-            const match = template.match('/red,green,blue');
+            const match = template.match('/red/green/blue');
             expect(match).toEqual({ list: ['red', 'green', 'blue'] });
+        });
+
+        it('should match a comma-joined list in a plain path part', () => {
+            const template = new UriTemplate('{/list}');
+            expect(template.match('/red,green,blue')).toEqual({ list: 'red,green,blue' });
+        });
+
+        it('should round-trip what expand produces for both path forms', () => {
+            const values = { list: ['red', 'green', 'blue'] };
+
+            const exploded = new UriTemplate('{/list*}');
+            expect(exploded.match(exploded.expand(values))).toEqual({ list: ['red', 'green', 'blue'] });
+
+            const plain = new UriTemplate('{/list}');
+            expect(plain.match(plain.expand(values))).toEqual({ list: 'red,green,blue' });
         });
     });
 
@@ -142,14 +160,27 @@ describe('UriTemplate', () => {
             expect(template.variableNames).toEqual(['version', 'resource', 'id']);
         });
 
+        // RFC 6570 3.2.8: an exploded query repeats the name for each value,
+        // so `?tags=a&tags=b`. Without the modifier the values share one name
+        // separated by commas.
         it('should handle query parameters with arrays', () => {
             const template = new UriTemplate('/search{?tags*}');
             expect(
                 template.expand({
                     tags: ['nodejs', 'typescript', 'testing']
                 })
-            ).toBe('/search?tags=nodejs,typescript,testing');
+            ).toBe('/search?tags=nodejs&tags=typescript&tags=testing');
             expect(template.variableNames).toEqual(['tags']);
+        });
+
+        it('should keep a comma-joined query list without the modifier', () => {
+            const template = new UriTemplate('/search{?tags}');
+            expect(template.expand({ tags: ['nodejs', 'typescript'] })).toBe('/search?tags=nodejs,typescript');
+        });
+
+        it('should repeat the name for each value in a form continuation', () => {
+            const template = new UriTemplate('/search{&tags*}');
+            expect(template.expand({ tags: ['a', 'b'] })).toBe('/search&tags=a&tags=b');
         });
 
         it('should handle multiple query parameters', () => {
