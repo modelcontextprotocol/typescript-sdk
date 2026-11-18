@@ -60,10 +60,10 @@ const PUBLIC_PACKAGES: Record<string, { name: string; exportKeys: string[]; bin?
         // './internal' is the wholesale internal seam the sibling SDK packages resolve at
         // runtime (their bundles keep `@modelcontextprotocol/core/internal` imports external);
         // it is not public API — the curated public surface stays the root entry.
-        // './ext/skills' is the shared (schemas + types + constants) half of the Skills
-        // extension (SEP-2640): public API, runtime-neutral, and deliberately NOT on the root
-        // entry, which stays the curated spec + OAuth `*Schema` surface.
-        exportKeys: ['.', './internal', './ext/skills']
+        // './ext/skills' and './ext/events' are the shared (schemas + types + constants) halves
+        // of the Skills (SEP-2640) and Events (SEP-3415) extensions: public API, runtime-neutral,
+        // and deliberately NOT on the root entry, which stays the curated spec + OAuth `*Schema` surface.
+        exportKeys: ['.', './internal', './ext/skills', './ext/events']
     },
     codemod: {
         name: '@modelcontextprotocol/codemod',

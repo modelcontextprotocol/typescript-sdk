@@ -1,0 +1,82 @@
+// @modelcontextprotocol/core/ext/events
+//
+// Shared surface of the MCP Events extension (SEP-3415): wire constants, Zod
+// schemas, the types inferred from them, and the capability reader.
+
+export { eventsCapabilityOf } from './capability';
+export {
+    DELIVERY_ERROR_CATEGORIES,
+    DELIVERY_MODES,
+    EVENTS_ACTIVE_NOTIFICATION,
+    EVENTS_ERROR_NOTIFICATION,
+    EVENTS_EVENT_NOTIFICATION,
+    EVENTS_EXTENSION_ID,
+    EVENTS_HEARTBEAT_NOTIFICATION,
+    EVENTS_LIST_METHOD,
+    EVENTS_POLL_METHOD,
+    EVENTS_STREAM_METHOD,
+    EVENTS_SUBSCRIBE_METHOD,
+    EVENTS_TERMINATED_NOTIFICATION,
+    EVENTS_UNSUBSCRIBE_METHOD,
+    WEBHOOK_SUBSCRIPTION_ID_HEADER
+} from './constants';
+export {
+    DeliveryErrorCategorySchema,
+    DeliveryModeSchema,
+    DeliveryStatusSchema,
+    EventDescriptorSchema,
+    EventNotificationParamsSchema,
+    EventOccurrenceSchema,
+    EventsActiveNotificationParamsSchema,
+    EventsCapabilitySchema,
+    EventsErrorNotificationParamsSchema,
+    EventsErrorObjectSchema,
+    EventsHeartbeatNotificationParamsSchema,
+    EventsTerminatedNotificationParamsSchema,
+    ListEventsRequestParamsSchema,
+    ListEventsResultSchema,
+    PollEventsRequestParamsSchema,
+    PollEventsResultSchema,
+    StreamEventsRequestParamsSchema,
+    StreamEventsResultSchema,
+    SubscribeEventsRequestParamsSchema,
+    SubscribeEventsResultSchema,
+    UnsubscribeEventsRequestParamsSchema,
+    UnsubscribeEventsResultSchema,
+    WebhookControlBodySchema,
+    WebhookDeliverySchema,
+    WebhookGapBodySchema,
+    WebhookTargetSchema,
+    WebhookTerminatedBodySchema,
+    WebhookVerificationBodySchema
+} from './schemas';
+export type {
+    DeliveryErrorCategory,
+    DeliveryMode,
+    DeliveryStatus,
+    EventDescriptor,
+    EventNotificationParams,
+    EventOccurrence,
+    EventsActiveNotificationParams,
+    EventsCapability,
+    EventsErrorNotificationParams,
+    EventsErrorObject,
+    EventsHeartbeatNotificationParams,
+    EventsTerminatedNotificationParams,
+    ListEventsRequestParams,
+    ListEventsResult,
+    PollEventsRequestParams,
+    PollEventsResult,
+    StreamEventsRequestParams,
+    StreamEventsResult,
+    SubscribeEventsRequestParams,
+    SubscribeEventsResult,
+    UnsubscribeEventsRequestParams,
+    UnsubscribeEventsResult,
+    WebhookControlBody,
+    WebhookDelivery,
+    WebhookGapBody,
+    WebhookTarget,
+    WebhookTerminatedBody,
+    WebhookVerificationBody
+} from './types';
