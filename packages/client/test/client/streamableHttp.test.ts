@@ -2350,6 +2350,15 @@ describe('StreamableHTTPClientTransport', () => {
                 .mockResolvedValueOnce(unauthedResponse)
                 // Resource discovery
                 .mockResolvedValueOnce(unauthedResponse)
+                // Root resource discovery
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        resource: 'http://localhost:1234/mcp',
+                        authorization_servers: ['http://localhost:1234']
+                    })
+                })
                 // OAuth metadata discovery
                 .mockResolvedValueOnce({
                     ok: true,
