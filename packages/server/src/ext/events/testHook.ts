@@ -13,6 +13,8 @@ export interface EventsTestState {
     readonly pushStreams: number;
     // Webhook subscriptions this process holds delivery state (watermark, status, retries) for.
     readonly webhookSubscriptions: number;
+    // Webhook subscriptions this process watches with an expiry timer (and a check type's loop), after handling their subscribe or refresh.
+    readonly webhookExpiryTimers: number;
 }
 
 // Internal controls for tests and the conformance fixture; never part of the public API or its declarations.

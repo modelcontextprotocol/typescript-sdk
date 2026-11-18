@@ -27,8 +27,8 @@ import type { SubscriptionValidator } from './validation';
 // The shortest heartbeat granted, whatever the client suggests (D33).
 const HEARTBEAT_FLOOR_MS = 5000;
 
-// A check that throws one of these ends its streams; any other error is sent on the stream and the loop goes on.
-const TERMINAL_KINDS: ReadonlySet<EventsErrorKind> = new Set(['forbidden', 'notFound', 'unsupported']);
+// A check that throws one of these ends its subscription; any other error leaves the loop running.
+export const TERMINAL_KINDS: ReadonlySet<EventsErrorKind> = new Set(['forbidden', 'notFound', 'unsupported']);
 
 export interface PushDeps {
     readonly validator: SubscriptionValidator;
@@ -62,8 +62,8 @@ interface PushStream {
     checkTimer?: ReturnType<typeof setTimeout>;
 }
 
-// What a stream sends next: `active` at `cursor` when one is due, then `events`, after which it is at `position`.
-interface Batch {
+// What a subscription sends next: its start or gap at `cursor` when one is due, then `events`, after which it is at `position`.
+export interface Batch {
     readonly cursor: string | null;
     readonly truncated: boolean;
     readonly events: readonly EventOccurrence[];
@@ -76,8 +76,8 @@ function unref(timer: ReturnType<typeof setTimeout>): ReturnType<typeof setTimeo
     return timer;
 }
 
-// The `error` of `notifications/events/{error,terminated}`: an `EventsError` as it is, anything else as -32603.
-function errorObject(error: unknown): EventsErrorObject {
+// The `error` of `notifications/events/{error,terminated}` and the webhook `terminated` body: an `EventsError` as it is, anything else as -32603.
+export function errorObject(error: unknown): EventsErrorObject {
     if (error instanceof EventsError) {
         return {
             code: error.code,
@@ -86,6 +86,43 @@ function errorObject(error: unknown): EventsErrorObject {
         };
     }
     return { code: ProtocolErrorCode.InternalError, message: error instanceof Error ? error.message : String(error) };
+}
+
+// A batch's cursors stay at `from` until its last event, so none runs ahead of an unsent event; a truncated batch carries the fresh cursor throughout.
+export async function checkedBatch(
+    entry: RegisteredEvent,
+    from: string | null,
+    result: EventResult<unknown>,
+    maxAgeMs: number | undefined,
+    report: (error: unknown) => void
+): Promise<Batch> {
+    const { events, truncated } = await checkedEvents(entry, result, maxAgeMs, report);
+    const last = events.length - 1;
+    const cursorAt = (index: number) => (truncated || index === last ? result.cursor : from);
+    return {
+        cursor: cursorAt(-1),
+        truncated,
+        events: events.map((occurrence, index) => ({ ...occurrence, cursor: cursorAt(index) })),
+        position: result.cursor
+    };
+}
+
+// Where a check type starts: `null` takes the current cursor, a cursor replays the events since it first.
+export async function startCheck(
+    entry: RegisteredEvent,
+    ctx: CheckContext,
+    args: Record<string, unknown>,
+    from: string | null,
+    maxAgeMs: number | undefined,
+    report: (error: unknown) => void
+): Promise<Batch> {
+    const check = entry.definition.check!;
+    if (from === null) {
+        const { cursor } = await check(ctx, args, null);
+        return { cursor, truncated: false, events: [], position: cursor };
+    }
+    const result = await check(makeContext({ ...ctx, maxAgeMs }), args, from);
+    return checkedBatch(entry, from, result, maxAgeMs, report);
 }
 
 // `events/stream`: one long-lived request per subscription, answered with `notifications/events/*` until it ends (SEP-3415 §Push).
@@ -115,7 +152,9 @@ export class StreamSet implements SubscriptionSource {
         }
         let checked: Batch | undefined;
         try {
-            if (entry.kind === 'check' && stream.stopped === undefined) checked = await this.#checkStart(stream, params);
+            if (entry.kind === 'check' && stream.stopped === undefined) {
+                checked = await startCheck(entry, stream.ctx, args, params.cursor ?? null, params.maxAgeMs, this.#deps.report);
+            }
         } catch (error) {
             await this.#abandon(stream);
             throw error;
@@ -198,31 +237,6 @@ export class StreamSet implements SubscriptionSource {
         return stream;
     }
 
-    // Where a check type starts: `null` takes the current cursor, a cursor replays the events since it first.
-    async #checkStart(stream: PushStream, params: StreamEventsRequestParams): Promise<Batch> {
-        const check = stream.entry.definition.check!;
-        const from = params.cursor ?? null;
-        if (from === null) {
-            const { cursor } = await check(stream.ctx, stream.args, null);
-            return { cursor, truncated: false, events: [], position: cursor };
-        }
-        const result = await check(makeContext({ ...stream.ctx, maxAgeMs: params.maxAgeMs }), stream.args, from);
-        return this.#batch(stream, from, result, params.maxAgeMs);
-    }
-
-    // A batch's cursors stay at `from` until its last event, so none runs ahead of an unsent event; a truncated batch carries the fresh cursor throughout.
-    async #batch(stream: PushStream, from: string | null, result: EventResult<unknown>, maxAgeMs?: number): Promise<Batch> {
-        const { events, truncated } = await checkedEvents(stream.entry, result, maxAgeMs, this.#deps.report);
-        const last = events.length - 1;
-        const cursorAt = (index: number) => (truncated || index === last ? result.cursor : from);
-        return {
-            cursor: cursorAt(-1),
-            truncated,
-            events: events.map((occurrence, index) => ({ ...occurrence, cursor: cursorAt(index) })),
-            position: result.cursor
-        };
-    }
-
     // Where an emit-only type starts: `null` is the buffer head, a cursor replays the buffer since it, each event at its own position.
     #replay(stream: PushStream, params: StreamEventsRequestParams): Batch {
         const { buffer, report } = this.#deps;
@@ -266,7 +280,7 @@ export class StreamSet implements SubscriptionSource {
         const from = stream.position;
         try {
             const result = await stream.entry.definition.check!(stream.ctx, stream.args, from);
-            const batch = await this.#batch(stream, from, result);
+            const batch = await checkedBatch(stream.entry, from, result, undefined, this.#deps.report);
             if (!stream.live) return;
             this.#send(stream, batch, batch.truncated);
         } catch (error) {

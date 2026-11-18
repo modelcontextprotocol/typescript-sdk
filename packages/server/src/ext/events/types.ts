@@ -285,7 +285,10 @@ export interface EventsOptions {
     checkIntervalMs?: number;
     /** The `nextPollMs` sent when `check` gives none. */
     defaultNextPollMs?: number;
-    /** The most subscriptions served at once; more are refused with `resourceExhausted`. */
+    /**
+     * The most subscriptions this process serves at once, counting poll leases, push streams and the webhook
+     * subscriptions whose subscribe or refresh it handled; more are refused with `resourceExhausted`.
+     */
     maxSubscriptions?: number;
     /** Receives errors nothing else can report (dropped payloads, hook failures, invalid `x-mcp-header` annotations). Default: `console.warn`. */
     onerror?: (error: Error) => void;

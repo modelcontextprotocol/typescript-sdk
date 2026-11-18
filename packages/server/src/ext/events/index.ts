@@ -3,6 +3,7 @@
 // Server side of the MCP Events extension (SEP-3415).
 
 export { EventsExtension } from './extension';
+export { InMemoryWebhookSubscriptionStore } from './store';
 export type {
     CheckContext,
     CheckEventDefinition,

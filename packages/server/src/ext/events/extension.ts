@@ -8,7 +8,9 @@ import {
     EVENTS_UNSUBSCRIBE_METHOD,
     ListEventsRequestParamsSchema,
     PollEventsRequestParamsSchema,
-    StreamEventsRequestParamsSchema
+    StreamEventsRequestParamsSchema,
+    SubscribeEventsRequestParamsSchema,
+    UnsubscribeEventsRequestParamsSchema
 } from '@modelcontextprotocol/core/ext/events';
 import type { ServerContext, StandardSchemaWithJSON } from '@modelcontextprotocol/core-internal';
 import { scanXMcpHeaderDeclarations } from '@modelcontextprotocol/core-internal';
@@ -24,10 +26,12 @@ import { PollSource, toOccurrence } from './poll';
 import { StreamSet } from './push';
 import type { AnyEventDefinition, RegisteredEvent } from './registry';
 import { changedSchema, deliveryModes, EventRegistry } from './registry';
+import { InMemoryWebhookSubscriptionStore } from './store';
 import { installTestHook } from './testHook';
 import type { CheckEventDefinition, EmitOnlyEventDefinition, EmitOnlyEventHandle, EventHandle, EventInput, EventsOptions } from './types';
+import type { SubscriptionRequest } from './validation';
 import { SubscriptionValidator } from './validation';
-import { WebhookEngine } from './webhookEngine';
+import { WebhookSubscriptions } from './webhookSubscriptions';
 
 // The live subscriptions of one delivery mode, which `remove()`, a schema change and `terminate()` end.
 export interface SubscriptionSource {
@@ -127,8 +131,8 @@ export class EventsExtension {
     readonly #validator: SubscriptionValidator;
     readonly #poll: PollSource;
     readonly #push: StreamSet;
-    // Webhook delivery, given a sender and a store.
-    readonly #webhooks: WebhookEngine | undefined;
+    // Webhook subscriptions and delivery, in webhook mode.
+    readonly #webhooks: WebhookSubscriptions | undefined;
     // Each emitted event is handed to these after it is buffered; push and webhook delivery add theirs.
     readonly #fanOuts: EmitFanOut[] = [];
     // Clears process-memory state on a simulated restart; each delivery mode adds its own.
@@ -154,7 +158,7 @@ export class EventsExtension {
             webhookEnabled: this.#webhookEnabled,
             getPrincipal: options.getPrincipal,
             maxSubscriptions: options.maxSubscriptions,
-            subscriptionCount: () => this.#poll.size + this.#push.size
+            subscriptionCount: () => this.#poll.size + this.#push.size + (this.#webhooks?.size ?? 0)
         });
         this.#poll = new PollSource({
             validator: this.#validator,
@@ -170,17 +174,28 @@ export class EventsExtension {
             checkIntervalMs: options.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS,
             report: error => this.#report(error)
         });
-        this.#webhooks =
-            options.webhookSender === undefined || options.webhookStore === undefined
+        const { webhookTtlMs, webhookSender } = options;
+        const webhooks =
+            webhookTtlMs === undefined || webhookSender === undefined
                 ? undefined
-                : new WebhookEngine({
-                      sender: options.webhookSender,
-                      store: options.webhookStore,
+                : new WebhookSubscriptions({
+                      validator: this.#validator,
+                      registry: this.#registry,
+                      buffer: this.#buffer,
+                      sender: webhookSender,
+                      store: options.webhookStore ?? new InMemoryWebhookSubscriptionStore(),
                       trustedOrigins: this.#trustedOrigins,
-                      onerror: error => this.#report(error)
+                      webhookTtlMs,
+                      checkIntervalMs: options.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS,
+                      report: error => this.#report(error)
                   });
+        this.#webhooks = webhooks;
         this.#sources.push(this.#poll, this.#push);
         this.#fanOuts.push((name, buffered, { cursor }) => this.#push.fanOut(name, buffered, cursor));
+        if (webhooks !== undefined) {
+            this.#sources.push(webhooks);
+            this.#fanOuts.push((name, buffered, positions) => webhooks.fanOut(name, buffered, positions));
+        }
         this.#restarts.push(
             () => this.#buffer.clear(),
             () => this.#poll.clear(),
@@ -198,7 +213,8 @@ export class EventsExtension {
                 emitBuffer: this.#buffer.sizes(),
                 pollLeases: this.#poll.size,
                 pushStreams: this.#push.size,
-                webhookSubscriptions: this.#webhooks?.size ?? 0
+                webhookSubscriptions: this.#webhooks?.delivering ?? 0,
+                webhookExpiryTimers: this.#webhooks?.size ?? 0
             }),
             addTrustedOrigin: origin => {
                 assertOrigin(origin);
@@ -240,6 +256,12 @@ export class EventsExtension {
         );
         server.setRequestHandler(EVENTS_STREAM_METHOD, { params: StreamEventsRequestParamsSchema }, (params, ctx) =>
             this.#push.open(params, ctx)
+        );
+        server.setRequestHandler(EVENTS_SUBSCRIBE_METHOD, { params: SubscribeEventsRequestParamsSchema }, (params, ctx) =>
+            this.#webhooks === undefined ? this.#refuseWebhook(params, ctx) : this.#webhooks.subscribe(params, ctx)
+        );
+        server.setRequestHandler(EVENTS_UNSUBSCRIBE_METHOD, { params: UnsubscribeEventsRequestParamsSchema }, (params, ctx) =>
+            this.#webhooks === undefined ? this.#refuseWebhook(params, ctx) : this.#webhooks.unsubscribe(params, ctx)
         );
         server.registerCapabilities({ extensions: { [EVENTS_EXTENSION_ID]: {} } });
         markModernOnlyExtension(server, EVENTS_EXTENSION_ID);
@@ -307,6 +329,12 @@ export class EventsExtension {
             }
         };
         return emitOnly;
+    }
+
+    // Without webhook mode the shared checks refuse every webhook request: the era gate, then `unsupported`.
+    async #refuseWebhook(params: SubscriptionRequest, ctx: ServerContext): Promise<never> {
+        await this.#validator.validate('webhook', params, ctx);
+        throw new TypeError('webhook mode is off, yet validate() accepted a webhook request');
     }
 
     #list(ctx: ServerContext): ListEventsResult {

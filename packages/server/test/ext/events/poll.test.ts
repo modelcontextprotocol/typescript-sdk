@@ -528,10 +528,24 @@ describe('test hook', () => {
         const { poll } = poller(events);
         const { cursor: c0 } = await poll({ name: 'i', cursor: null });
         await h.emit({ data: { n: 1 } });
-        expect(hook.state()).toEqual({ trustedOrigins: [], emitBuffer: { i: 1 }, pollLeases: 1, pushStreams: 0, webhookSubscriptions: 0 });
+        expect(hook.state()).toEqual({
+            trustedOrigins: [],
+            emitBuffer: { i: 1 },
+            pollLeases: 1,
+            pushStreams: 0,
+            webhookSubscriptions: 0,
+            webhookExpiryTimers: 0
+        });
 
         hook.restart();
-        expect(hook.state()).toEqual({ trustedOrigins: [], emitBuffer: {}, pollLeases: 0, pushStreams: 0, webhookSubscriptions: 0 });
+        expect(hook.state()).toEqual({
+            trustedOrigins: [],
+            emitBuffer: {},
+            pollLeases: 0,
+            pushStreams: 0,
+            webhookSubscriptions: 0,
+            webhookExpiryTimers: 0
+        });
         const after = await poll({ name: 'i', cursor: c0 });
         expect(after).toMatchObject({ events: [], truncated: true, hasMore: false });
         expect(after.cursor).not.toBe(c0);

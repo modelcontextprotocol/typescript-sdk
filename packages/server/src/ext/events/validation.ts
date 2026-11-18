@@ -11,8 +11,12 @@ export interface ValidatorDeps {
     readonly webhookEnabled: boolean;
     readonly getPrincipal: EventsOptions['getPrincipal'];
     readonly maxSubscriptions: number | undefined;
-    // Subscriptions served now, across every delivery mode.
+    // Subscriptions this process serves now: poll leases, push streams, and the webhook subscriptions whose subscribe or refresh it handled.
     subscriptionCount(): number;
+}
+
+function notOffered(message: string, mode: DeliveryMode): EventsError {
+    return new EventsError('unsupported', message, { feature: 'deliveryMode', value: mode });
 }
 
 export interface SubscriptionRequest {
@@ -34,7 +38,7 @@ export class SubscriptionValidator {
         this.#deps = deps;
     }
 
-    // Era gate, principal, event exists, mode offered, `beforeParse` (poll: a terminated lease), then the arguments.
+    // Era gate, webhook mode (webhook only), principal (required for webhook), event exists, mode offered, `beforeParse`, then the arguments.
     async validate(
         mode: DeliveryMode,
         params: SubscriptionRequest,
@@ -42,13 +46,13 @@ export class SubscriptionValidator {
         beforeParse?: (principal: string | null, rawArgs: Record<string, unknown>) => void
     ): Promise<ValidSubscription> {
         assertModernRequest(ctx);
+        const webhook = mode === 'webhook';
+        if (webhook && !this.#deps.webhookEnabled) throw notOffered('This server does not offer webhook delivery', mode);
         const principal = (await this.#deps.getPrincipal?.(ctx)) ?? null;
+        if (webhook && principal === null) throw new EventsError('forbidden', 'Webhook subscriptions need an authenticated principal');
         const entry = this.#deps.registry.require(params.name);
         if (!entry.modes(this.#deps.webhookEnabled).includes(mode)) {
-            throw new EventsError('unsupported', `Event type ${params.name} does not offer ${mode} delivery`, {
-                feature: 'deliveryMode',
-                value: mode
-            });
+            throw notOffered(`Event type ${params.name} does not offer ${mode} delivery`, mode);
         }
         const rawArgs = params.arguments ?? {};
         beforeParse?.(principal, rawArgs);

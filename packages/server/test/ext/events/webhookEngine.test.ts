@@ -317,6 +317,31 @@ describe('event delivery', () => {
         expect(bodyOf(requests[4]!).cursor).toBe('p3');
     });
 
+    it('advance() moves an idle watermark, and is ignored while a message is pending', async () => {
+        let answer: WebhookSendOutcome = { status: 500, body: '' };
+        const { engine, record, requests, until } = setup(() => answer);
+        engine.advance(ID, 'p9');
+        expect(engine.watermark(ID)).toBeUndefined();
+        engine.track(ID, 'p0');
+        engine.advance(ID, 'p1');
+        expect(engine.watermark(ID)).toBe('p1');
+
+        engine.deliver(record, occurrence('evt_2'), 'p2', null);
+        await until(1);
+        await settle();
+        engine.advance(ID, 'p5');
+        expect(engine.watermark(ID)).toBe('p1');
+
+        answer = { status: 200, body: '' };
+        await vi.advanceTimersByTimeAsync(5000);
+        await until(2);
+        await settle();
+        expect(engine.watermark(ID)).toBe('p2');
+        expect(bodyOf(requests[1]!).cursor).toBe('p1');
+        engine.advance(ID, 'p5');
+        expect(engine.watermark(ID)).toBe('p5');
+    });
+
     it('tracks an unknown subscription from the seed, so every POST carries a cursor (F3a)', async () => {
         const { engine, record, requests, until } = setup();
         expect(engine.watermark(ID)).toBeUndefined();

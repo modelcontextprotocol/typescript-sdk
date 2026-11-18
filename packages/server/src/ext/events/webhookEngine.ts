@@ -215,6 +215,12 @@ export class WebhookEngine {
         return this.#tracked.get(id)?.watermark;
     }
 
+    // Moves the watermark to `position` when no message is pending, so a quiet upstream still advances it; it never passes an unsettled message.
+    advance(id: string, position: string | null): void {
+        const tracked = this.#tracked.get(id);
+        if (tracked !== undefined && tracked.pending.length === 0) tracked.watermark = position;
+    }
+
     status(id: string): DeliveryStatus | undefined {
         const tracked = this.#tracked.get(id);
         if (tracked === undefined) return undefined;
