@@ -156,3 +156,89 @@ describe('buffer size limit', () => {
         expect(readBuffer.readMessage()).not.toBeNull();
     });
 });
+
+describe('chunked message reading', () => {
+    test('should handle large messages received across many small chunks without quadratic overhead', () => {
+        const readBuffer = new ReadBuffer();
+        const payloadText = 'a'.repeat(2 * 1024 * 1024); // 2 MB
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            id: 'large-msg',
+            result: { text: payloadText }
+        };
+        const raw = Buffer.from(JSON.stringify(message) + '\n');
+        const chunkSize = 1024; // 1 KB chunks (over 2000 chunks)
+
+        for (let offset = 0; offset < raw.length; offset += chunkSize) {
+            readBuffer.append(raw.subarray(offset, Math.min(offset + chunkSize, raw.length)));
+            // Read before final chunk should be null
+            if (offset + chunkSize < raw.length) {
+                expect(readBuffer.readMessage()).toBeNull();
+            }
+        }
+
+        const parsed = readBuffer.readMessage();
+        expect(parsed).toEqual(message);
+        expect(readBuffer.readMessage()).toBeNull();
+    });
+
+    test('should extract multiple messages delivered in a single chunk', () => {
+        const readBuffer = new ReadBuffer();
+        const msg1: JSONRPCMessage = { jsonrpc: '2.0', method: 'm1' };
+        const msg2: JSONRPCMessage = { jsonrpc: '2.0', method: 'm2' };
+        const msg3: JSONRPCMessage = { jsonrpc: '2.0', method: 'm3' };
+
+        const chunk = Buffer.from(JSON.stringify(msg1) + '\n' + JSON.stringify(msg2) + '\n' + JSON.stringify(msg3) + '\n');
+
+        readBuffer.append(chunk);
+        expect(readBuffer.readMessage()).toEqual(msg1);
+        expect(readBuffer.readMessage()).toEqual(msg2);
+        expect(readBuffer.readMessage()).toEqual(msg3);
+        expect(readBuffer.readMessage()).toBeNull();
+    });
+
+    test('should handle consecutive messages split unevenly across chunks', () => {
+        const readBuffer = new ReadBuffer();
+        const msg1: JSONRPCMessage = { jsonrpc: '2.0', method: 'first' };
+        const msg2: JSONRPCMessage = { jsonrpc: '2.0', method: 'second' };
+
+        const str1 = JSON.stringify(msg1) + '\n';
+        const str2 = JSON.stringify(msg2) + '\n';
+        const full = Buffer.from(str1 + str2);
+
+        // Split into 3 arbitrary chunks:
+        // Chunk 1: middle of msg1
+        // Chunk 2: end of msg1 + newline + start of msg2
+        // Chunk 3: rest of msg2 + newline
+        const split1 = Math.floor(str1.length / 2);
+        const split2 = str1.length + Math.floor(str2.length / 2);
+
+        readBuffer.append(full.subarray(0, split1));
+        expect(readBuffer.readMessage()).toBeNull();
+
+        readBuffer.append(full.subarray(split1, split2));
+        expect(readBuffer.readMessage()).toEqual(msg1);
+        expect(readBuffer.readMessage()).toBeNull();
+
+        readBuffer.append(full.subarray(split2));
+        expect(readBuffer.readMessage()).toEqual(msg2);
+        expect(readBuffer.readMessage()).toBeNull();
+    });
+
+    test('should handle empty chunks gracefully', () => {
+        const readBuffer = new ReadBuffer();
+        const msg: JSONRPCMessage = { jsonrpc: '2.0', method: 'test' };
+
+        readBuffer.append(Buffer.alloc(0));
+        expect(readBuffer.readMessage()).toBeNull();
+
+        readBuffer.append(Buffer.from(JSON.stringify(msg)));
+        readBuffer.append(Buffer.alloc(0));
+        expect(readBuffer.readMessage()).toBeNull();
+
+        readBuffer.append(Buffer.from('\n'));
+        readBuffer.append(Buffer.alloc(0));
+        expect(readBuffer.readMessage()).toEqual(msg);
+        expect(readBuffer.readMessage()).toBeNull();
+    });
+});
