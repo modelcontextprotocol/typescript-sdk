@@ -7,9 +7,11 @@ import type { Client } from '../../client/client';
 import { NoCompatibleDeliveryModeError } from './errors';
 import { PollDriver } from './poll';
 import { PushDriver } from './push';
+import { WebhookReceiver } from './receiver';
 import { EventsConnection } from './request';
 import type { Driver, DriverContext, EventSubscription, SubscribeOptions } from './subscription';
 import { SubscriptionQueue } from './subscription';
+import { WebhookSubscriptions } from './webhook';
 
 const DEFAULT_POLL_INTERVAL_FLOOR_MS = 1000;
 
@@ -25,12 +27,20 @@ const PREFERENCE: readonly DeliveryMode[] = ['webhook', 'push', 'poll'];
  */
 export interface EventsClientOptions {
     /**
-     * Webhook delivery: the callback URL the server POSTs events to, and
-     * optionally the source of each subscription's `whsec_` signing secret.
-     * With it set, a subscription prefers webhook where the event type offers it.
+     * Webhook delivery: the callback URL the server POSTs events to, where
+     * {@linkcode EventsClientExtension.createWebhookHandler} is mounted. Each
+     * server subscription signs with its own `whsec_` secret, random unless
+     * `secretProvider` supplies it; a value that is not a Standard Webhooks
+     * secret (`whsec_` and base64 of 24 to 64 bytes) makes `subscribe()`
+     * throw `TypeError`. With it set, a subscription prefers webhook where the
+     * event type offers it.
      */
     webhook?: { url: string; secretProvider?: () => string };
-    /** The shortest wait between two polls, whatever `nextPollMs` the server recommends. Default 1000. */
+    /**
+     * The shortest wait between two polls, whatever `nextPollMs` the server
+     * recommends, and between two webhook refreshes, whatever the grant
+     * (a skewed clock cannot make them back to back). Default 1000.
+     */
     pollIntervalFloorMs?: number;
 }
 
@@ -74,6 +84,8 @@ export class EventsClientExtension {
     readonly id = EVENTS_EXTENSION_ID;
     readonly #options: EventsClientOptions;
     readonly #floorMs: number;
+    readonly #receiver = new WebhookReceiver();
+    readonly #webhooks: WebhookSubscriptions | undefined;
     #connection: EventsConnection | undefined;
 
     /** @throws {TypeError} when `pollIntervalFloorMs` is not a positive finite number. */
@@ -84,6 +96,7 @@ export class EventsClientExtension {
         }
         this.#options = options;
         this.#floorMs = floorMs;
+        this.#webhooks = options.webhook === undefined ? undefined : new WebhookSubscriptions(options.webhook, this.#receiver, floorMs);
     }
 
     /**
@@ -125,7 +138,8 @@ export class EventsClientExtension {
      * `events/list` (fetched again when it is not there), and resolves once
      * the first exchange with the server succeeds (for poll, the first
      * `events/poll` response; for push, the first
-     * `notifications/events/active`). A transient failure of that exchange (a
+     * `notifications/events/active`; for webhook, the `events/subscribe`
+     * response). A transient failure of that exchange (a
      * transport error, or a JSON-RPC error that is not an Events kind) does
      * not reject: delivery is retried in the background. A `cursor` the
      * server refuses because the event type's schema changed is dropped: the
@@ -133,6 +147,14 @@ export class EventsClientExtension {
      * `onGap` reports the fresh cursor. A `-32020` lists the event types again
      * and retries once. Once subscribed, every mode recovers from errors as
      * {@linkcode EventSubscription} describes.
+     *
+     * Webhook subscriptions with the same name and arguments are one server
+     * subscription. A later one joins the open one rather than sending
+     * `events/subscribe` (its `cursor` and `maxAgeMs` are not sent; `onGap`
+     * reports a `cursor` of its own that is not where the shared one is) and
+     * settles as that one's first exchange does. Each gets every event in its
+     * own loop, an end of the shared one ends them all, and
+     * `events/unsubscribe` goes out when the last of them is cancelled.
      *
      * @throws {EventsError} when the server refuses the subscription: `notFound` for an event type it does not list or
      *   no longer serves, `invalidParams` for arguments its `inputSchema` rejects, `forbidden`, or another kind.
@@ -142,6 +164,7 @@ export class EventsClientExtension {
      *   `ConnectionClosed` when the client closes before the first exchange answers, or another code when that
      *   exchange fails in the SDK (for example a request timeout).
      * @throws {ProtocolError} `-32020` when the server rejects the `Mcp-Param` headers again after a re-list.
+     * @throws {TypeError} when `webhook.secretProvider` returns something that is not a Standard Webhooks secret.
      */
     async subscribe<T = Record<string, unknown>>(options: SubscribeOptions): Promise<EventSubscription<T>> {
         const connection = this.#require('subscribe');
@@ -162,10 +185,28 @@ export class EventsClientExtension {
         return queue;
     }
 
+    /**
+     * The receiver for webhook delivery, a `(request: Request) => Promise<Response>`
+     * to mount at `webhook.url` in any fetch-style server; every handler it
+     * returns serves this instance's subscriptions. It verifies each POST's
+     * Standard Webhooks signature over the raw body, answers the server's
+     * verification challenge, delivers each `webhook-id` once, and routes
+     * events and `gap` and `terminated` bodies into their subscription.
+     * Answers: `405` to anything but POST, `413` to a body over 256 KiB,
+     * `400` to a missing header, a timestamp more than 5 minutes off or a
+     * malformed body, `401` to a bad signature, and `503` to a subscription
+     * id it does not route (yet), which the server retries.
+     */
+    createWebhookHandler(): (request: Request) => Promise<Response> {
+        const receiver = this.#receiver;
+        return request => receiver.handle(request);
+    }
+
     #driver<T>(mode: DeliveryMode, context: DriverContext<T>): Driver {
         if (mode === 'poll') return new PollDriver(context, this.#floorMs);
         if (mode === 'push') return new PushDriver(context);
-        throw new SdkError(SdkErrorCode.CapabilityNotSupported, `${mode} delivery is not available yet`);
+        // Webhook is selected only with the `webhook` option set.
+        return this.#webhooks!.driver(context);
     }
 
     #require(method: string): EventsConnection {

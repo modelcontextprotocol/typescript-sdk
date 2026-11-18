@@ -7,7 +7,7 @@ import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 import type { Client } from '../../client/client';
 import { clientInternals } from '../../client/client';
 import { detectProbeEnvironment, detectProbeTransportKind } from '../../client/versionNegotiation';
-import { isHeaderMismatch } from './subscription';
+import { isHeaderMismatch } from './recovery';
 
 // The event type a request is about, whose annotated arguments become `Mcp-Param` headers.
 export interface ParamMirror {

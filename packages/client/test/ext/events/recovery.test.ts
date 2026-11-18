@@ -2,8 +2,8 @@ import { ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/cor
 import { describe, expect, it, vi } from 'vitest';
 
 import { EventsError } from '../../../src/ext/events/index';
+import { recoveryFor, refusesSubscription, reportGap } from '../../../src/ext/events/recovery';
 import type { EventsConnection } from '../../../src/ext/events/request';
-import { recoveryFor, refusesSubscription, reportGap } from '../../../src/ext/events/subscription';
 
 describe('the recovery rules every delivery mode shares', () => {
     it.each([

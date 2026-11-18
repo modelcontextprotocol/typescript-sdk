@@ -1,165 +1,73 @@
 import type { PollEventsResult } from '@modelcontextprotocol/core/ext/events';
 import { EVENTS_POLL_METHOD, PollEventsResultSchema } from '@modelcontextprotocol/core/ext/events';
 
+import { DriverLoop } from './recovery';
 import type { Driver, DriverContext } from './subscription';
-import {
-    closedError,
-    connectionClosed,
-    isSchemaChange,
-    MAX_TIMER_DELAY_MS,
-    recoveryFor,
-    refusesSubscription,
-    reportGap,
-    requireOffered,
-    stillOffered
-} from './subscription';
 
 const MAX_RETRY_DELAY_MS = 60_000;
 
 // Poll delivery (spec §6.3): one `events/poll` loop, again at once on `hasMore`, otherwise after `nextPollMs` but never sooner than the floor.
 export class PollDriver<T> implements Driver {
     readonly #context: DriverContext<T>;
+    readonly #loop: DriverLoop<T>;
     readonly #floorMs: number;
-    readonly #abort = new AbortController();
-    #cursor: string | null;
-    // Sent until a poll succeeds.
-    #maxAgeMs: number | undefined;
     #nextPollMs: number | undefined;
-    // A schema change has refused a poll since the last successful one.
-    #schemaChanged = false;
-    // The cursor was reset to now; the next successful poll reports the gap.
-    #reset = false;
-    // Set by the connection's close listener; ends the loop at once.
-    #closed = false;
-    #wake: (() => void) | undefined;
-    #running: Promise<void> = Promise.resolve();
 
     constructor(context: DriverContext<T>, floorMs: number) {
         this.#context = context;
+        this.#loop = new DriverLoop(context, 'poll');
         this.#floorMs = floorMs;
-        this.#cursor = context.subscription.cursor ?? null;
-        this.#maxAgeMs = context.subscription.maxAgeMs;
     }
 
     start(): Promise<void> {
-        let settle!: { resolve(): void; reject(error: unknown): void };
-        const first = new Promise<void>((resolve, reject) => (settle = { resolve, reject }));
-        const removeCloseListener = this.#context.connection.onClose(() => {
-            this.#closed = true;
-            this.#wake?.();
-        });
-        this.#running = this.#run(settle.resolve)
-            .then(settle.resolve, (error: unknown) => {
-                settle.reject(error);
-                this.#context.queue.fail(error);
-            })
-            .finally(removeCloseListener);
-        return first;
+        return this.#loop.start(() => this.#run());
     }
 
-    async stop(): Promise<void> {
-        this.#abort.abort();
-        this.#wake?.();
-        await this.#running;
+    stop(): Promise<void> {
+        return this.#loop.stop();
     }
 
-    // Calls `subscribed` after the first exchange; throws, ending the subscription, on a first-exchange refusal or a closed connection.
-    async #run(subscribed: () => void): Promise<void> {
-        const { connection, queue, subscription } = this.#context;
-        let first = true;
+    // Polls until stopped; throws, ending the subscription, when a failure calls for it.
+    async #run(): Promise<void> {
+        const loop = this.#loop;
         let failures = 0;
-        while (!this.#abort.signal.aborted) {
-            if (this.#closed) throw closedError();
+        while (!loop.ended) {
             let result: PollEventsResult;
             try {
                 result = await this.#poll();
             } catch (error) {
-                if (this.#abort.signal.aborted) return;
-                const closed = connectionClosed(connection, error);
-                if (closed !== undefined) throw closed;
-                if (first && isSchemaChange(error) && this.#cursor !== null) {
-                    await this.#restartFromNow();
-                    continue;
-                }
-                if (first && refusesSubscription(error)) throw error;
-                first = false;
-                subscribed();
-                const recovery = recoveryFor(error);
-                // A -32020 here is the second: the request already re-listed once and retried with fresh headers.
-                const gone =
-                    recovery === 'fail' ||
-                    recovery === 'mismatch' ||
-                    (recovery === 'relist' && (await stillOffered(connection, subscription.name, 'poll', this.#abort.signal)) === false);
-                if (gone) {
-                    queue.fail(error);
-                    return;
-                }
-                if (isSchemaChange(error)) this.#schemaChange();
-                await this.#sleep(this.#retryDelay(failures++));
+                if (loop.ended) return;
+                if ((await loop.recover(error)) === 'restarted') continue;
+                await loop.sleep(this.#retryDelay(failures++));
                 continue;
             }
+            if (loop.ended) return;
             failures = 0;
             this.#deliver(result);
-            first = false;
-            subscribed();
-            if (result.hasMore !== true) await this.#sleep(Math.max(result.nextPollMs ?? this.#floorMs, this.#floorMs));
+            loop.subscribed();
+            if (result.hasMore !== true) await loop.sleep(Math.max(result.nextPollMs ?? this.#floorMs, this.#floorMs));
         }
     }
 
     #poll(): Promise<PollEventsResult> {
         const { name, arguments: args } = this.#context.subscription;
+        const loop = this.#loop;
         const mirror = { name, ...(args !== undefined && { arguments: args }) };
-        const params = { ...mirror, cursor: this.#cursor, ...(this.#maxAgeMs !== undefined && { maxAgeMs: this.#maxAgeMs }) };
-        return this.#context.connection.request(EVENTS_POLL_METHOD, params, PollEventsResultSchema, mirror, { signal: this.#abort.signal });
-    }
-
-    // The first poll's cursor was refused for a schema change (a stale one passed to subscribe()): re-list, then poll from now or throw why not.
-    async #restartFromNow(): Promise<void> {
-        await requireOffered(this.#context.connection, this.#context.subscription.name, 'poll', this.#abort.signal);
-        this.#cursor = null;
-        this.#reset = true;
-    }
-
-    // A second schema change in a row means the last cursor is refused (SEP: a stale schema epoch), so start again from now.
-    #schemaChange(): void {
-        if (this.#schemaChanged && this.#cursor !== null) {
-            this.#cursor = null;
-            this.#reset = true;
-        }
-        this.#schemaChanged = true;
+        const params = { ...mirror, cursor: loop.cursor, ...(loop.maxAgeMs !== undefined && { maxAgeMs: loop.maxAgeMs }) };
+        return this.#context.connection.request(EVENTS_POLL_METHOD, params, PollEventsResultSchema, mirror, { signal: loop.signal });
     }
 
     #deliver(result: PollEventsResult): void {
-        const { connection, queue, subscription } = this.#context;
         const cursor = result.cursor ?? null;
-        const reset = this.#reset;
-        this.#maxAgeMs = undefined;
         this.#nextPollMs = result.nextPollMs;
-        this.#schemaChanged = false;
-        this.#reset = false;
-        // A type without replay has no position to have skipped past (SEP: ignore `truncated`).
-        if (reset || (result.truncated === true && cursor !== null)) reportGap(subscription, connection, cursor);
-        for (const event of result.events) queue.push(event);
-        this.#cursor = cursor;
-        queue.setCursor(cursor);
+        this.#loop.succeeded(cursor, result.truncated === true);
+        for (const event of result.events) this.#context.queue.push(event);
+        this.#loop.setCursor(cursor);
     }
 
     // max(floor, nextPollMs), doubling per consecutive failure up to 60 s, never below that base.
     #retryDelay(failures: number): number {
         const base = Math.max(this.#floorMs, this.#nextPollMs ?? this.#floorMs);
         return Math.max(base, Math.min(MAX_RETRY_DELAY_MS, base * 2 ** failures));
-    }
-
-    #sleep(ms: number): Promise<void> {
-        return new Promise(resolve => {
-            if (this.#abort.signal.aborted || this.#closed) return resolve();
-            const wake = (): void => {
-                clearTimeout(timer);
-                this.#wake = undefined;
-                resolve();
-            };
-            const timer = setTimeout(wake, Math.min(ms, MAX_TIMER_DELAY_MS));
-            this.#wake = wake;
-        });
     }
 }

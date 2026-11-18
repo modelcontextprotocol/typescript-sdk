@@ -1,7 +1,8 @@
 import type { EventDescriptor, EventOccurrence } from '@modelcontextprotocol/core/ext/events';
-import { EVENTS_EXTENSION_ID } from '@modelcontextprotocol/core/ext/events';
+import { EVENTS_EXTENSION_ID, WEBHOOK_SUBSCRIPTION_ID_HEADER } from '@modelcontextprotocol/core/ext/events';
 import type { JSONRPCMessage, JSONRPCRequest, RequestId, ServerCapabilities, Transport } from '@modelcontextprotocol/core-internal';
 import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
+import { generateWebhookId, parseWebhookSecret, signWebhook } from '@modelcontextprotocol/core-internal/ext/events';
 
 import type { ClientOptions } from '../../../src/client/client';
 import { Client } from '../../../src/client/client';
@@ -189,3 +190,29 @@ export function script(...answers: Array<Record<string, unknown> | RpcError>): H
 }
 
 export const callsTo = (calls: Call[], method: string): Call[] => calls.filter(call => call.method === method);
+
+export const WEBHOOK_URL = 'https://hooks.example.com/mcp/client123';
+
+export interface WebhookPostOptions {
+    webhookId?: string;
+    /** Unix seconds; default now. */
+    timestamp?: number;
+    /** A header to leave out. */
+    omit?: string;
+}
+
+/** A webhook POST as the server sends it: `body` (a raw string, or JSON) signed with `secret` for subscription `id`. */
+export async function webhookPost(body: unknown, secret: string, id: string, options: WebhookPostOptions = {}): Promise<Request> {
+    const raw = typeof body === 'string' ? body : JSON.stringify(body);
+    const webhookId = options.webhookId ?? generateWebhookId();
+    const timestamp = options.timestamp ?? Math.floor(Date.now() / 1000);
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'webhook-id': webhookId,
+        'webhook-timestamp': String(timestamp),
+        'webhook-signature': await signWebhook([parseWebhookSecret(secret)!], webhookId, timestamp, raw),
+        [WEBHOOK_SUBSCRIPTION_ID_HEADER]: id
+    };
+    if (options.omit !== undefined) delete headers[options.omit];
+    return new Request(WEBHOOK_URL, { method: 'POST', headers, body: raw });
+}
