@@ -31,7 +31,7 @@ parameter here is the context object, not an args object.
 
 #### `outputSchema` types the callback's `structuredContent`
 
-When a tool declares `outputSchema`, `registerTool` now checks the callback's successful
+When a tool declares a typed `outputSchema`, `registerTool` now checks the callback's successful
 result against it. Earlier v2 releases typed `structuredContent` as `unknown`, and v1 as
 `{ [k: string]: unknown }`; neither connected it to `outputSchema`. Code that compiled
 before can now fail to compile when it:
@@ -40,13 +40,15 @@ before can now fail to compile when it:
 - returns a successful result with no `structuredContent` (the server already rejected this at runtime);
 - builds the value from a wider type, e.g. a `string` where the schema has an enum. Narrow it, or annotate it with `satisfies`;
 - types the callback's result as plain `CallToolResult`, e.g. a `Promise<CallToolResult>` return annotation, a helper returning `CallToolResult`, or a callback annotated `ToolCallback<typeof inputSchema>`. Drop the annotation, or use `ToolCallback<typeof inputSchema, typeof outputSchema>` / `ToolResultFor<typeof outputSchema>`;
-- passes an `outputSchema` typed as possibly `undefined` (a registry forwarding an optional schema). TypeScript drops the `undefined` at the call site, so the callback is checked as if the schema were present.
+- passes a typed `outputSchema` that may be `undefined`. TypeScript drops the `undefined` at the call site, so the callback is checked as if the schema were present.
 
 `isError: true` results, input-required results, and tools without an `outputSchema`
-are unchanged. Successful typed results may leave out `content`; the server then sends
-the JSON of `structuredContent` as a text block. Runtime validation is unchanged and
-still authoritative. A test fixture that deliberately returns invalid output can cast
-the result: `() => ({ ... }) as never`.
+are unchanged. So are tools whose schema has an `unknown` output type, such as an
+untyped `fromJsonSchema(...)`: a proxy that mirrors another server's tools compiles as
+before. Successful results of a typed tool may leave out `content`; the server then
+sends the JSON of `structuredContent` as a text block. Runtime validation is unchanged
+and still authoritative. A test fixture that deliberately returns invalid output can
+cast the result: `() => ({ ... }) as never`.
 
 #### Standard Schema objects (raw shapes deprecated)
 
