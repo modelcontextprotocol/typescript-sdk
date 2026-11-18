@@ -3646,7 +3646,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'events:capability:declared': {
         ...EVENTS_CELLS,
         source: `${EVENTS_SPEC}#capability-negotiation`,
-        behavior: "A server with Events attached declares extensions['io.modelcontextprotocol/events'] as {}."
+        behavior:
+            "A server that offers Events declares extensions['io.modelcontextprotocol/events'] with a settings object; an absent or false listChanged means no list-change notifications."
+    },
+    'typescript:events:capability:empty': {
+        ...EVENTS_CELLS,
+        source: 'sdk',
+        behavior: "This SDK's server declares the Events capability as {}."
     },
     'events:fallback:method-not-found': {
         ...EVENTS_CELLS,
@@ -3754,7 +3760,12 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         ...EVENTS_CELLS,
         source: `${EVENTS_SPEC}#subscription-ttl`,
         behavior:
-            "refreshBefore is at most the suggestion, except when clamped up to the server's floor, and at most the server cap; ttlMs: null gets a finite grant."
+            "refreshBefore is at most the suggestion, except when clamped up to the server's floor, and at most the server cap; a server that does not grant no-expiry answers ttlMs: null with a finite refreshBefore."
+    },
+    'typescript:events:webhook:no-expiry-refused': {
+        ...EVENTS_CELLS,
+        source: 'sdk',
+        behavior: "This SDK's server never grants no-expiry: a ttlMs: null subscribe gets a finite refreshBefore within the cap."
     },
     'events:webhook:refresh': {
         ...EVENTS_CELLS,

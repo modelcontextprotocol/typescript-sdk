@@ -184,7 +184,19 @@ verifies('events:capability:declared', async ({ transport }: TestArgs) => {
     const client = newClient();
     await using _ = await wire(transport, serving(events), client, EVENTS_WIRE);
 
-    expect(client.getServerCapabilities()?.extensions).toEqual({ [EVENTS_EXTENSION_ID]: {} });
+    const settings = client.getServerCapabilities()?.extensions?.[EVENTS_EXTENSION_ID];
+    expect(settings).toBeTypeOf('object');
+    expect(settings).not.toBeNull();
+    expect(Array.isArray(settings)).toBe(false);
+    expect([undefined, false]).toContain((settings as { listChanged?: unknown }).listChanged);
+});
+
+verifies('typescript:events:capability:empty', async ({ transport }: TestArgs) => {
+    const { events } = noteEvents();
+    const client = newClient();
+    await using _ = await wire(transport, serving(events), client, EVENTS_WIRE);
+
+    expect(client.getServerCapabilities()?.extensions?.[EVENTS_EXTENSION_ID]).toEqual({});
 });
 
 verifies('events:fallback:method-not-found', async ({ transport }: TestArgs) => {
@@ -723,8 +735,29 @@ verifies('events:webhook:ttl', async ({ transport }: TestArgs) => {
     expect(within(await grantOf(120_000), 120_000)).toBe(true);
     expect(within(await grantOf(1000), FLOOR)).toBe(true);
     expect(within(await grantOf(3_600_000), CAP)).toBe(true);
+    // This server does not grant no-expiry, so ttlMs: null gets a finite refreshBefore.
     const unlimited = await grantOf(null);
-    expect(unlimited.max).toBeLessThanOrEqual(CAP);
+    expect(unlimited.min).toBeLessThanOrEqual(CAP);
+});
+
+verifies('typescript:events:webhook:no-expiry-refused', async ({ transport }: TestArgs) => {
+    for (const cap of [60_000, 3_600_000]) {
+        const { events } = noteEvents({ ...webhookOptions(senderTo(echoing, [])), webhookTtlMs: cap });
+        const client = newClient();
+        await using _ = await wire(transport, serving(events), client, EVENTS_WIRE);
+
+        // The first subscribe and a refresh alike.
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const { refreshBefore } = await raw(client, 'events/subscribe', { name: NOTE, delivery: hook(), ttlMs: null });
+            const answered = Date.now();
+            expect(refreshBefore).toEqual(expect.any(String));
+            const expiry = Date.parse(refreshBefore as string);
+            expect(Number.isFinite(expiry)).toBe(true);
+            // The server read its clock before the answer arrived, so the grant is at most expiry − answered.
+            expect(expiry).toBeGreaterThan(answered);
+            expect(expiry - answered).toBeLessThanOrEqual(cap);
+        }
+    }
 });
 
 verifies('events:webhook:refresh', async ({ transport }: TestArgs) => {
