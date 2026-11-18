@@ -351,8 +351,12 @@ export class McpServer {
                 // wrapped) so the listing and the call cannot diverge.
                 return this.server.projectCallToolResult(completed, tool.outputSchemaJson);
             } catch (error) {
-                if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
-                    throw error; // Return the error to the caller without wrapping in CallToolResult
+                if (
+                    error instanceof ProtocolError &&
+                    (error.code === ProtocolErrorCode.UrlElicitationRequired ||
+                        error.code === ProtocolErrorCode.MissingRequiredClientCapability)
+                ) {
+                    throw error; // Protocol-level: return the error to the caller without wrapping in CallToolResult
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }

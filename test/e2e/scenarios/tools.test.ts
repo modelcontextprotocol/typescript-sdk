@@ -34,6 +34,7 @@ import type {
 import {
     isJSONRPCRequest,
     McpServer,
+    MissingRequiredClientCapabilityError,
     ProtocolError,
     ProtocolErrorCode,
     Server,
@@ -1361,4 +1362,21 @@ verifies('mcpserver:tool:metadata-roundtrip', async ({ transport }: TestArgs) =>
     expect(tool.description).toBe('Echo tool carrying every metadata field registerTool accepts.');
     expect(tool.annotations).toEqual(annotations);
     expect(tool._meta).toEqual(meta);
+});
+
+verifies('mcpserver:tool:missing-client-capability-error', async ({ transport }: TestArgs) => {
+    const required = { extensions: { 'com.example/gate': {} } };
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('gated', { inputSchema: z.object({}) }, () => {
+            throw new MissingRequiredClientCapabilityError({ requiredCapabilities: required }, 'declare com.example/gate');
+        });
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+
+    const err = await client.callTool({ name: 'gated', arguments: {} }).catch((error: unknown) => error);
+    expect(err).toBeInstanceOf(ProtocolError);
+    expect(err).toMatchObject({ code: ProtocolErrorCode.MissingRequiredClientCapability, data: { requiredCapabilities: required } });
 });
