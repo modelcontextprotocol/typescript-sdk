@@ -17,6 +17,38 @@ const SKILLS_SPEC =
     'https://github.com/modelcontextprotocol/ext-skills/blob/c1aa87e4c381c82b99aa37471d0eae4ab50f9985/specification/stable/skills.mdx?plain=1#';
 
 export const REQUIREMENTS: Record<string, Requirement> = {
+    // Extensions (SEP-3371 SDK extension points)
+    'extensions:registration:duplicate-id': {
+        source: 'https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3371',
+        behavior: 'A server or client given two extensions with the same id fails construction before setting either up.',
+        transports: ['inMemory'],
+        note: 'local API; the transport plays no part'
+    },
+    'extensions:registration:require': {
+        source: 'https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3371',
+        behavior:
+            'ctx.require(id) passes when the other extension is listed, before or after; when it is missing, construction fails naming it.',
+        transports: ['inMemory'],
+        note: 'local API; the transport plays no part'
+    },
+    'extensions:registration:refused-method-names': {
+        source: 'https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3371',
+        behavior:
+            'ctx.setRequestHandler refuses core request and notification names; use() and ctx.use throw a TypeError for a method they could never wrap: a notification, subscriptions/listen on a server, or a core request this side is never sent.',
+        transports: ['inMemory'],
+        note: 'local API; the transport plays no part'
+    },
+    'extensions:middleware:order': {
+        source: 'https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3371',
+        behavior:
+            'Middleware on a request runs extension middleware first, in extension order, then middleware the application adds with use(), then the handler.'
+    },
+    'extensions:setup:async-failure-fails-connect': {
+        source: 'https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3371',
+        behavior: "When an extension's async setup rejects, connect rejects with that error.",
+        transports: ['inMemory'],
+        note: 'local API; the transport plays no part'
+    },
     // Lifecycle & version negotiation
 
     'lifecycle:capability:client-not-declared': {
