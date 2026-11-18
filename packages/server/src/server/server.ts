@@ -41,6 +41,7 @@ import type {
 import {
     assertExtensionCapabilitiesUnowned,
     assertValidCacheHint,
+    assertWrappable,
     attachCacheHintFallback,
     CLIENT_CAPABILITIES_META_KEY,
     codecForVersion,
@@ -64,8 +65,7 @@ import {
     SdkErrorCode,
     setProtocolInstrumentation,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS,
-    withRequestStateValue,
-    assertWrappable
+    withRequestStateValue
 } from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 

@@ -55,6 +55,7 @@ import type {
 } from '@modelcontextprotocol/core-internal';
 import {
     assertExtensionCapabilitiesUnowned,
+    assertWrappable,
     buildMcpParamHeaders,
     codecForVersion,
     DEFAULT_REQUEST_TIMEOUT_MSEC,
@@ -81,8 +82,7 @@ import {
     SERVER_INFO_META_KEY,
     setProtocolInstrumentation,
     SUBSCRIPTION_ID_META_KEY,
-    SUPPORTED_MODERN_PROTOCOL_VERSIONS,
-    assertWrappable
+    SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
 import type { ClientExtension } from './extension';
