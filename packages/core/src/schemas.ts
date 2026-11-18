@@ -1440,7 +1440,7 @@ export const CallToolResultSchema = ResultSchema.extend({
 });
 
 /**
- * {@linkcode CallToolResultSchema} extended with backwards compatibility to protocol version 2024-10-07.
+ * {@linkcode CallToolResultSchema} extended with backwards compatibility to protocol version 2024-11-05.
  */
 export const CompatibilityCallToolResultSchema = CallToolResultSchema.or(
     ResultSchema.extend({

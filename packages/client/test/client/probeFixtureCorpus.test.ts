@@ -42,7 +42,7 @@ const DEPLOYED_UNSUPPORTED_VERSION_BODY = JSON.stringify({
     id: null,
     error: {
         code: -32_000,
-        message: `Bad Request: Unsupported protocol version: ${MODERN} (supported versions: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05, 2024-10-07)`
+        message: `Bad Request: Unsupported protocol version: ${MODERN} (supported versions: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05)`
     }
 });
 
