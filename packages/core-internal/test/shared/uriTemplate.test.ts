@@ -43,6 +43,23 @@ describe('UriTemplate', () => {
             expect(template.expand({ path: '/foo/bar' })).toBe('/foo/bar/here');
             expect(template.variableNames).toEqual(['path']);
         });
+
+        it('should preserve existing percent-encoded triplets in reserved variables', () => {
+            expect(new UriTemplate('file://{+path}').expand({ path: '/docs/My%20File.txt' })).toBe('file:///docs/My%20File.txt');
+            for (const value of ['a%2fb', '50%25', 'caf%C3%A9', '%25AB', '%2520', '%2F%20']) {
+                expect(new UriTemplate('{+value}').expand({ value })).toBe(value);
+            }
+        });
+
+        it('should preserve encoded triplets in each reserved list element', () => {
+            expect(new UriTemplate('{+list}').expand({ list: ['one%20two', 'three%2Ffour'] })).toBe('one%20two,three%2Ffour');
+        });
+
+        it('should continue encoding percent signs that are not part of a triplet', () => {
+            expect(new UriTemplate('{+value}').expand({ value: '50%' })).toBe('50%25');
+            expect(new UriTemplate('{+value}').expand({ value: 'a%2/b%ZZ/c%' })).toBe('a%252/b%25ZZ/c%25');
+            expect(new UriTemplate('{value}').expand({ value: 'My%20File.txt' })).toBe('My%2520File.txt');
+        });
     });
 
     describe('fragment expansion', () => {
@@ -50,6 +67,10 @@ describe('UriTemplate', () => {
             const template = new UriTemplate('X{#var}');
             expect(template.expand({ var: '/test' })).toBe('X#/test');
             expect(template.variableNames).toEqual(['var']);
+        });
+
+        it('should preserve existing percent-encoded triplets in fragment variables', () => {
+            expect(new UriTemplate('docs{#section}').expand({ section: 'Part%20One' })).toBe('docs#Part%20One');
         });
     });
 
