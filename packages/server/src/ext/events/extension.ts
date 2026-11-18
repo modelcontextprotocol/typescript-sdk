@@ -27,13 +27,14 @@ import { changedSchema, deliveryModes, EventRegistry } from './registry';
 import { installTestHook } from './testHook';
 import type { CheckEventDefinition, EmitOnlyEventDefinition, EmitOnlyEventHandle, EventHandle, EventInput, EventsOptions } from './types';
 import { SubscriptionValidator } from './validation';
+import { WebhookEngine } from './webhookEngine';
 
 // The live subscriptions of one delivery mode, which `remove()`, a schema change and `terminate()` end.
 export interface SubscriptionSource {
     terminate(name: string, error: EventsError, subscriptionId?: string): Promise<void>;
 }
 
-// Receives each emitted event once it is buffered: `cursor` is the position after it, `previous` the one before.
+// Receives each emitted event once it is buffered (`cursor` the position after it, `previous` the one before); it queues delivery and returns, never waiting on a receiver.
 export type EmitFanOut = (name: string, buffered: BufferedEvent, positions: { cursor: string; previous: string }) => void | Promise<void>;
 
 type DefaultSchema = StandardSchemaWithJSON<Record<string, unknown>>;
@@ -126,6 +127,8 @@ export class EventsExtension {
     readonly #validator: SubscriptionValidator;
     readonly #poll: PollSource;
     readonly #push: StreamSet;
+    // Webhook delivery, given a sender and a store.
+    readonly #webhooks: WebhookEngine | undefined;
     // Each emitted event is handed to these after it is buffered; push and webhook delivery add theirs.
     readonly #fanOuts: EmitFanOut[] = [];
     // Clears process-memory state on a simulated restart; each delivery mode adds its own.
@@ -167,12 +170,22 @@ export class EventsExtension {
             checkIntervalMs: options.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS,
             report: error => this.#report(error)
         });
+        this.#webhooks =
+            options.webhookSender === undefined || options.webhookStore === undefined
+                ? undefined
+                : new WebhookEngine({
+                      sender: options.webhookSender,
+                      store: options.webhookStore,
+                      trustedOrigins: this.#trustedOrigins,
+                      onerror: error => this.#report(error)
+                  });
         this.#sources.push(this.#poll, this.#push);
         this.#fanOuts.push((name, buffered, { cursor }) => this.#push.fanOut(name, buffered, cursor));
         this.#restarts.push(
             () => this.#buffer.clear(),
             () => this.#poll.clear(),
-            () => this.#push.closeAll()
+            () => this.#push.closeAll(),
+            () => this.#webhooks?.clear()
         );
         installTestHook(this, {
             generation: () => this.#generation,
@@ -184,7 +197,8 @@ export class EventsExtension {
                 trustedOrigins: [...this.#trustedOrigins],
                 emitBuffer: this.#buffer.sizes(),
                 pollLeases: this.#poll.size,
-                pushStreams: this.#push.size
+                pushStreams: this.#push.size,
+                webhookSubscriptions: this.#webhooks?.size ?? 0
             }),
             addTrustedOrigin: origin => {
                 assertOrigin(origin);

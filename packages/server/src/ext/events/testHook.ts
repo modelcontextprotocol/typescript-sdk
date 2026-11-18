@@ -11,6 +11,8 @@ export interface EventsTestState {
     readonly pollLeases: number;
     // Open push streams, counting those still starting.
     readonly pushStreams: number;
+    // Webhook subscriptions this process holds delivery state (watermark, status, retries) for.
+    readonly webhookSubscriptions: number;
 }
 
 // Internal controls for tests and the conformance fixture; never part of the public API or its declarations.

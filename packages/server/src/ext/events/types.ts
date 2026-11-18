@@ -193,6 +193,7 @@ export interface WebhookSendRequest {
     body: string;
     /** The URL's origin is in `trustedOrigins`, so the `https` and private-address rules do not apply. */
     trusted: boolean;
+    /** Aborts when the SDK stops delivering to the subscription. */
     signal: AbortSignal;
 }
 
@@ -207,6 +208,10 @@ export type WebhookSendOutcome = { status: number; body: string } | { error: 'co
 
 /**
  * Sends webhook POSTs. Webhook delivery is on only when one is configured.
+ * It sends the request as given, follows no redirects, and gives up after its
+ * own timeout with `{ error: 'timeout' }`: the SDK waits as long as it takes.
+ * It should resolve rather than reject; an event delivery whose sender rejects
+ * is reported to `onerror` and retried.
  *
  * Experimental: Events (SEP-3415) is new; this API may change in a minor release.
  *

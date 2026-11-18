@@ -496,7 +496,7 @@ describe('events/stream: termination', () => {
         const stream = await open(serve(events), { name: 'i', cursor: null });
         await next(stream);
         const hook = testHook(events);
-        expect(hook.state()).toEqual({ trustedOrigins: [], emitBuffer: {}, pollLeases: 0, pushStreams: 1 });
+        expect(hook.state()).toEqual({ trustedOrigins: [], emitBuffer: {}, pollLeases: 0, pushStreams: 1, webhookSubscriptions: 0 });
         hook.restart();
         expect(onUnsubscribe).toHaveBeenCalledOnce();
         expect(await rest(stream)).toEqual([finalResult(stream.id)]);
