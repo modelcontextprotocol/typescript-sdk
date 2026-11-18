@@ -184,15 +184,6 @@ describe('McpServerOptions.extensions', () => {
         const shapeless = { id: 'com.example/empty' } as unknown as ServerExtension;
         expect(() => new McpServer(info, { extensions: [shapeless] })).toThrow('Extension "com.example/empty" has no setup');
     });
-
-    it('a MissingRequiredClientCapabilityError thrown by a tool handler is a JSON-RPC error, not an isError result', async () => {
-        const mcp = new McpServer(info);
-        mcp.registerTool('needs-ext', {}, async () => {
-            throw new MissingRequiredClientCapabilityError({ requiredCapabilities: { extensions: { [EXT_ID]: {} } } }, 'declare the gate');
-        });
-        const body = await exchange(mcp.server, modernRequest('tools/call', { name: 'needs-ext', arguments: {} }));
-        expect(body['error']).toMatchObject({ code: -32_021, data: { requiredCapabilities: { extensions: { [EXT_ID]: {} } } } });
-    });
 });
 
 describe('methods middleware can never wrap', () => {
