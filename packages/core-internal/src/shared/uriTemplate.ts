@@ -24,6 +24,44 @@ export class UriTemplate {
             throw new Error(`${context} exceeds maximum length of ${max} characters (got ${str.length})`);
         }
     }
+
+    /**
+     * Percent-encodes a literal run per RFC 6570 §3.1.
+     *
+     * A template may be written with characters the URI grammar does not allow —
+     * `ucschar` (`file:///docs/café/`) or a space — and §3.1 requires those to be
+     * pct-encoded as UTF-8 when the template is expanded. Reserved and unreserved
+     * characters are structural and stay as written, and existing `%XX` triplets
+     * pass through unchanged so an already-encoded literal is not encoded twice
+     * (`encodeURI` alone would turn `caf%C3%A9` into `caf%25C3%25A9`).
+     *
+     * Applied once in the constructor, so both directions read the same literal:
+     * `expand()` emits the encoded form and `match()` builds its pattern from it.
+     * An expanded URI therefore matches the template it came from — as does the
+     * pct-encoded URI a `new URL()` round-trip produces.
+     */
+    private static encodeLiteral(text: string): string {
+        let result = '';
+        let last = 0;
+        for (const match of text.matchAll(/%[0-9A-Fa-f]{2}/g)) {
+            result += UriTemplate.encodeLiteralRun(text.slice(last, match.index)) + match[0];
+            last = match.index + match[0].length;
+        }
+        return result + UriTemplate.encodeLiteralRun(text.slice(last));
+    }
+
+    /**
+     * Encodes one run of literal text that holds no `%XX` triplet.
+     *
+     * `encodeURI` escapes `[` and `]`, which RFC 3986 reserves for an IPv6 host
+     * literal — §3.1 leaves reserved characters to the template author, and
+     * `new URL('http://[::1]/x')` keeps them — so they are restored here. The
+     * restore runs per gap rather than over the whole literal, so a `%5B` the
+     * author wrote themselves still passes through as a triplet.
+     */
+    private static encodeLiteralRun(text: string): string {
+        return encodeURI(text).replaceAll('%5B', '[').replaceAll('%5D', ']');
+    }
     private readonly template: string;
     private readonly parts: Array<string | { name: string; operator: string; names: string[]; exploded: boolean }>;
 
@@ -34,7 +72,9 @@ export class UriTemplate {
     constructor(template: string) {
         UriTemplate.validateLength(template, MAX_TEMPLATE_LENGTH, 'Template');
         this.template = template;
-        this.parts = this.parse(template);
+        // Literals are encoded once here rather than on every expand()/match():
+        // they come from the template, so the result is the same every time.
+        this.parts = this.parse(template).map(part => (typeof part === 'string' ? UriTemplate.encodeLiteral(part) : part));
     }
 
     toString(): string {
@@ -259,6 +299,9 @@ export class UriTemplate {
 
         for (const part of this.parts) {
             if (typeof part === 'string') {
+                // Already encoded in the constructor, so the pattern lines up with
+                // what expand() emits and with the URI the server resolves through
+                // `new URL()` (RFC 6570 §3.1).
                 pattern += this.escapeRegExp(part);
             } else {
                 const patterns = this.partToRegExp(part);
