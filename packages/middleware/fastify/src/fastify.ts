@@ -86,8 +86,9 @@ export function createMcpFastifyApp(options: CreateMcpFastifyAppOptions = {}): F
         const localhostHosts = ['127.0.0.1', 'localhost', '::1'];
         if (localhostHosts.includes(host)) {
             app.addHook('onRequest', localhostHostValidation());
-        } else if (host === '0.0.0.0' || host === '::') {
-            // Warn when binding to all interfaces without DNS rebinding protection
+        } else {
+            // Warn when binding to any non-loopback host (all interfaces, a LAN address or a
+            // hostname) without DNS rebinding protection
             app.log.warn(
                 `Server is binding to ${host} without DNS rebinding protection. ` +
                     'Consider using the allowedHosts option to restrict allowed hosts, ' +
