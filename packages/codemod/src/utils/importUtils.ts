@@ -6,6 +6,7 @@ const SDK_PREFIX = '@modelcontextprotocol/sdk';
 const V2_PACKAGES = new Set([
     '@modelcontextprotocol/client',
     '@modelcontextprotocol/server',
+    '@modelcontextprotocol/server-legacy',
     '@modelcontextprotocol/core-internal',
     '@modelcontextprotocol/core',
     '@modelcontextprotocol/node',
