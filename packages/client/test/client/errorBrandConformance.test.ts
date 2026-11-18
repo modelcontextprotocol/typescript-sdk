@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import * as events from '../../src/ext/events/index';
 import * as skills from '../../src/ext/skills/index';
 import * as barrel from '../../src/index';
 
-/** Every public entry that can export an error class: the root and the skills extension's subpath. */
-const SURFACES: ReadonlyArray<Record<string, unknown>> = [barrel, skills];
+/** Every public entry that can export an error class: the root and the extensions' subpaths. */
+const SURFACES: ReadonlyArray<Record<string, unknown>> = [barrel, skills, events];
 
 /**
  * Enforces the cross-bundle branding participation criterion from
@@ -41,6 +42,8 @@ describe('error brand conformance (client export surface)', () => {
         expect(classes.map(([n]) => n)).toContain('ProtocolError');
         expect(classes.map(([n]) => n)).toContain('OAuthClientFlowError');
         expect(classes.map(([n]) => n)).toContain('SkillVerificationError');
+        expect(classes.map(([n]) => n)).toContain('EventsError');
+        expect(classes.map(([n]) => n)).toContain('NoCompatibleDeliveryModeError');
     });
 
     it('every exported error class is branded (or explicitly allowlisted)', () => {
@@ -84,9 +87,11 @@ describe('error brand conformance (client export surface)', () => {
         );
         expect(brands).toEqual({
             AuthorizationServerMismatchError: 'mcp.AuthorizationServerMismatchError',
+            EventsError: 'mcp.EventsError',
             InsecureTokenEndpointError: 'mcp.InsecureTokenEndpointError',
             InsufficientScopeError: 'mcp.InsufficientScopeError',
             IssuerMismatchError: 'mcp.IssuerMismatchError',
+            NoCompatibleDeliveryModeError: 'mcp.NoCompatibleDeliveryModeError',
             OAuthClientFlowError: 'mcp.OAuthClientFlowError',
             RegistrationRejectedError: 'mcp.RegistrationRejectedError',
             SkillVerificationError: 'mcp.SkillVerificationError',

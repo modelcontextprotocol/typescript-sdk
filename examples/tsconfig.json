@@ -16,6 +16,7 @@
             "@modelcontextprotocol/client/stdio": ["./node_modules/@modelcontextprotocol/client/src/stdio.ts"],
             "@modelcontextprotocol/client/_shims": ["./node_modules/@modelcontextprotocol/client/src/shimsNode.ts"],
             "@modelcontextprotocol/client/ext/skills": ["./node_modules/@modelcontextprotocol/client/src/ext/skills/index.ts"],
+            "@modelcontextprotocol/client/ext/events": ["./node_modules/@modelcontextprotocol/client/src/ext/events/index.ts"],
             "@modelcontextprotocol/server/ext/skills": ["./node_modules/@modelcontextprotocol/server/src/ext/skills/index.ts"],
             "@modelcontextprotocol/server/ext/skills/node": ["./node_modules/@modelcontextprotocol/server/src/ext/skills/node.ts"],
             "@modelcontextprotocol/server/ext/events": ["./node_modules/@modelcontextprotocol/server/src/ext/events/index.ts"],

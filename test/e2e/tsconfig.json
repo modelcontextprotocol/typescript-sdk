@@ -33,6 +33,7 @@
             "@modelcontextprotocol/client/validators/ajv": ["./node_modules/@modelcontextprotocol/client/src/validators/ajv.ts"],
             "@modelcontextprotocol/client/validators/cf-worker": ["./node_modules/@modelcontextprotocol/client/src/validators/cfWorker.ts"],
             "@modelcontextprotocol/client/ext/skills": ["./node_modules/@modelcontextprotocol/client/src/ext/skills/index.ts"],
+            "@modelcontextprotocol/client/ext/events": ["./node_modules/@modelcontextprotocol/client/src/ext/events/index.ts"],
             "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],
             "@modelcontextprotocol/server/stdio": ["./node_modules/@modelcontextprotocol/server/src/stdio.ts"],
             "@modelcontextprotocol/server/_shims": ["./node_modules/@modelcontextprotocol/server/src/shimsNode.ts"],

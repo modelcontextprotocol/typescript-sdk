@@ -38,8 +38,9 @@ const PUBLIC_PACKAGES: Record<string, { name: string; exportKeys: string[]; bin?
     client: {
         name: '@modelcontextprotocol/client',
         // './ext/skills' is the client side of the Skills extension (SEP-2640) — public API,
-        // kept off the root barrel so the extension surface stays opt-in and separately versioned.
-        exportKeys: ['.', './stdio', './ext/skills', './validators/ajv', './validators/cf-worker', './_shims']
+        // kept off the root barrel so the extension surface stays opt-in and separately versioned;
+        // './ext/events' is the client side of the Events extension (SEP-3415), kept off it likewise.
+        exportKeys: ['.', './stdio', './ext/skills', './ext/events', './validators/ajv', './validators/cf-worker', './_shims']
     },
     server: {
         name: '@modelcontextprotocol/server',
