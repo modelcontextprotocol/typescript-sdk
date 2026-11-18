@@ -42,6 +42,7 @@ import {
     ResourceNotFoundError,
     scanXMcpHeaderDeclarations,
     standardSchemaToJsonSchema,
+    TOOL_RESULT_FOREIGN_FAMILY_KEYS,
     UriTemplate,
     validateAndWarnToolName,
     validateStandardSchema
@@ -342,12 +343,13 @@ export class McpServer {
                 const result = await this.executeToolHandler(tool, args, ctx);
                 await this.validateToolOutput(tool, result, request.params.name);
                 if (isInputRequiredResult(result)) return result;
+                const completed = withStructuredContentText(result);
                 // SEP-2106 result-side projection (the era-agnostic TextContent auto-append; the
                 // `{result:…}` wrap on the 2025 era) lives behind the wire codec's
                 // `projectCallToolResult`. The codec receives the SAME advertised JSON Schema
                 // `tools/list` emits (and that the codec's `encodeResult('tools/list', …)` may have
                 // wrapped) so the listing and the call cannot diverge.
-                return this.server.projectCallToolResult(result, tool.outputSchemaJson);
+                return this.server.projectCallToolResult(completed, tool.outputSchemaJson);
             } catch (error) {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult
@@ -1035,8 +1037,8 @@ export class McpServer {
                     needsExecutorRegen = true;
                 }
                 if (updates.callback !== undefined) {
-                    registeredTool.handler = updates.callback;
                     currentHandler = updates.callback as AnyToolHandler<StandardSchemaWithJSON | undefined>;
+                    registeredTool.handler = currentHandler;
                     needsExecutorRegen = true;
                 }
                 if (needsExecutorRegen) {
@@ -1374,6 +1376,18 @@ export class ResourceTemplate {
     }
 }
 
+// Mirrors `structuredContent` as JSON text when a tool result omits `content`; other result families are left to fail validation.
+function withStructuredContentText(result: CallToolResult): CallToolResult {
+    if (
+        (result as { content?: unknown }).content !== undefined ||
+        result.structuredContent === undefined ||
+        TOOL_RESULT_FOREIGN_FAMILY_KEYS.some(key => key in result)
+    ) {
+        return result;
+    }
+    return { ...result, content: [{ type: 'text', text: JSON.stringify(result.structuredContent) }] };
+}
+
 /**
  * A plain record of Zod field schemas, e.g. `{ name: z.string() }`. Accepted by
  * `registerTool`/`registerPrompt` as a shorthand; auto-wrapped with `z.object()`.
@@ -1394,9 +1408,9 @@ export type InferRawShape<S extends ZodRawShape> = z.infer<z.ZodObject<S>>;
  * the intersection of input and output otherwise — so a transforming schema whose output is not
  * a valid input cannot be satisfied by accident. `undefined` is excluded because the runtime
  * treats `structuredContent: undefined` as absent; `null` is kept when the schema allows it.
- * When the schema's output type is `unknown` (an untyped `fromJsonSchema(...)`, `z.unknown()`),
- * any value is accepted, so forwarded `unknown` values type-check; the key is still required.
  * A branded output (Zod `.brand()`) requires a branded value, as brands are meant to.
+ * For a schema whose output type is `unknown` this is `unknown`, and `registerTool` does not
+ * check the result at compile time (see {@linkcode ToolResultFor}).
  *
  * @typeParam Output - the tool's `outputSchema`: a Standard Schema or a {@linkcode ZodRawShape}.
  */
@@ -1414,14 +1428,18 @@ export type ToolStructuredContent<Output extends StandardSchemaWithJSON | ZodRaw
       : never;
 
 /**
- * The successful result of a tool that declares an `outputSchema`: `structuredContent` is
+ * The successful result of a tool that declares a typed `outputSchema`: `structuredContent` is
  * required and typed by {@linkcode ToolStructuredContent}.
+ *
+ * `content` is optional here: when it is omitted, the server sends the JSON of
+ * `structuredContent` as a single text block. Supply your own `content` to control what
+ * clients that ignore `structuredContent` see.
  */
 export type ToolResultWithStructuredContent<T> = {
     // `Omit` would collapse CallToolResult's known keys into its index signature; key remapping keeps them.
     [K in keyof CallToolResult as K extends 'content' | 'structuredContent' | 'isError' ? never : K]: CallToolResult[K];
 } & {
-    content: CallToolResult['content'];
+    content?: CallToolResult['content'];
     structuredContent: T;
     isError?: false;
 };
@@ -1432,11 +1450,12 @@ export type ToolErrorResult = CallToolResult & { isError: true };
 /**
  * Maps a tool's declared `outputSchema` to the {@link CallToolResult} its handler may return.
  *
- * With an `outputSchema`, a successful result must carry matching `structuredContent`
+ * With a typed `outputSchema`, a successful result must carry matching `structuredContent`
  * ({@linkcode ToolResultWithStructuredContent}); `isError: true` results are unconstrained.
- * Without one, any {@link CallToolResult} is allowed. A schema typed `S | undefined` also allows
- * any result here, but `registerTool`'s optional `outputSchema` property drops the `undefined`
- * when inferring, so a forwarded optional schema is checked as if present.
+ * Without one, or with one whose output type is `unknown` (such as an untyped
+ * `fromJsonSchema(...)`), any {@link CallToolResult} is allowed. A schema typed `S | undefined`
+ * also allows any result here, but `registerTool`'s optional `outputSchema` property drops the
+ * `undefined` when inferring, so a forwarded optional typed schema is checked as if present.
  * Input-required results are added by {@linkcode ToolCallback} and are never constrained.
  *
  * @typeParam Output - the tool's `outputSchema`: a Standard Schema, a {@linkcode ZodRawShape}, or `undefined`.
@@ -1444,7 +1463,9 @@ export type ToolErrorResult = CallToolResult & { isError: true };
 export type ToolResultFor<Output extends StandardSchemaWithJSON | ZodRawShape | undefined> = [Output] extends [
     StandardSchemaWithJSON | ZodRawShape
 ]
-    ? ToolResultWithStructuredContent<ToolStructuredContent<Output>> | ToolErrorResult
+    ? unknown extends ToolStructuredContent<Output>
+        ? CallToolResult
+        : ToolResultWithStructuredContent<ToolStructuredContent<Output>> | ToolErrorResult
     : CallToolResult;
 
 /** {@linkcode ToolCallback} variant used when `inputSchema` is a {@linkcode ZodRawShape}. */
@@ -1486,8 +1507,8 @@ export type BaseToolCallback<
 /**
  * Callback for a tool handler registered with {@linkcode McpServer.registerTool}.
  *
- * `registerTool` passes the tool's `outputSchema` as `Output`, so a successful result's
- * `structuredContent` is checked against the schema at compile time (see {@linkcode ToolResultFor}).
+ * `registerTool` passes the tool's `outputSchema` as `Output`, so for a typed schema a successful
+ * result's `structuredContent` is checked at compile time (see {@linkcode ToolResultFor}).
  * Runtime validation still runs and remains authoritative.
  */
 export type ToolCallback<
@@ -1546,7 +1567,11 @@ export type RegisteredTool = {
         icons?: Icon[];
         scopeChallenge?: ScopeChallengeHandler | null;
         _meta?: Record<string, unknown>;
-        callback?: ToolCallback<StandardSchemaWithJSON>;
+        callback?: BaseToolCallback<
+            CallToolResult | ToolResultWithStructuredContent<unknown> | InputRequiredResult,
+            ServerContext,
+            StandardSchemaWithJSON
+        >;
         enabled?: boolean;
     }): void;
     remove(): void;
