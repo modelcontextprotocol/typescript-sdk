@@ -387,15 +387,15 @@ export class ClientResponseCache {
      * `cachePartition` is `''` the two partitions are identical and only one
      * probe is issued.
      */
-    private async _probe(method: string, params?: string): Promise<CacheEntry | undefined> {
+    private async _probe(method: string, params?: string): Promise<{ entry: CacheEntry; partition: string } | undefined> {
         const key = { method, params: params ?? '' };
         const ownPartition = this._partitionFor('private');
         const own = await this._store.get({ ...key, partition: ownPartition });
-        if (own !== undefined) return own;
+        if (own !== undefined) return { entry: own, partition: ownPartition };
         const sharedPartition = this._partitionFor('public');
         if (sharedPartition === ownPartition) return undefined;
         const shared = await this._store.get({ ...key, partition: sharedPartition });
-        return shared?.scope === 'public' ? shared : undefined;
+        return shared?.scope === 'public' ? { entry: shared, partition: sharedPartition } : undefined;
     }
 
     /**
@@ -565,17 +565,23 @@ export class ClientResponseCache {
      * `expiresAt` passes.
      */
     async read(method: string, params?: string): Promise<{ value: unknown } | undefined> {
-        const entry = await this._probe(method, params);
-        if (entry?.expiresAt === undefined || !(entry.expiresAt > this.now())) return undefined;
+        const probed = await this._probe(method, params);
+        if (probed?.entry.expiresAt === undefined || !(probed.entry.expiresAt > this.now())) return undefined;
         try {
-            const parsed: unknown = JSON.parse(entry.value);
+            const parsed: unknown = JSON.parse(probed.entry.value);
             if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
                 throw new TypeError('cached document is not an object');
             }
             return { value: parsed };
         } catch (error) {
+            // Corruption is evidence about one physical entry; the sibling
+            // partition was never probed and may be a co-tenant's healthy copy.
             this._reportError(error);
-            await this._deleteBoth(method, params ?? '');
+            try {
+                await this._store.delete({ method, params: params ?? '', partition: probed.partition });
+            } catch (deleteError) {
+                this._reportError(deleteError);
+            }
             return undefined;
         }
     }
@@ -609,7 +615,8 @@ export class ClientResponseCache {
      * and, via {@linkcode outputValidator}, its output-schema validation.
      */
     async toolDefinition(name: string): Promise<Tool | undefined> {
-        const entry = await this._probe('tools/list');
+        const probed = await this._probe('tools/list');
+        const entry = probed?.entry;
         if (entry === undefined) {
             this._toolIndex = undefined;
             return undefined;
@@ -649,7 +656,8 @@ export class ClientResponseCache {
      * the lot.
      */
     async outputValidator<V>(name: string, compile: (tool: Tool) => V | undefined): Promise<V | undefined> {
-        const entry = await this._probe('tools/list');
+        const probed = await this._probe('tools/list');
+        const entry = probed?.entry;
         if (entry === undefined) {
             this._toolOutputValidatorIndex = undefined;
             return undefined;
