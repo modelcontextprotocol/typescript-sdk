@@ -170,7 +170,7 @@ npm version patch      # Creates v1.23.2 tag
 git push origin release/1.23 --tags
 ```
 
-Then manually trigger the "Publish v1.x" workflow from [GitHub Actions](https://github.com/modelcontextprotocol/typescript-sdk/actions/workflows/release-v1x.yml), specifying the tag (e.g., `v1.23.2`).
+Then manually trigger the "Publish v1.x" workflow from [GitHub Actions](https://github.com/modelcontextprotocol/typescript-sdk/actions/workflows/release.yml), specifying the tag (e.g., `v1.23.2`).
 
 ### npm Tags
 
