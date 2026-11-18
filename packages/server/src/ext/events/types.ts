@@ -2,8 +2,8 @@ import type { DeliveryMode } from '@modelcontextprotocol/core/ext/events';
 import type { ServerContext, StandardSchemaWithJSON } from '@modelcontextprotocol/core-internal';
 import type { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 
-type InferInput<S extends StandardSchemaWithJSON> = StandardSchemaWithJSON.InferInput<S>;
-type InferOutput<S extends StandardSchemaWithJSON> = StandardSchemaWithJSON.InferOutput<S>;
+export type InferInput<S extends StandardSchemaWithJSON> = StandardSchemaWithJSON.InferInput<S>;
+export type InferOutput<S extends StandardSchemaWithJSON> = StandardSchemaWithJSON.InferOutput<S>;
 
 /**
  * The `ctx` of every event callback: the subscription it runs for. There is no
@@ -78,7 +78,7 @@ export interface EventResult<P = Record<string, unknown>> {
     hasMore?: boolean;
 }
 
-interface EventDefinitionBase<I extends StandardSchemaWithJSON, P extends StandardSchemaWithJSON> {
+export interface EventDefinitionBase<I extends StandardSchemaWithJSON, P extends StandardSchemaWithJSON> {
     description?: string;
     /** Schema for the subscription `arguments`; absent means any object. */
     inputSchema?: I;

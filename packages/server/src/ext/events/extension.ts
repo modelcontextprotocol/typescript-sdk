@@ -43,7 +43,7 @@ export interface SubscriptionSource {
 // Receives each emitted event once it is buffered (`cursor` the position after it, `previous` the one before); it queues delivery and returns, never waiting on a receiver.
 export type EmitFanOut = (name: string, buffered: BufferedEvent, positions: { cursor: string; previous: string }) => void | Promise<void>;
 
-type DefaultSchema = StandardSchemaWithJSON<Record<string, unknown>>;
+export type DefaultSchema = StandardSchemaWithJSON<Record<string, unknown>>;
 
 // The `events/*` requests that name an event type in `params.name`.
 const NAMED_EVENT_METHODS = [EVENTS_POLL_METHOD, EVENTS_STREAM_METHOD, EVENTS_SUBSCRIBE_METHOD, EVENTS_UNSUBSCRIBE_METHOD];

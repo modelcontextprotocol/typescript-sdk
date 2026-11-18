@@ -1,6 +1,6 @@
 import type { McpServer } from './mcp';
 
-type ParamHeaderSchemaLookup = (name: string) => Record<string, unknown> | undefined;
+export type ParamHeaderSchemaLookup = (name: string) => Record<string, unknown> | undefined;
 
 // Per server, the methods besides `tools/call` whose `Mcp-Param-*` headers `createMcpHandler` validates, each with its schema lookup by `params.name`.
 const sources = new WeakMap<McpServer, Map<string, ParamHeaderSchemaLookup>>();

@@ -99,7 +99,7 @@ export interface DriverContext<T> {
     readonly connection: EventsConnection;
 }
 
-type Item<T> = EventOccurrence & { data: T };
+export type Item<T> = EventOccurrence & { data: T };
 
 // In delivery order: an event, or a cursor that becomes current once the loop has moved past the events before it.
 type Entry<T> = { event: Item<T> } | { cursor: string | null };

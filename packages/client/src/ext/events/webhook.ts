@@ -17,7 +17,7 @@ import type { DeliveryQueue, Driver, DriverContext } from './subscription';
 // The share of each grant after which the subscription is refreshed.
 const REFRESH_AT = 0.75;
 
-interface WebhookOptions {
+export interface WebhookOptions {
     url: string;
     secretProvider?: () => string;
 }
