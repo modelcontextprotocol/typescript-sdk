@@ -37,6 +37,10 @@
             "types": "./src/ext/skills/index.ts",
             "import": "./src/ext/skills/index.ts"
         },
+        "./ext/events": {
+            "types": "./src/ext/events/index.ts",
+            "import": "./src/ext/events/index.ts"
+        },
         "./validators/ajv": {
             "types": "./src/validators/ajvProvider.ts",
             "import": "./src/validators/ajvProvider.ts"

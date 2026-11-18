@@ -28,6 +28,9 @@
             "@modelcontextprotocol/core-internal/ext/skills": [
                 "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core-internal/src/ext/skills/index.ts"
             ],
+            "@modelcontextprotocol/core-internal/ext/events": [
+                "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core-internal/src/ext/events/index.ts"
+            ],
             "@modelcontextprotocol/eslint-config": ["./node_modules/@modelcontextprotocol/eslint-config/tsconfig.json"],
             "@modelcontextprotocol/vitest-config": ["./node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"],
             "@modelcontextprotocol/test-helpers": ["./node_modules/@modelcontextprotocol/test-helpers/src/index.ts"],

@@ -21,6 +21,9 @@
             "@modelcontextprotocol/core-internal/ext/skills": [
                 "./node_modules/@modelcontextprotocol/core-internal/src/ext/skills/index.ts"
             ],
+            "@modelcontextprotocol/core-internal/ext/events": [
+                "./node_modules/@modelcontextprotocol/core-internal/src/ext/events/index.ts"
+            ],
             "@modelcontextprotocol/core-internal/validators/cfWorker": [
                 "./node_modules/@modelcontextprotocol/core-internal/src/validators/cfWorkerProvider.ts"
             ],
