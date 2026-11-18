@@ -39,6 +39,16 @@ function indexRecord(keys: readonly string[]): MemoryIndex {
     return { dirs, files };
 }
 
+// `''` is the record root; every other path is normalised the same way the
+// index normalises record keys, so `sub/` and `./SKILL.md` resolve.
+function normaliseDir(dir: string): string {
+    return dir === '' ? '' : splitRelativePath(dir, 'directory').join('/');
+}
+
+function normalisePath(path: string): string {
+    return splitRelativePath(path, 'file path').join('/');
+}
+
 /**
  * An in-memory adapter. The record is re-read whenever a walk starts — `list('')` — so `reload()` sees later changes.
  * Other calls use the index from that read (built on first use if no walk has started), so their cost does not grow
@@ -52,14 +62,17 @@ export function memorySkillFiles(files: Record<string, string | Uint8Array>): Sk
     };
     return {
         async list(dir) {
-            const children = (dir === '' ? reindex() : (index ?? reindex())).dirs.get(dir);
+            const normalised = normaliseDir(dir);
+            const children = (normalised === '' ? reindex() : (index ?? reindex())).dirs.get(normalised);
             if (children !== undefined) return Array.from(children.values(), entry => ({ ...entry }));
-            if (dir === '') return [];
+            if (normalised === '') return [];
             throw new Error(`no such directory: ${dir}`);
         },
         async read(path) {
+            // Validation comes first: a `..` segment must never reach the record.
+            const normalised = normalisePath(path);
             // Keys written as `./a/b` or `a//b` are found through the index.
-            const key = Object.hasOwn(files, path) ? path : (index ?? reindex()).files.get(path);
+            const key = Object.hasOwn(files, normalised) ? normalised : (index ?? reindex()).files.get(normalised);
             const content = key === undefined ? undefined : files[key];
             if (content === undefined) throw new Error(`no such file: ${path}`);
             return typeof content === 'string' ? encodeUtf8(content) : content;
