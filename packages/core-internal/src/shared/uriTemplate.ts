@@ -202,8 +202,8 @@ export class UriTemplate {
         operator: string;
         names: string[];
         exploded: boolean;
-    }): Array<{ pattern: string; name: string }> {
-        const patterns: Array<{ pattern: string; name: string }> = [];
+    }): Array<{ pattern: string; name: string; operator: string }> {
+        const patterns: Array<{ pattern: string; name: string; operator: string }> = [];
 
         // Validate variable name length for matching
         for (const name of part.names) {
@@ -216,7 +216,8 @@ export class UriTemplate {
                 const prefix = i === 0 ? '\\' + part.operator : '&';
                 patterns.push({
                     pattern: prefix + this.escapeRegExp(name) + '=([^&]+)',
-                    name
+                    name,
+                    operator: part.operator
                 });
             }
             return patterns;
@@ -248,23 +249,44 @@ export class UriTemplate {
             }
         }
 
-        patterns.push({ pattern, name });
+        patterns.push({ pattern, name, operator: part.operator });
         return patterns;
+    }
+
+    /**
+     * Decodes a value that {@link match} extracted from a URI, undoing the
+     * encoding that {@link expand} applies for the same operator. `+` and `#`
+     * use {@link encodeURI}, which preserves a wider set of reserved
+     * characters, so the matching inverse is {@link decodeURI}; every other
+     * operator uses {@link encodeURIComponent}, whose inverse is
+     * {@link decodeURIComponent}.
+     *
+     * Malformed escape sequences are returned unchanged rather than thrown,
+     * so a value that was already raw on the wire (or that was constructed
+     * from a string the caller already decoded) does not raise out of
+     * {@link match}.
+     */
+    private decodeExtractedValue(value: string, operator: string): string {
+        try {
+            return operator === '+' || operator === '#' ? decodeURI(value) : decodeURIComponent(value);
+        } catch {
+            return value;
+        }
     }
 
     match(uri: string): Variables | null {
         UriTemplate.validateLength(uri, MAX_TEMPLATE_LENGTH, 'URI');
         let pattern = '^';
-        const names: Array<{ name: string; exploded: boolean }> = [];
+        const names: Array<{ name: string; exploded: boolean; operator: string }> = [];
 
         for (const part of this.parts) {
             if (typeof part === 'string') {
                 pattern += this.escapeRegExp(part);
             } else {
                 const patterns = this.partToRegExp(part);
-                for (const { pattern: partPattern, name } of patterns) {
+                for (const { pattern: partPattern, name, operator } of patterns) {
                     pattern += partPattern;
-                    names.push({ name, exploded: part.exploded });
+                    names.push({ name, exploded: part.exploded, operator });
                 }
             }
         }
@@ -278,11 +300,14 @@ export class UriTemplate {
 
         const result: Variables = {};
         for (const [i, name_] of names.entries()) {
-            const { name, exploded } = name_!;
+            const { name, exploded, operator } = name_!;
             const value = match[i + 1]!;
             const cleanName = name.replace('*', '');
 
-            result[cleanName] = exploded && value.includes(',') ? value.split(',') : value;
+            const raw = exploded && value.includes(',') ? value.split(',') : value;
+            result[cleanName] = Array.isArray(raw)
+                ? raw.map(v => this.decodeExtractedValue(v, operator))
+                : this.decodeExtractedValue(raw, operator);
         }
 
         return result;
