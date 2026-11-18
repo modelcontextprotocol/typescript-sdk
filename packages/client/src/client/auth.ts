@@ -23,7 +23,7 @@ import {
     OAuthErrorResponseSchema,
     OAuthMetadataSchema,
     OAuthProtectedResourceMetadataSchema,
-    OAuthTokensSchema,
+    OAuthTokenResponseSchema,
     OpenIdProviderDiscoveryMetadataSchema,
     resourceUrlFromServerUrl,
     stampErrorBrands,
@@ -1454,7 +1454,9 @@ async function authInternal(
         // token, so silently dropping the new tokens would leave the client
         // with credentials that are already invalid server-side.
         if (newTokens) {
-            await provider.saveTokens({ ...newTokens, issuer }, infoCtx);
+            // Refresh responses omit scope when the grant is unchanged (RFC 6749 §6); keep the stored one, strictly absent if neither has it.
+            const preservedScope = newTokens.scope ?? tokens.scope;
+            await provider.saveTokens({ ...newTokens, ...(preservedScope !== undefined && { scope: preservedScope }), issuer }, infoCtx);
             return 'AUTHORIZED';
         }
     }
@@ -2296,7 +2298,7 @@ export async function executeTokenRequest(
     const json: unknown = await response.json();
 
     try {
-        return OAuthTokensSchema.parse(withoutIssuer(json));
+        return OAuthTokenResponseSchema.parse(withoutIssuer(json));
     } catch (parseError) {
         // Some OAuth servers (e.g., GitHub) return error responses with HTTP 200 status.
         // Check for error field only if token parsing failed.
@@ -2428,7 +2430,7 @@ export async function refreshAuthorization(
     });
 
     // Preserve the original refresh token, and the scope sent (RFC 6749 §5.1), if the server didn't return new ones
-    return { refresh_token: refreshToken, ...tokens, ...(scope && !tokens.scope && { scope }) };
+    return { ...tokens, refresh_token: tokens.refresh_token ?? refreshToken, ...(scope && !tokens.scope && { scope }) };
 }
 
 /**
