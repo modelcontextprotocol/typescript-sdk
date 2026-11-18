@@ -33,7 +33,7 @@
         "docs:dev": "vitepress dev docs",
         "docs:build": "pnpm docs:api && vitepress build docs",
         "docs:multi": "bash scripts/build-docs-site.sh",
-        "docs:check": "pnpm docs:build",
+        "docs:check": "tsx --test docs/.vitepress/authInfoLinks.test.ts && pnpm docs:build",
         "typecheck:all": "pnpm -r typecheck",
         "build:all": "pnpm -r build",
         "ci:publish": "pnpm run build:all && pnpm changeset publish",
