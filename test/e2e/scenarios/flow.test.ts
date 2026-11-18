@@ -9,7 +9,7 @@
  */
 
 import type { OAuthClientProvider } from '@modelcontextprotocol/client';
-import { Client, SdkHttpError, SSEClientTransport, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
+import { Client, SdkHttpError, SSEClientTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type {
     ElicitRequest,
     ElicitResult,
@@ -536,7 +536,9 @@ verifies('flow:oauth:authorization-code-roundtrip', async (_args: TestArgs) => {
     try {
         // Step 1: first connect fails with 401 → discovery + DCR + redirect to the authorization endpoint
         const transport1 = new StreamableHTTPClientTransport(url, { authProvider: provider, fetch: combinedFetch });
-        await expect(client.connect(transport1)).rejects.toBeInstanceOf(UnauthorizedError);
+        const connectPromise1 = client.connect(transport1);
+        connectPromise1.catch(() => {});
+        await vi.waitFor(() => expect(redirectedTo).toHaveLength(1));
 
         expect(redirectedTo).toHaveLength(1);
         const [authorizationRedirect] = redirectedTo;

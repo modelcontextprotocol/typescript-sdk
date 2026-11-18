@@ -15,7 +15,7 @@
  */
 import { check, parseExampleArgs } from '@mcp-examples/shared';
 import type { OAuthClientMetadata } from '@modelcontextprotocol/client';
-import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 import { InMemoryOAuthClientProvider } from '../oauth/simpleOAuthClientProvider';
 
@@ -53,18 +53,20 @@ const provider = new InMemoryOAuthClientProvider(CALLBACK_URL, clientMetadata, a
 
 // ---- 1. Initial authorization for files:read ------------------------------
 const t1 = new StreamableHTTPClientTransport(new globalThis.URL(url), { authProvider: provider });
-let challenged = false;
-try {
-    await client.connect(t1);
-} catch (error) {
-    const root = error instanceof UnauthorizedError ? error : (error as { data?: { cause?: unknown } }).data?.cause;
-    if (!(root instanceof UnauthorizedError)) throw error;
-    challenged = true;
+
+// connect() now stays pending until finishAuth() completes (no rejection).
+// Fire it in the background and wait for the redirect callback to capture the URL.
+const connectPromise = client.connect(t1);
+
+// Wait for the OAuth redirect to be captured
+const deadline = Date.now() + 5000;
+while (captured.length === 0 && Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 50));
 }
-check.ok(challenged, 'first connect must 401');
 check.equal(captured.length, 1, 'authorize URL captured');
 check.match(captured[0]?.searchParams.get('scope') ?? '', /files:read/);
 await t1.finishAuth(await followAuthorize(captured[0]!));
+await connectPromise;
 check.equal(provider.tokens()?.scope, 'files:read');
 
 // ---- 2. Reconnect with files:read; list-files works -----------------------
