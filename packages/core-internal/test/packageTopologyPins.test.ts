@@ -45,13 +45,15 @@ const PUBLIC_PACKAGES: Record<string, { name: string; exportKeys: string[]; bin?
         name: '@modelcontextprotocol/server',
         // './ext/skills' — the server side of the same extension; './ext/skills/node'
         // — its Node-only folder adapter (kept off './ext/skills' so that stays runtime-neutral);
-        // './ext/events' — the server side of the Events extension (SEP-3415).
+        // './ext/events' — the server side of the Events extension (SEP-3415); './ext/events/node'
+        // — its Node-only webhook sender (kept off './ext/events' so that stays runtime-neutral).
         exportKeys: [
             '.',
             './stdio',
             './ext/skills',
             './ext/skills/node',
             './ext/events',
+            './ext/events/node',
             './validators/ajv',
             './validators/cf-worker',
             './_shims'

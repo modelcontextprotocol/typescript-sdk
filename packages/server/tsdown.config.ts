@@ -12,7 +12,8 @@ export default defineConfig({
         'src/validators/cfWorker.ts',
         'src/ext/skills/index.ts',
         'src/ext/skills/node.ts',
-        'src/ext/events/index.ts'
+        'src/ext/events/index.ts',
+        'src/ext/events/node.ts'
     ],
     format: ['esm', 'cjs'],
     fixedExtension: true,

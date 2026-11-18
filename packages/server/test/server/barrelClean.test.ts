@@ -146,6 +146,12 @@ describe('@modelcontextprotocol/server root, ext/skills and ext/events are runti
         expect(moduleGraphOf(node).some(file => NODE_BUILTIN_IMPORT.test(readFileSync(file, 'utf8')))).toBe(true);
     });
 
+    test('ext/events/node exports only the webhook sender, and its node: imports live in that entry alone', () => {
+        const node = join(distDir, 'ext/events/node.mjs');
+        expect(rootExportBlockOf(readFileSync(node, 'utf8')).trim()).toBe('export { nodeWebhookSender };');
+        expect(moduleGraphOf(node).filter(file => NODE_BUILTIN_IMPORT.test(readFileSync(file, 'utf8')))).toEqual([node]);
+    });
+
     test('the root entry does not export the skills extension', () => {
         expect(rootExportBlockOf(readFileSync(join(distDir, 'index.mjs'), 'utf8'))).not.toMatch(
             /\b(?:SkillsExtension|SkillCatalog|loadSkills|nodeSkillFiles)\b/

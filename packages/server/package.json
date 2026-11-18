@@ -70,6 +70,16 @@
                 "default": "./dist/ext/events/index.cjs"
             }
         },
+        "./ext/events/node": {
+            "import": {
+                "types": "./dist/ext/events/node.d.mts",
+                "default": "./dist/ext/events/node.mjs"
+            },
+            "require": {
+                "types": "./dist/ext/events/node.d.cts",
+                "default": "./dist/ext/events/node.cjs"
+            }
+        },
         "./validators/ajv": {
             "import": {
                 "types": "./dist/validators/ajv.d.mts",
@@ -145,6 +155,9 @@
             ],
             "ext/events": [
                 "dist/ext/events/index.d.mts"
+            ],
+            "ext/events/node": [
+                "dist/ext/events/node.d.mts"
             ],
             "validators/ajv": [
                 "dist/validators/ajv.d.mts"
