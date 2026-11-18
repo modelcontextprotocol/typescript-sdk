@@ -163,3 +163,15 @@ describe('InMemoryTransport', () => {
         expect(receivedMessage).toEqual(message);
     });
 });
+
+describe('queued message ordering', () => {
+    test('delivers older queued messages before messages sent after a handler is attached', async () => {
+        const [sender, receiver] = InMemoryTransport.createLinkedPair();
+        await sender.send({ jsonrpc: '2.0', method: 'ordered', id: 1 });
+        const received: unknown[] = [];
+        receiver.onmessage = message => received.push('id' in message ? message.id : undefined);
+        await sender.send({ jsonrpc: '2.0', method: 'ordered', id: 2 });
+        await receiver.start();
+        expect(received).toEqual([1, 2]);
+    });
+});
