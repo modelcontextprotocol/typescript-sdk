@@ -291,7 +291,7 @@ export class ClientResponseCache {
      */
     private _toolIndex?: { stamp: number; byName: Map<string, Tool> };
     /**
-     * `name → compiled output-schema validator` derived from the cached
+     * `name → caller-defined output metadata` derived from the cached
      * `tools/list` entry; same stamp-keyed memoization as `_toolIndex`. Typed
      * `unknown` so this class stays free of any validator-provider dependency
      * — the compile callback supplied to {@linkcode outputValidator} owns the
@@ -605,8 +605,9 @@ export class ClientResponseCache {
      * Returns `undefined` only when no `tools/list` response is held at all,
      * or the held list does not contain `name`.
      *
-     * Consumed by `callTool()`'s SEP-2243 `_resolveXMcpHeaderScan` (mirroring)
-     * and, via {@linkcode outputValidator}, its output-schema validation.
+     * For consumers needing only the descriptor. `Client.callTool()` uses
+     * {@linkcode outputValidator} to retain the source Tool alongside its
+     * compiled output validator in one metadata snapshot.
      */
     async toolDefinition(name: string): Promise<Tool | undefined> {
         const entry = await this._probe('tools/list');
@@ -627,16 +628,17 @@ export class ClientResponseCache {
     }
 
     /**
-     * The compiled output-schema validator for tool `name`, derived from the
+     * Caller-defined output metadata for tool `name`, derived from the
      * cached `tools/list` entry — same source and same stamp-keyed
-     * memoization as {@linkcode toolDefinition}. The `name → validator` index
+     * memoization as {@linkcode toolDefinition}. The `name → metadata` index
      * re-derives only when the backing entry's stamp changes (a refetched
      * `tools/list` recompiles; a `list_changed` eviction drops it). Returns
-     * `undefined` when no `tools/list` is held, the tool is absent, or it has
-     * no `outputSchema`.
+     * `undefined` when no `tools/list` is held, the tool is absent, or the
+     * callback returns `undefined` for it.
      *
-     * `compile` is the caller-supplied validator-compile callback (the
-     * `Client` passes its `_jsonSchemaValidator` wrapper) so this
+     * `compile` is the caller-supplied callback. `Client` retains the source
+     * Tool alongside its compiled validator, including Tools without an
+     * `outputSchema`, so mirroring and validation share one snapshot. This
      * class carries no validator-provider dependency. One tool's uncompilable
      * `outputSchema` (e.g. an invalid `pattern` regex or unresolvable `$ref`)
      * must not poison every other tool's `callTool` — the callback isolates

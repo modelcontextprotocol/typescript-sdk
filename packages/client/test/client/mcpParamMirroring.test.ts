@@ -12,7 +12,8 @@ import {
     encodeMcpParamValue,
     HEADER_MISMATCH_ERROR_CODE,
     InMemoryTransport,
-    PROTOCOL_VERSION_META_KEY
+    PROTOCOL_VERSION_META_KEY,
+    ProtocolErrorCode
 } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -125,6 +126,107 @@ function modernClient(store?: InMemoryResponseCacheStore): Client {
 }
 
 describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
+    it.each(['New', 'Old'])(
+        'keeps mirroring and output validation on the same catalog generation during a refresh (%s result)',
+        async resultGeneration => {
+            const versionedTool = (generation: string): Tool => ({
+                name: 'route',
+                inputSchema: {
+                    type: 'object',
+                    properties: { region: { type: 'string', 'x-mcp-header': `${generation}-Region` } }
+                },
+                outputSchema: {
+                    type: 'object',
+                    properties: { generation: { const: generation } },
+                    required: ['generation']
+                }
+            });
+            const oldTool = versionedTool('Old');
+            const newTool = versionedTool('New');
+            const store = new InMemoryResponseCacheStore();
+            const { clientTx, serverTx, callHeaders, listCount } = await scriptedModernServer([[newTool]]);
+            const originalHandler = serverTx.onmessage!;
+            let executions = 0;
+            serverTx.onmessage = (message, extra) => {
+                const request = message as JSONRPCRequest;
+                if (request.method !== 'tools/call') {
+                    originalHandler(message, extra);
+                    return;
+                }
+                // A rejected stale header does not execute the handler. Choose the
+                // response generation to exercise validation after recovery.
+                if (callHeaders.at(-1)?.['Mcp-Param-New-Region'] !== 'eu') {
+                    void serverTx.send({
+                        jsonrpc: '2.0',
+                        id: request.id,
+                        error: { code: HEADER_MISMATCH_ERROR_CODE, message: 'stale header definition' }
+                    });
+                    return;
+                }
+                executions++;
+                void serverTx.send({
+                    jsonrpc: '2.0',
+                    id: request.id,
+                    result: { resultType: 'complete', content: [], structuredContent: { generation: resultGeneration } }
+                });
+            };
+            const client = modernClient(store);
+            await client.connect(clientTx);
+            store.set({ method: 'tools/list', partition: PART }, { value: JSON.stringify({ tools: [oldTool] }) });
+
+            // Pause one async store read after it captured the old entry, then
+            // complete a real listTools refresh before allowing that read to finish.
+            // No timers or private client/cache methods are involved.
+            const get = store.get.bind(store);
+            let captured!: () => void;
+            const readCaptured = new Promise<void>(resolve => {
+                captured = resolve;
+            });
+            let release!: () => void;
+            const readReleased = new Promise<void>(resolve => {
+                release = resolve;
+            });
+            let pause = true;
+            (store as ResponseCacheStore).get = key => {
+                const entry = get(key);
+                if (pause && key.method === 'tools/list' && key.partition === PART) {
+                    pause = false;
+                    captured();
+                    return readReleased.then(() => entry);
+                }
+                return entry;
+            };
+
+            try {
+                const outcome = client.callTool({ name: 'route', arguments: { region: 'eu' } }).then(
+                    result => ({ result }),
+                    error => ({ error })
+                );
+                await readCaptured;
+                await client.listTools(undefined, { cacheMode: 'refresh' });
+                release();
+                const observed = await outcome;
+                if (resultGeneration === 'New') {
+                    expect(observed).toEqual({ result: { content: [], structuredContent: { generation: 'New' } } });
+                } else {
+                    expect(observed).toMatchObject({
+                        error: {
+                            code: ProtocolErrorCode.InvalidParams,
+                            message: expect.stringContaining("does not match the tool's output schema")
+                        }
+                    });
+                }
+                expect(executions).toBe(1);
+                expect(callHeaders).toEqual([{ 'Mcp-Param-Old-Region': 'eu' }, { 'Mcp-Param-New-Region': 'eu' }]);
+                expect(listCount()).toBe(2);
+            } finally {
+                release();
+                await client.close();
+                await serverTx.close();
+            }
+        }
+    );
+
     it('listTools() and the cached tools/list entry exclude constraint-violating x-mcp-header tools and warn', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const store = new InMemoryResponseCacheStore();
@@ -285,18 +387,14 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
         client.onerror = e => errors.push(e);
         await client.connect(clientTx);
 
-        // The pre-send mirroring read AND the post-success validator read both
-        // hit a rejecting `get()`. Neither aborts the call: the request goes
-        // out without `Mcp-Param-*` headers (cold-cache posture), the
-        // server-side result is returned, and both store failures surface via
-        // `onerror`. The post-success guard is the critical one — a store
-        // failure after the server has executed the call must never surface
-        // as a `callTool()` rejection (duplicate-execution hazard on retry).
+        // One metadata read supplies both mirroring and validation. Its store
+        // failure is reported once, and the successful call remains available
+        // to the caller without a second read after server execution.
         const result = await client.callTool({ name: 'route', arguments: { region: 'ap' } });
         expect(result.content?.[0]).toEqual({ type: 'text', text: 'ok' });
         expect(callHeaders).toEqual([undefined]);
         expect(listCount()).toBe(0);
-        expect(errors.map(e => e.message)).toEqual(['redis down', 'redis down']);
+        expect(errors.map(e => e.message)).toEqual(['redis down']);
     });
 
     it('a paginating server: the cached aggregate holds every page and a page-2 x-mcp-header tool mirrors on the first call', async () => {
