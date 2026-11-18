@@ -221,6 +221,11 @@ describe('SEP-2243 standard-header validation (Mcp-Name presence and cross-check
         expectRejection(validateStandardRequestHeaders(request, route), 'name-header-invalid-encoding');
     });
 
+    test('a plain Mcp-Name with a character outside 0x20-0x7E / 0x09 is rejected (name-header-invalid-encoding)', () => {
+        const { request, route } = modernPost('tools/call', { name: 'café', arguments: {} }, { mcpMethod: 'tools/call', mcpName: 'café' });
+        expectRejection(validateStandardRequestHeaders(request, route), 'name-header-invalid-encoding');
+    });
+
     test('raw HTTP OWS is stripped from standard MCP header values', () => {
         const { request } = modernPost(
             'tools/call',
