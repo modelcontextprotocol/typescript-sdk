@@ -11,7 +11,7 @@ export interface ValidatorDeps {
     readonly webhookEnabled: boolean;
     readonly getPrincipal: EventsOptions['getPrincipal'];
     readonly maxSubscriptions: number | undefined;
-    // Subscriptions this process serves now: poll leases, push streams, and the webhook subscriptions whose subscribe or refresh it handled.
+    // Subscriptions this process serves now: poll leases, push streams, and the webhook subscriptions whose subscribe or refresh it handled or is still creating.
     subscriptionCount(): number;
 }
 

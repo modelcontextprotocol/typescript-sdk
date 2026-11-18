@@ -103,6 +103,11 @@ function client(events: EventsExtension, principal: string | null = 'u1') {
     };
 }
 
+// The expected id, computed apart from the SDK: `key` is written with its object keys already sorted.
+function idOf(key: unknown[]): string {
+    return `sub_${createHash('sha256').update(JSON.stringify(key)).digest('base64url').slice(0, 22)}`;
+}
+
 function subscribed(reply: Parameters<typeof resultOf>[0]): SubscribeEventsResult {
     return resultOf(reply) as SubscribeEventsResult;
 }
@@ -238,10 +243,7 @@ describe('events/subscribe: validation', () => {
         const alice = client(events);
         const first = subscribed(await alice.subscribe({ arguments: { a: 1, b: { c: 2 } } }));
         const reordered = subscribed(await alice.subscribe({ arguments: { b: { c: 2 }, a: 1 } }));
-        const digest = createHash('sha256')
-            .update(JSON.stringify(['u1', HOOK, 'e', { a: 1, b: { c: 2 } }]))
-            .digest('base64url');
-        expect(first.id).toBe(`sub_${digest.slice(0, 22)}`);
+        expect(first.id).toBe(idOf(['u1', HOOK, 'e', { a: 1, b: { c: 2 } }]));
         expect(first.id).toMatch(SUB_ID);
         expect(reordered.id).toBe(first.id);
         expect(onSubscribe).toHaveBeenCalledOnce();
@@ -255,6 +257,37 @@ describe('events/subscribe: validation', () => {
             subscribed(await alice.subscribe({ arguments: { a: 1, b: { c: 3 } } })).id
         ];
         expect(new Set([first.id, ...others]).size).toBe(5);
+    });
+
+    it('derives the id from the arguments as the client sent them, and keeps the parsed ones for the hooks', async () => {
+        const onSubscribe = vi.fn();
+        const store = new InMemoryWebhookSubscriptionStore();
+        const { events } = replica({ webhookStore: store });
+        events.registerEvent('e', { emitOnly: true, inputSchema: z.object({ a: z.number() }), payloadSchema: P, onSubscribe });
+        const alice = client(events);
+        const plain = subscribed(await alice.subscribe({ arguments: { a: 1 } }));
+        const extra = subscribed(await alice.subscribe({ arguments: { a: 1, x: 2 } }));
+        expect(plain.id).toBe(idOf(['u1', HOOK, 'e', { a: 1 }]));
+        expect(extra.id).toBe(idOf(['u1', HOOK, 'e', { a: 1, x: 2 }]));
+        expect(onSubscribe.mock.calls.map(([, args]) => args as unknown)).toEqual([{ a: 1 }, { a: 1 }]);
+        expect((await store.get(extra.id))?.arguments).toEqual({ a: 1 });
+
+        // Unsubscribing one key leaves the other.
+        resultOf(await alice.unsubscribe({ arguments: { a: 1 } }));
+        expect((await stored(store)).map(record => record.id)).toEqual([extra.id]);
+    });
+
+    it('keeps the id when the schema gains a default, as after a restart with a new version', async () => {
+        const before = replica();
+        before.events.registerEvent('e', { emitOnly: true, inputSchema: z.object({ a: z.number() }), payloadSchema: P });
+        const after = replica();
+        after.events.registerEvent('e', {
+            emitOnly: true,
+            inputSchema: z.object({ a: z.number(), flag: z.boolean().default(false) }),
+            payloadSchema: P
+        });
+        const { id } = subscribed(await client(before.events).subscribe({ arguments: { a: 1 } }));
+        expect(subscribed(await client(after.events).subscribe({ arguments: { a: 1 } })).id).toBe(id);
     });
 
     it.each([
@@ -290,6 +323,79 @@ describe('events/subscribe: creating', () => {
         subscribed(await alice.subscribe({ arguments: { a: 1 } }));
         expect(errorOf(await alice.rpc('events/poll', { name: 'e' }))).toMatchObject({ code: -32_025 });
     });
+
+    it('counts a create from its quota check on, so concurrent creates cannot both pass it', async () => {
+        let release!: () => void;
+        const held = new Promise<void>(resolve => (release = resolve));
+        let holdNext = true;
+        const respond: Respond = async request => {
+            if (isVerification(request) && holdNext) {
+                holdNext = false;
+                await held;
+            }
+            return echo()(request);
+        };
+        const onSubscribe = vi.fn();
+        const { events, post } = replica({ maxSubscriptions: 1, respond });
+        events.registerEvent('e', { emitOnly: true, payloadSchema: P, onSubscribe });
+        const alice = client(events);
+        const first = alice.subscribe({ arguments: { a: 1 } });
+        await post.until(1);
+        expect(errorOf(await alice.subscribe({ arguments: { a: 2 } }))).toMatchObject({
+            code: -32_025,
+            data: { limit: 'subscriptions', max: 1 }
+        });
+        release();
+        subscribed(await first);
+        expect(post.requests).toHaveLength(1);
+        expect(onSubscribe).toHaveBeenCalledOnce();
+    });
+
+    it('counts each webhook subscription once after its create', async () => {
+        const { events } = replica({ maxSubscriptions: 2 });
+        events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const alice = client(events);
+        subscribed(await alice.subscribe({ arguments: { a: 1 } }));
+        subscribed(await alice.subscribe({ arguments: { a: 2 } }));
+        expect(errorOf(await alice.subscribe({ arguments: { a: 3 } }))).toMatchObject({ code: -32_025 });
+    });
+
+    it.each(['verification', 'onSubscribe', 'termination', 'check'] as const)(
+        'frees the quota of a create that fails at %s',
+        async failure => {
+            let failing = true;
+            // True once, at `failure`: the first create fails there and the next one succeeds.
+            const failNow = (at: typeof failure): boolean => {
+                if (at !== failure || !failing) return false;
+                failing = false;
+                return true;
+            };
+            const respond: Respond = request =>
+                isVerification(request) && failNow('verification') ? { status: 200, body: '{"challenge":"wrong"}' } : echo()(request);
+            const { events, hook } = replica({ maxSubscriptions: 1, respond });
+            const handle = events.registerEvent('e', {
+                emitOnly: true,
+                payloadSchema: P,
+                onSubscribe: async ctx => {
+                    if (failNow('onSubscribe')) throw new EventsError('forbidden', 'Forbidden');
+                    if (failNow('termination')) await handle.terminate(revoked(), { subscriptionId: ctx.subscriptionId });
+                }
+            });
+            events.registerEvent('t', {
+                payloadSchema: P,
+                check: () => {
+                    if (failNow('check')) throw new Error('upstream down');
+                    return { events: [], cursor: 'c0' };
+                }
+            });
+            const name = failure === 'check' ? 't' : 'e';
+            const alice = client(events);
+            errorOf(await alice.subscribe({ name, arguments: { a: 1 } }));
+            expect(hook.state()).toMatchObject({ webhookSubscriptions: 0, webhookExpiryTimers: 0 });
+            subscribed(await alice.subscribe({ name, arguments: { a: 2 } }));
+            expect(hook.state()).toMatchObject({ webhookExpiryTimers: 1 });
+        }
+    );
 
     it('stores nothing when verification fails', async () => {
         const onSubscribe = vi.fn();

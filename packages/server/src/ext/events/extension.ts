@@ -214,7 +214,7 @@ export class EventsExtension {
                 pollLeases: this.#poll.size,
                 pushStreams: this.#push.size,
                 webhookSubscriptions: this.#webhooks?.delivering ?? 0,
-                webhookExpiryTimers: this.#webhooks?.size ?? 0
+                webhookExpiryTimers: this.#webhooks?.watching ?? 0
             }),
             addTrustedOrigin: origin => {
                 assertOrigin(origin);

@@ -103,9 +103,9 @@ function grantMs(ttlMs: number | null | undefined, maxMs: number): number {
     return ttlMs === undefined || ttlMs === null ? maxMs : Math.min(maxMs, Math.max(TTL_FLOOR_MS, ttlMs));
 }
 
-// `sub_` and 22 base64url characters of the SHA-256 of the canonical key, so every replica derives the same id.
-async function subscriptionIdOf(principal: string, url: string, name: string, args: Record<string, unknown>): Promise<string> {
-    const digest = await globalThis.crypto.subtle.digest('SHA-256', encoder.encode(canonicalJson([principal, url, name, args])));
+// `sub_` and 22 base64url characters of the SHA-256 of the canonical key, with the arguments as the client sent them, so every replica and schema version derives the same id.
+async function subscriptionIdOf(principal: string, url: string, name: string, rawArgs: Record<string, unknown>): Promise<string> {
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', encoder.encode(canonicalJson([principal, url, name, rawArgs])));
     let binary = '';
     for (const byte of new Uint8Array(digest)) binary += String.fromCodePoint(byte);
     return `sub_${btoa(binary).replaceAll('+', '-').replaceAll('/', '_').slice(0, 22)}`;
@@ -124,6 +124,8 @@ export class WebhookSubscriptions implements SubscriptionSource {
     readonly #byId: Queues = new Map();
     // Subscribes in flight: a termination that reaches one is applied by it, never stored over. Replicas can still race: the store has no compare-and-set (§5.9).
     readonly #subscribing = new Set<Subscribing>();
+    // Creates past the quota check that have no watch yet.
+    readonly #starting = new Set<Subscribing>();
     // The fan-out of one event type runs one emit at a time, so each subscription's deliveries reach the engine in position order.
     readonly #byName: Queues = new Map();
 
@@ -137,8 +139,13 @@ export class WebhookSubscriptions implements SubscriptionSource {
         });
     }
 
-    // Subscriptions this process watches (an expiry timer each), after handling their subscribe or refresh.
+    // What `maxSubscriptions` counts here: the subscriptions this process watches, and the creates still starting.
     get size(): number {
+        return this.#watched.size + this.#starting.size;
+    }
+
+    // Subscriptions this process watches (an expiry timer each), after handling their subscribe or refresh.
+    get watching(): number {
         return this.#watched.size;
     }
 
@@ -156,7 +163,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
             }
         });
         // validate('webhook', …) refuses a request without a principal.
-        const id = await subscriptionIdOf(valid.principal!, url, valid.entry.name, valid.args);
+        const id = await subscriptionIdOf(valid.principal!, url, valid.entry.name, params.arguments ?? {});
         const ttl = grantMs(params.ttlMs, this.#deps.webhookTtlMs);
         const subscribing: Subscribing = { id, name: valid.entry.name };
         this.#subscribing.add(subscribing);
@@ -176,8 +183,8 @@ export class WebhookSubscriptions implements SubscriptionSource {
     }
 
     async unsubscribe(params: UnsubscribeEventsRequestParams, ctx: ServerContext): Promise<UnsubscribeEventsResult> {
-        const { entry, principal, args } = await this.#deps.validator.validate('webhook', params, ctx);
-        const id = await subscriptionIdOf(principal!, params.delivery.url, entry.name, args);
+        const { entry, principal } = await this.#deps.validator.validate('webhook', params, ctx);
+        const id = await subscriptionIdOf(principal!, params.delivery.url, entry.name, params.arguments ?? {});
         return enqueue(this.#byId, id, async () => {
             const record = await this.#unexpired(id);
             if (record === undefined || !(await this.#deps.store.delete(id))) throw notFound();
@@ -215,6 +222,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
         for (const watched of this.#watched.values()) this.#stop(watched);
         this.#watched.clear();
         this.#subscribing.clear();
+        this.#starting.clear();
         this.#engine.clear();
     }
 
@@ -244,52 +252,58 @@ export class WebhookSubscriptions implements SubscriptionSource {
         // A watch left over here belongs to a subscription that ended elsewhere: its record is gone.
         this.#release(id);
         this.#deps.validator.assertCapacity();
-        await this.#engine.verify(principal, url, secret, id);
-        const watched = this.#watch(id, entry, principal);
+        // Counted from the quota check on, so concurrent creates cannot all pass it; the watch takes the count over in one step.
+        this.#starting.add(subscribing);
         try {
-            await entry.definition.onSubscribe?.(watched.ctx, args);
-        } catch (error) {
-            watched.ended.abort();
-            this.#engine.forget(id);
-            throw error;
-        }
-        const from = params.cursor ?? null;
-        const now = Date.now();
-        const record: WebhookSubscriptionRecord = {
-            id,
-            principal,
-            name: entry.name,
-            arguments: args,
-            url,
-            secret,
-            expiresAt: now + ttl,
-            createdAt: now
-        };
-        let start: Batch;
-        try {
-            start =
-                entry.kind === 'check'
-                    ? await this.#startCheck(record, watched, from, params.maxAgeMs, subscribing)
-                    : await enqueue(this.#byName, entry.name, () => this.#startEmitOnly(record, from, subscribing));
-            const terminated = takeTermination(subscribing);
-            if (terminated !== undefined) {
-                await this.#deps.store.delete(id);
-                throw terminated;
+            await this.#engine.verify(principal, url, secret, id);
+            const watched = this.#watch(id, entry, principal);
+            try {
+                await entry.definition.onSubscribe?.(watched.ctx, args);
+            } catch (error) {
+                watched.ended.abort();
+                this.#engine.forget(id);
+                throw error;
             }
-        } catch (error) {
-            watched.ended.abort();
-            this.#engine.forget(id);
-            await this.#unsubscribed(record, watched);
-            throw error;
+            const from = params.cursor ?? null;
+            const now = Date.now();
+            const record: WebhookSubscriptionRecord = {
+                id,
+                principal,
+                name: entry.name,
+                arguments: args,
+                url,
+                secret,
+                expiresAt: now + ttl,
+                createdAt: now
+            };
+            let start: Batch;
+            try {
+                start =
+                    entry.kind === 'check'
+                        ? await this.#startCheck(record, watched, from, params.maxAgeMs, subscribing)
+                        : await enqueue(this.#byName, entry.name, () => this.#startEmitOnly(record, from, subscribing));
+                const terminated = takeTermination(subscribing);
+                if (terminated !== undefined) {
+                    await this.#deps.store.delete(id);
+                    throw terminated;
+                }
+            } catch (error) {
+                watched.ended.abort();
+                this.#engine.forget(id);
+                await this.#unsubscribed(record, watched);
+                throw error;
+            }
+            this.#watched.set(id, watched);
+            this.#arm(watched, record.expiresAt);
+            this.#send(record, start, start.cursor);
+            if (entry.kind === 'check') {
+                watched.position = start.position;
+                this.#schedule(watched);
+            }
+            return { id, refreshBefore: new Date(record.expiresAt).toISOString(), cursor: start.cursor, truncated: start.truncated };
+        } finally {
+            this.#starting.delete(subscribing);
         }
-        this.#watched.set(id, watched);
-        this.#arm(watched, record.expiresAt);
-        this.#send(record, start, start.cursor);
-        if (entry.kind === 'check') {
-            watched.position = start.position;
-            this.#schedule(watched);
-        }
-        return { id, refreshBefore: new Date(record.expiresAt).toISOString(), cursor: start.cursor, truncated: start.truncated };
     }
 
     async #startCheck(

@@ -287,7 +287,7 @@ export interface EventsOptions {
     defaultNextPollMs?: number;
     /**
      * The most subscriptions this process serves at once, counting poll leases, push streams and the webhook
-     * subscriptions whose subscribe or refresh it handled; more are refused with `resourceExhausted`.
+     * subscriptions whose subscribe or refresh it handled or is still creating; more are refused with `resourceExhausted`.
      */
     maxSubscriptions?: number;
     /** Receives errors nothing else can report (dropped payloads, hook failures, invalid `x-mcp-header` annotations). Default: `console.warn`. */
