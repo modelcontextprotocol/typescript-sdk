@@ -188,7 +188,19 @@ verifies('events:capability:declared', async ({ transport }: TestArgs) => {
     expect(settings).toBeTypeOf('object');
     expect(settings).not.toBeNull();
     expect(Array.isArray(settings)).toBe(false);
-    expect([undefined, false]).toContain((settings as { listChanged?: unknown }).listChanged);
+    // Without listChanged: true, a listen stream that asks for event-list changes is acknowledged without them.
+    if ((settings as { listChanged?: unknown }).listChanged !== true) {
+        const tap = tapWire(client);
+        const filter: Record<string, unknown> = { eventsListChanged: true };
+        const subscription = await client.listen(filter as Parameters<Client['listen']>[0]);
+
+        const ack = tap.received.find(message => 'method' in message && message.method === 'notifications/subscriptions/acknowledged');
+        expect(defined(ack, 'the acknowledgement')).toMatchObject({ params: { notifications: expect.any(Object) } });
+        expect((ack as Frame).params.notifications).not.toHaveProperty('eventsListChanged');
+        expect(subscription.honoredFilter).not.toHaveProperty('eventsListChanged');
+        await subscription.close();
+        await subscription.closed;
+    }
 });
 
 verifies('typescript:events:capability:empty', async ({ transport }: TestArgs) => {
@@ -753,7 +765,7 @@ verifies('typescript:events:webhook:no-expiry-refused', async ({ transport }: Te
             expect(refreshBefore).toEqual(expect.any(String));
             const expiry = Date.parse(refreshBefore as string);
             expect(Number.isFinite(expiry)).toBe(true);
-            // The server read its clock before the answer arrived, so the grant is at most expiry − answered.
+            // expiry − answered is a lower bound on the grant (the server read its clock before the answer arrived).
             expect(expiry).toBeGreaterThan(answered);
             expect(expiry - answered).toBeLessThanOrEqual(cap);
         }
