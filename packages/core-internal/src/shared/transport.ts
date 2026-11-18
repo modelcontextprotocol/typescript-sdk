@@ -111,6 +111,26 @@ export function unfollowedRedirect(url: string | URL, response: Response): strin
     return `Redirect to ${target.href} not followed; use that URL as the endpoint if it is the intended server`;
 }
 
+/** How long `releaseBody()` lets a body end by itself. */
+const RELEASE_BODY_DEADLINE_MS = 100;
+
+/** Reads the unread body of `response` to its end without waiting for it, and cancels what has not ended at the deadline. Never throws. */
+export function releaseBody(response: Response): void {
+    const release = async () => {
+        if (typeof response.body?.getReader !== 'function') return void (await response.text());
+        const reader = response.body.getReader();
+        const cancel = async () => reader.cancel();
+        const timer = setTimeout(() => void cancel().catch(() => {}), RELEASE_BODY_DEADLINE_MS);
+        try {
+            let done = false;
+            while (!done) ({ done } = await reader.read());
+        } finally {
+            clearTimeout(timer);
+        }
+    };
+    release().catch(() => {});
+}
+
 /**
  * Options for sending a JSON-RPC message.
  */

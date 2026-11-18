@@ -5,6 +5,7 @@ import {
     fetchLeavingRedirects,
     fetchWithinOrigin,
     JSONRPCMessageSchema,
+    releaseBody,
     SdkError,
     SdkErrorCode,
     SdkHttpError,
@@ -491,7 +492,7 @@ export class SSEClientTransport implements Transport {
             }
 
             // Release connection - POST responses don't have content we need
-            await response.text?.().catch(() => {});
+            releaseBody(response);
         } catch (error) {
             this.onerror?.(error as Error);
             throw error;
