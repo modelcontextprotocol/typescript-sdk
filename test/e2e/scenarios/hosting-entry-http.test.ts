@@ -11,7 +11,7 @@
  */
 import { Client } from '@modelcontextprotocol/client';
 import type { McpRequestContext } from '@modelcontextprotocol/server';
-import { McpServer } from '@modelcontextprotocol/server';
+import { McpServer, MissingRequiredClientCapabilityError } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
@@ -153,4 +153,45 @@ verifies('typescript:hosting:entry:no-session-id', async ({ transport }: TestArg
     for (const exchange of wired.httpLog!) {
         expect(exchange.response.headers.get('mcp-session-id')).toBeNull();
     }
+});
+
+verifies('typescript:hosting:entry:tool-missing-capability-400', async ({ transport }: TestArgs) => {
+    const required = { extensions: { 'com.example/gate': {} } };
+    const factory = () => {
+        const server = new McpServer({ name: 'e2e-entry-gated', version: '1.0.0' });
+        server.registerTool('gated', { inputSchema: z.object({}) }, () => {
+            throw new MissingRequiredClientCapabilityError({ requiredCapabilities: required }, 'declare com.example/gate');
+        });
+        return server;
+    };
+    const client = new Client({ name: 'gated-client', version: '1.0.0' });
+    await using wired = await wire(transport, factory, client);
+
+    const response = await wired.fetch!(wired.url!, {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            accept: 'application/json, text/event-stream',
+            'mcp-protocol-version': '2026-07-28',
+            'mcp-method': 'tools/call',
+            'mcp-name': 'gated'
+        },
+        body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: {
+                name: 'gated',
+                arguments: {},
+                _meta: {
+                    'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+                    'io.modelcontextprotocol/clientInfo': { name: 'gated-client', version: '1.0.0' },
+                    'io.modelcontextprotocol/clientCapabilities': {}
+                }
+            }
+        })
+    });
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: number; data: unknown } };
+    expect(body.error).toMatchObject({ code: -32_021, data: { requiredCapabilities: required } });
 });
