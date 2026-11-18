@@ -135,7 +135,9 @@ const pulse = conformanceEvents.registerEvent(PULSE, {
     check: ctx => {
         const seen = beatSeen.get(ctx.subscriptionId);
         beatSeen.set(ctx.subscriptionId, beat);
-        return { events: seen === undefined || seen === beat ? [] : [{ data: { beat } }], cursor: null };
+        const events = seen === undefined || seen === beat ? [] : [{ data: { beat } }];
+        // A gap yield_gap asked for comes out as `truncated` with `cursor: null`, which the SDK must not pass on (SEP l.713).
+        return take(gapNext, ctx) ? { events, cursor: null, truncated: true } : { events, cursor: null };
     },
     onUnsubscribe: ctx => void beatSeen.delete(ctx.subscriptionId),
     delivery: { poll: false }
@@ -358,13 +360,14 @@ export function registerEventsControls(mcp: McpServer): void {
         }
     );
 
-    // The pulse has no position to skip past, so a gap on it changes nothing it reports.
     mcp.registerTool(
         'events_conformance_yield_gap',
-        { description: "Makes the counter's next read report a gap (truncated, with a fresh cursor).", inputSchema: named },
+        {
+            description: 'Makes the next read of the counter (fresh cursor) or the pulse (cursor null) report a gap as truncated.',
+            inputSchema: named
+        },
         ({ name }) => {
-            if (name === PULSE) return text('ok');
-            if (name !== COUNTER) return refuse(`only ${COUNTER} has history to lose`);
+            if (name !== COUNTER && name !== PULSE) return refuse(`only ${COUNTER} and ${PULSE} read an upstream`);
             gapNext.add(name);
             return text('ok');
         }

@@ -72,7 +72,7 @@ export interface EventResult<P = Record<string, unknown>> {
     cursor: string | null;
     /** How long a poll client should wait before polling again. */
     nextPollMs?: number;
-    /** The upstream lost history since the cursor it was given. */
+    /** The upstream lost history since the cursor it was given. Ignored with `cursor: null`, which has no position to skip past. */
     truncated?: boolean;
     /** More events are waiting beyond `ctx.maxEvents`. */
     hasMore?: boolean;

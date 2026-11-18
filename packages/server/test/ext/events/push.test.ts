@@ -230,6 +230,20 @@ describe('events/stream: a check type', () => {
         expect(check.mock.calls.map(call => call[2])).toEqual(['h1', 'h3']);
     });
 
+    it('confirms a cursor: null result with truncated: false, and sends no fresh active for its gaps (SEP-3415 §Cursor Lifecycle)', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const check = vi.fn<Check>(() => ({ events: [], cursor: null, truncated: true }));
+        const events = new EventsExtension({ heartbeatMs: 10_000 });
+        events.registerEvent('tick', { payloadSchema: P, check });
+        const stream = await open(serve(events), { name: 'tick', cursor: 'h1' });
+        expect(await next(stream)).toEqual(notification(ACTIVE, stream.id, { cursor: null, truncated: false, heartbeatMs: 10_000 }));
+        const frame = next(stream);
+        await vi.advanceTimersByTimeAsync(10_000);
+        // The check at 5 s reported a gap and sent nothing, so the next frame is the heartbeat.
+        expect(await frame).toEqual(notification(HEARTBEAT, stream.id, { cursor: null }));
+        expect(check.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
     it('applies the maxAgeMs floor to the replay and flags truncated', async () => {
         const old = new Date(Date.now() - 600_000).toISOString();
         const check = vi.fn<Check>(() => ({

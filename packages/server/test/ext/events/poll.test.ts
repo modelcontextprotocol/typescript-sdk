@@ -94,6 +94,12 @@ describe('events/poll for a check type', () => {
         expect(await poller(events).poll({ name: 't', cursor: 'h1' })).toMatchObject({ truncated: true, hasMore: true });
     });
 
+    it('answers truncated: false for a result with cursor: null (SEP-3415 §Cursor Lifecycle)', async () => {
+        const events = new EventsExtension();
+        events.registerEvent('t', { payloadSchema: P, check: () => ({ events: [], cursor: null, truncated: true }) });
+        expect(await poller(events).poll({ name: 't', cursor: 'h1' })).toMatchObject({ events: [], cursor: null, truncated: false });
+    });
+
     it('applies the maxAgeMs floor and flags truncated', async () => {
         const events = new EventsExtension();
         const old = new Date(Date.now() - 600_000).toISOString();

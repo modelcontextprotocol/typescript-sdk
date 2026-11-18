@@ -791,6 +791,18 @@ describe('check-kind webhook subscriptions', () => {
         expect(gapped).toMatchObject({ cursor: 'c5', truncated: true });
     });
 
+    it('answers truncated: false and sends no gap envelope for a cursor: null result (SEP-3415 §Cursor Lifecycle)', async () => {
+        const check = vi.fn<Check>(() => ({ events: [], cursor: null, truncated: true }));
+        const { events, post } = replica();
+        events.registerEvent('t', { payloadSchema: P, check });
+        const reply = subscribed(await client(events).subscribe({ name: 't', cursor: 'c0' }));
+        expect(reply).toMatchObject({ cursor: null, truncated: false });
+        await vi.advanceTimersByTimeAsync(10_000);
+        await settle();
+        expect(check).toHaveBeenCalledTimes(3);
+        expect(post.deliveries()).toEqual([]);
+    });
+
     it('advances the refresh cursor over quiet check batches, never past an unacknowledged event', async () => {
         let acknowledge!: (outcome: WebhookSendOutcome) => void;
         const respond: Respond = request =>

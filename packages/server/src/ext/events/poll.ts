@@ -48,7 +48,7 @@ export async function toOccurrence(
     };
 }
 
-// A check result's events to send: off-schema ones dropped (reported), ones older than `maxAgeMs` skipped with `truncated`.
+// A check result's events to send, for every mode: off-schema ones dropped (reported), ones older than `maxAgeMs` skipped with `truncated`.
 export async function checkedEvents(
     entry: RegisteredEvent,
     result: EventResult<unknown>,
@@ -67,7 +67,8 @@ export async function checkedEvents(
         }
         events.push(occurrence);
     }
-    return { events, truncated };
+    // A `cursor: null` result (no replay) has no position to skip past, so it never reports `truncated` (SEP-3415 §Cursor Lifecycle).
+    return { events, truncated: truncated && result.cursor !== null };
 }
 
 // What one subscription receives of an emitted event: broadcasts pass `match`, targeted ones reach only their subscription. A throwing hook skips the event.
