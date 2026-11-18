@@ -343,8 +343,9 @@ export class StdioListenRouter {
 
     /**
      * Serve one inbound `subscriptions/listen` request: registers the
-     * subscription and returns the stamped acknowledged notification (or, on
-     * capacity / params rejection, the in-band JSON-RPC error response).
+     * subscription and returns the stamped acknowledged notification (when
+     * nothing is honored, returns `[ack, closeFrame]` without registering; on
+     * capacity / params rejection, returns the in-band JSON-RPC error response).
      *
      * @throws when called before {@linkcode setServerCapabilities} (or the
      * constructor) has supplied the serving instance's capabilities. Honoring a
@@ -352,7 +353,12 @@ export class StdioListenRouter {
      * open (deliver unadvertised types); the entry guarantees capabilities are
      * set before any listen request is routed here.
      */
-    serve(message: JSONRPCRequest): NotificationBody | { jsonrpc: '2.0'; id: RequestId; error: { code: number; message: string } } {
+    serve(
+        message: JSONRPCRequest
+    ):
+        | NotificationBody
+        | [NotificationBody, ListenCloseFrame]
+        | { jsonrpc: '2.0'; id: RequestId; error: { code: number; message: string } } {
         if (this._serverCapabilities === undefined) {
             throw new Error(
                 'StdioListenRouter.serve() called before setServerCapabilities(); refusing to honor a filter without capabilities'
@@ -370,8 +376,15 @@ export class StdioListenRouter {
             };
         }
         const honored = honoredSubset(filter, this._serverCapabilities);
+        const ack = stampSubscriptionId(
+            { method: 'notifications/subscriptions/acknowledged', params: { notifications: honored } },
+            message.id
+        );
+        if (Object.keys(honored).length === 0) {
+            return [ack, this._closeFrame(message.id)];
+        }
         this._subs.set(message.id, honored);
-        return stampSubscriptionId({ method: 'notifications/subscriptions/acknowledged', params: { notifications: honored } }, message.id);
+        return ack;
     }
 
     /**
@@ -416,22 +429,23 @@ export class StdioListenRouter {
      * closing the wire. Clears the set so nothing further is delivered.
      */
     teardownAll(): ListenCloseFrame[] {
-        const out: ListenCloseFrame[] = [];
-        for (const id of this._subs.keys()) {
-            out.push({
-                jsonrpc: '2.0',
-                id,
-                result: {
-                    resultType: 'complete',
-                    _meta: {
-                        [SUBSCRIPTION_ID_META_KEY]: id,
-                        ...(this._serverInfo !== undefined && { [SERVER_INFO_META_KEY]: this._serverInfo })
-                    }
-                }
-            });
-        }
+        const out = [...this._subs.keys()].map(id => this._closeFrame(id));
         this._subs.clear();
         return out;
+    }
+
+    private _closeFrame(id: RequestId): ListenCloseFrame {
+        return {
+            jsonrpc: '2.0',
+            id,
+            result: {
+                resultType: 'complete',
+                _meta: {
+                    [SUBSCRIPTION_ID_META_KEY]: id,
+                    ...(this._serverInfo !== undefined && { [SERVER_INFO_META_KEY]: this._serverInfo })
+                }
+            }
+        };
     }
 }
 

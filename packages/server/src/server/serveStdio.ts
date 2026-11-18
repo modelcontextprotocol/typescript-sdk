@@ -448,25 +448,34 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
                 ? (meta === undefined ? [] : validateEnvelopeMeta(meta))[0]
                 : { key: '_meta', problem: 'the per-request envelope is required on protocol revision 2026-07-28' };
             const claimedVersion = envelopeClaimVersion(message.params);
-            let reply;
+            let frames: JSONRPCMessage[];
             if (issue !== undefined) {
-                reply = {
-                    jsonrpc: '2.0' as const,
-                    id: message.id,
-                    error: { code: -32_602, message: `Invalid _meta envelope: ${issue.key}: ${issue.problem}` }
-                };
+                frames = [
+                    {
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        error: { code: -32_602, message: `Invalid _meta envelope: ${issue.key}: ${issue.problem}` }
+                    }
+                ];
             } else if (claimedVersion === undefined || !SUPPORTED_MODERN_PROTOCOL_VERSIONS.includes(claimedVersion)) {
                 const error = new UnsupportedProtocolVersionError({
                     supported: [...SUPPORTED_MODERN_PROTOCOL_VERSIONS],
                     requested: claimedVersion ?? 'unknown'
                 });
-                reply = { jsonrpc: '2.0' as const, id: message.id, error: { code: error.code, message: error.message, data: error.data } };
+                frames = [{ jsonrpc: '2.0', id: message.id, error: { code: error.code, message: error.message, data: error.data } }];
             } else {
-                reply = listenRouter.serve(message);
+                const reply = listenRouter.serve(message);
+                if (Array.isArray(reply)) {
+                    frames = [{ jsonrpc: '2.0', method: reply[0].method, params: reply[0].params }, reply[1]];
+                } else if ('error' in reply) {
+                    frames = [reply];
+                } else {
+                    frames = [{ jsonrpc: '2.0', method: reply.method, params: reply.params }];
+                }
             }
-            await wire
-                .send('error' in reply ? reply : { jsonrpc: '2.0', method: reply.method, params: reply.params })
-                .catch(error => reportError(toError(error)));
+            for (const frame of frames) {
+                await wire.send(frame).catch(error => reportError(toError(error)));
+            }
             return true;
         }
         if (isJSONRPCNotification(message) && message.method === 'notifications/cancelled') {
