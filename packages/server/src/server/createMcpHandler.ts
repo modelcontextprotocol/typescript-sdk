@@ -67,7 +67,7 @@ import { DEFAULT_MAX_REQUEST_BODY_SIZE, readRequestBody, requestBodyTooLargeMess
 import { createScopeChallengeResponse, findScopeChallenge, scopeChallengeResourceMetadataUrl } from './scopeChallenge';
 import type { Server } from './server';
 import { installModernOnlyHandlers, seedClientIdentityFromEnvelope, serverIdentityOf } from './server';
-import type { ServerEventBus, ServerNotifier } from './serverEventBus';
+import type { ListenExtension, ServerEventBus, ServerNotifier } from './serverEventBus';
 import { createServerNotifier, InMemoryServerEventBus } from './serverEventBus';
 import { DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 import { WebStandardStreamableHTTPServerTransport } from './streamableHttp';
@@ -197,6 +197,13 @@ export interface CreateMcpHandlerOptions {
      * @default 1024
      */
     maxSubscriptions?: number;
+    /**
+     * Extensions that honor their own fields of the `subscriptions/listen`
+     * filter (for example the Tasks extension's `taskIds`) and deliver their
+     * own notifications, published with `notify.extension(method, params)` or
+     * `bus.publish({ kind: 'extension', ... })`. See {@linkcode ListenExtension}.
+     */
+    listenExtensions?: readonly ListenExtension[];
     /**
      * SSE comment-frame keepalive interval for every SSE stream this handler
      * serves. In modern `auto` mode it starts after SSE upgrade. Set to `0` to disable.
@@ -711,6 +718,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         bus,
         maxSubscriptions: options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS,
         keepAliveMs: options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS,
+        ...(options.listenExtensions !== undefined && { extensions: options.listenExtensions }),
         onerror: reportError
     });
     if (responseMode === 'json') {
