@@ -57,12 +57,18 @@ export interface CreateMcpHonoAppOptions {
  * clone of the request, so the original stream stays readable. Returning only the
  * parsed value keeps the decoded text from outliving the parse.
  */
-async function parseJsonBody(request: Request, maxBytes: number): Promise<{ tooLarge: true } | { tooLarge: false; value: unknown }> {
+async function parseJsonBody(
+    request: Request,
+    maxBytes: number
+): Promise<{ tooLarge: true } | { tooLarge: false; empty: true } | { tooLarge: false; empty: false; value: unknown }> {
     const body = await readRequestBody(request, maxBytes);
     if (body.tooLarge) {
         return { tooLarge: true };
     }
-    return { tooLarge: false, value: JSON.parse(body.text) };
+    if (body.text.length === 0) {
+        return { tooLarge: false, empty: true };
+    }
+    return { tooLarge: false, empty: false, value: JSON.parse(body.text) };
 }
 
 /**
@@ -125,6 +131,11 @@ export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
             return await next();
         }
 
+        // GET and HEAD requests cannot carry a body (matching toWebRequest in @modelcontextprotocol/node).
+        if (c.req.method === 'GET' || c.req.method === 'HEAD') {
+            return await next();
+        }
+
         // Parsed media type, never a substring match — see isJsonContentType.
         // A body left unparsed here is answered 415 by the transport's own
         // Content-Type check downstream.
@@ -145,7 +156,9 @@ export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
                     413
                 );
             }
-            c.set('parsedBody', parsed.value);
+            if (!parsed.empty) {
+                c.set('parsedBody', parsed.value);
+            }
         } catch {
             // Mirror express.json() behavior loosely: reject invalid JSON.
             return c.text('Invalid JSON', 400);
