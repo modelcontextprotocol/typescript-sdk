@@ -1,4 +1,4 @@
-import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
+import type { JSONRPCMessage, SdkLogger } from '@modelcontextprotocol/core-internal';
 import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import * as z from 'zod/v4';
@@ -7,6 +7,51 @@ import type { InferRawShape } from '../../src/server/mcp';
 import { completable } from '../../src/server/completable';
 
 describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () => {
+    it('routes tool-name warnings to the configured logger', () => {
+        const warn = vi.fn();
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const server = new McpServer({ name: 't', version: '1.0.0' }, { logger: { warn } });
+
+        server.registerTool('bad tool', {}, async () => ({
+            content: [{ type: 'text' as const, text: 'ok' }]
+        }));
+
+        expect(warn).toHaveBeenCalledWith('Tool name validation warning for "bad tool":');
+        expect(consoleWarn).not.toHaveBeenCalled();
+        consoleWarn.mockRestore();
+    });
+
+    it('ignores a logger that throws', () => {
+        const server = new McpServer(
+            { name: 't', version: '1.0.0' },
+            {
+                logger: {
+                    warn: () => {
+                        throw new Error('log sink closed');
+                    }
+                }
+            }
+        );
+
+        expect(() =>
+            server.registerTool('bad tool', {}, async () => ({
+                content: [{ type: 'text' as const, text: 'ok' }]
+            }))
+        ).not.toThrow();
+    });
+
+    it('accepts a logger whose methods take a typed first parameter', () => {
+        const messages: string[] = [];
+        const logger: SdkLogger = { warn: (message: string) => messages.push(message) };
+        const server = new McpServer({ name: 't', version: '1.0.0' }, { logger });
+
+        server.registerTool('bad tool', {}, async () => ({
+            content: [{ type: 'text' as const, text: 'ok' }]
+        }));
+
+        expect(messages).toContain('Tool name validation warning for "bad tool":');
+    });
+
     it('registerTool accepts a raw shape for inputSchema and auto-wraps it', () => {
         const server = new McpServer({ name: 't', version: '1.0.0' });
 
@@ -75,6 +120,51 @@ describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () =
 
         const prompts = (server as unknown as { _registeredPrompts: Record<string, { argsSchema?: unknown }> })._registeredPrompts;
         expect(isStandardSchema(prompts['p']?.argsSchema)).toBe(true);
+    });
+
+    it('routes prompt argsSchema conversion warnings to the configured logger', async () => {
+        const warn = vi.fn();
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const server = new McpServer({ name: 't', version: '1.0.0' }, { logger: { warn } });
+
+        const argsSchema = z.object({ topic: z.string() });
+        const { jsonSchema: _drop, ...stdNoJson } = argsSchema['~standard'] as unknown as Record<string, unknown>;
+        void _drop;
+        Object.defineProperty(argsSchema, '~standard', { value: { ...stdNoJson, vendor: 'zod' }, configurable: true });
+
+        server.registerPrompt('p', { argsSchema }, async ({ topic }) => ({
+            messages: [{ role: 'user' as const, content: { type: 'text' as const, text: topic } }]
+        }));
+
+        const [client, srv] = InMemoryTransport.createLinkedPair();
+        try {
+            await server.connect(srv);
+            await client.start();
+
+            const responses: JSONRPCMessage[] = [];
+            client.onmessage = m => responses.push(m);
+
+            await client.send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'initialize',
+                params: {
+                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    capabilities: {},
+                    clientInfo: { name: 'c', version: '1.0.0' }
+                }
+            } as JSONRPCMessage);
+            await client.send({ jsonrpc: '2.0', method: 'notifications/initialized' } as JSONRPCMessage);
+            await client.send({ jsonrpc: '2.0', id: 2, method: 'prompts/list' } as JSONRPCMessage);
+
+            await vi.waitFor(() => expect(responses.some(r => 'id' in r && r.id === 2)).toBe(true));
+
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('zod 4.2.0'));
+            expect(consoleWarn).not.toHaveBeenCalled();
+        } finally {
+            consoleWarn.mockRestore();
+            await server.close();
+        }
     });
 
     it('callback receives validated, typed args end-to-end via tools/call', async () => {
