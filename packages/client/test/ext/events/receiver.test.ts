@@ -133,9 +133,20 @@ describe('WebhookReceiver', () => {
         expect(target.event).not.toHaveBeenCalled();
 
         expect(await status(webhookPost(event, secret, 'sub_1', { timestamp: now() - 300 }))).toBe(200);
-        receiver.forget('sub_1');
+        receiver.forget('sub_1', target);
         expect(await status(webhookPost(occurrence('e2'), secret, 'sub_1'))).toBe(503);
         expect(target.event).toHaveBeenCalledOnce();
+    });
+
+    it('forgets an id only for the sink it routes to', async () => {
+        const { receiver, secret, target } = bound();
+        // A subscription that ended after another one took over the same id.
+        receiver.forget('sub_1', sink());
+        expect(await statusOf(receiver, webhookPost(occurrence('e1'), secret, 'sub_1'))).toBe(200);
+        expect(target.event).toHaveBeenCalledOnce();
+
+        receiver.forget('sub_1', target);
+        expect(await statusOf(receiver, webhookPost(occurrence('e2'), secret, 'sub_1'))).toBe(503);
     });
 
     it('rejects non-POST and oversized bodies', async () => {

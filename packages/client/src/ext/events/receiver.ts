@@ -87,9 +87,9 @@ export class WebhookReceiver {
         this.#bound.set(id, { key: keyOf(secret), sink });
     }
 
-    // Stops routing `id`; its deliveries are answered 503 from now on.
-    forget(id: string): void {
-        this.#bound.delete(id);
+    // Stops routing `id` to `sink`, answering its deliveries 503 from now on; a binding another sink has taken over stays.
+    forget(id: string, sink: WebhookSink): void {
+        if (this.#bound.get(id)?.sink === sink) this.#bound.delete(id);
     }
 
     async handle(request: Request): Promise<Response> {

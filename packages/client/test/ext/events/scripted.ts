@@ -110,24 +110,27 @@ export async function scriptedClient(handlers: Record<string, Handler>, options:
                 notifications.push({ method: request.method, params: (request.params ?? {}) as Record<string, unknown> });
                 return;
             }
-            void answer(request).then(
-                result =>
-                    server.send({
-                        jsonrpc: '2.0',
-                        id: request.id,
-                        result: revision === MODERN ? { resultType: 'complete', ...result } : result
-                    }),
-                (error: unknown) =>
-                    server.send({
-                        jsonrpc: '2.0',
-                        id: request.id,
-                        error: {
-                            code: error instanceof RpcError ? error.code : -32_603,
-                            message: error instanceof Error ? error.message : String(error),
-                            ...(error instanceof RpcError && error.data !== undefined && { data: error.data })
-                        }
-                    })
-            );
+            void answer(request)
+                .then(
+                    result =>
+                        server.send({
+                            jsonrpc: '2.0',
+                            id: request.id,
+                            result: revision === MODERN ? { resultType: 'complete', ...result } : result
+                        }),
+                    (error: unknown) =>
+                        server.send({
+                            jsonrpc: '2.0',
+                            id: request.id,
+                            error: {
+                                code: error instanceof RpcError ? error.code : -32_603,
+                                message: error instanceof Error ? error.message : String(error),
+                                ...(error instanceof RpcError && error.data !== undefined && { data: error.data })
+                            }
+                        })
+                )
+                // An answer that comes after the client closed has no one to go to.
+                .catch(() => {});
         };
         await server.start();
         return transport;

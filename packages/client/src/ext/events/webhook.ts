@@ -28,6 +28,8 @@ export class WebhookSubscriptions {
     readonly #receiver: WebhookReceiver;
     readonly #floorMs: number;
     readonly #open = new Map<string, SharedWebhook>();
+    // By key, until it settles: the stop (unsubscribe, then release) of the last one that ended, which the next identical one waits for.
+    readonly #stopping = new Map<string, Promise<void>>();
 
     constructor(webhook: WebhookOptions, receiver: WebhookReceiver, floorMs: number) {
         this.#webhook = webhook;
@@ -40,8 +42,16 @@ export class WebhookSubscriptions {
         const key = canonicalJson([context.subscription.name, context.subscription.arguments ?? {}]);
         let shared = this.#open.get(key);
         if (shared === undefined) {
-            const opened = new SharedWebhook(context, this.#webhook, this.#receiver, this.#floorMs, () => {
-                if (this.#open.get(key) === opened) this.#open.delete(key);
+            const after = this.#stopping.get(key) ?? Promise.resolve();
+            const opened = new SharedWebhook(context, this.#webhook, this.#receiver, this.#floorMs, after, stopping => {
+                // Already taken out by a failure, which leaves nothing to unsubscribe.
+                if (this.#open.get(key) !== opened) return;
+                this.#open.delete(key);
+                if (stopping === undefined) return;
+                this.#stopping.set(key, stopping);
+                void stopping.then(() => {
+                    if (this.#stopping.get(key) === stopping) this.#stopping.delete(key);
+                });
             });
             this.#open.set(key, opened);
             shared = opened;
@@ -55,17 +65,27 @@ class SharedWebhook {
     readonly #members = new Set<DriverContext<unknown>>();
     readonly #connection: EventsConnection;
     readonly #driver: WebhookDriver;
-    // Takes this one out of the open subscriptions, so the next identical subscribe opens a new one.
-    readonly #close: () => void;
+    // Settles once the previous identical one has stopped, so the server sees its `events/unsubscribe` before this one's `events/subscribe`.
+    readonly #after: Promise<void>;
+    // Takes this one out of the open subscriptions, so the next identical subscribe opens a new one (after `stopping`, when given).
+    readonly #close: (stopping?: Promise<void>) => void;
     // Where delivery is: the first subscription's cursor until the server reports one.
     #cursor: string | null;
     #deliveryStatus: DeliveryStatus | undefined;
     #started: Promise<void> | undefined;
 
-    constructor(first: DriverContext<unknown>, webhook: WebhookOptions, receiver: WebhookReceiver, floorMs: number, close: () => void) {
+    constructor(
+        first: DriverContext<unknown>,
+        webhook: WebhookOptions,
+        receiver: WebhookReceiver,
+        floorMs: number,
+        after: Promise<void>,
+        close: (stopping?: Promise<void>) => void
+    ) {
         const { connection, subscription } = first;
         const members = this.#members;
         this.#connection = connection;
+        this.#after = after;
         this.#close = close;
         this.#cursor = subscription.cursor ?? null;
         const queue: DeliveryQueue<unknown> = {
@@ -98,7 +118,7 @@ class SharedWebhook {
         this.#members.add(context);
         return {
             start: async () => {
-                this.#started ??= this.#driver.start();
+                this.#started ??= this.#after.then(() => this.#driver.start());
                 await this.#started;
                 if (!late) return;
                 // It starts where the shared subscription is; a cursor of its own anywhere else may have skipped events.
@@ -109,8 +129,10 @@ class SharedWebhook {
             },
             stop: async () => {
                 if (!this.#members.delete(context) || this.#members.size > 0) return;
-                this.#close();
-                await this.#driver.stop();
+                const stopping = this.#driver.stop();
+                // Settles however the unsubscribe ends (answered, refused, failed, or the client closed).
+                this.#close(stopping.catch(() => {}));
+                await stopping;
             }
         };
     }
@@ -276,7 +298,7 @@ class WebhookDriver implements Driver {
     // The receiver stops routing deliveries here and forgets the secret.
     #release(): void {
         this.#withdrawPending?.();
-        if (this.#id !== undefined) this.#receiver.forget(this.#id);
+        if (this.#id !== undefined) this.#receiver.forget(this.#id, this.#sink);
         this.#id = undefined;
     }
 }

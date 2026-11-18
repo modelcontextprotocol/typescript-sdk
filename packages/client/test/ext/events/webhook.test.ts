@@ -49,10 +49,14 @@ function granting(...answers: Array<Record<string, unknown> | RpcError>): Handle
     };
 }
 
-async function webhookWith(subscribe: Handler, options: { list?: Handler; secretProvider?: () => string } = {}) {
+async function webhookWith(subscribe: Handler, options: { list?: Handler; unsubscribe?: Handler; secretProvider?: () => string } = {}) {
     const { secretProvider } = options;
     const scripted = await connectEvents(
-        { 'events/list': options.list ?? listing(tick), 'events/subscribe': subscribe, 'events/unsubscribe': () => ({}) },
+        {
+            'events/list': options.list ?? listing(tick),
+            'events/subscribe': subscribe,
+            'events/unsubscribe': options.unsubscribe ?? (() => ({}))
+        },
         { events: { webhook: { url: WEBHOOK_URL, ...(secretProvider !== undefined && { secretProvider }) } } }
     );
     const handler = scripted.events.createWebhookHandler();
@@ -75,6 +79,26 @@ async function webhookWith(subscribe: Handler, options: { list?: Handler; secret
             return subscription;
         }
     };
+}
+
+/** A webhook client whose `events/unsubscribe` answers wait until the test gives them, and come at once after `answerAll()`. */
+async function heldUnsubscribe() {
+    const held: Array<(answer: Record<string, unknown> | RpcError) => void> = [];
+    let holding = true;
+    const scripted = await webhookWith(granting({}, {}), {
+        unsubscribe: () =>
+            holding
+                ? new Promise((resolve, reject) => held.push(answer => (answer instanceof RpcError ? reject(answer) : resolve(answer))))
+                : {}
+    });
+    const unsubscribe = {
+        answer: (answer: Record<string, unknown> | RpcError) => held.shift()!(answer),
+        answerAll: () => {
+            holding = false;
+            for (const answer of held.splice(0)) answer({});
+        }
+    };
+    return { ...scripted, unsubscribe };
 }
 
 describe('webhook delivery', () => {
@@ -414,6 +438,55 @@ describe('webhook delivery', () => {
         // Subscribing again opens a new server subscription.
         await subscribe();
         expect(subscribes()).toHaveLength(2);
+    });
+
+    it('opens an identical subscription only once an un-awaited cancel() has unsubscribed, however that is answered', async () => {
+        for (const answer of [{}, new RpcError(-32_023, 'Not found', { kind: 'subscription' })]) {
+            const { calls, post, subscribe, unsubscribe } = await heldUnsubscribe();
+            try {
+                const old = await subscribe();
+                const cancelling = old.cancel();
+                const subscribing = subscribe();
+                await settle();
+                // Nothing goes out for the new one while the old events/unsubscribe is unanswered.
+                expect(calls.map(call => call.method)).toEqual(['events/list', 'events/subscribe', 'events/unsubscribe']);
+
+                unsubscribe.answer(answer);
+                await cancelling;
+                const fresh = await subscribing;
+                expect(calls.map(call => call.method)).toEqual([
+                    'events/list',
+                    'events/subscribe',
+                    'events/unsubscribe',
+                    'events/subscribe'
+                ]);
+                // Bound after the old one released the id: delivered, not 503.
+                expect(await post({ ...occurrence('e1'), cursor: 'c1' })).toBe(200);
+                expect(await nextEventId(fresh[Symbol.asyncIterator]())).toBe('e1');
+            } finally {
+                unsubscribe.answerAll();
+            }
+        }
+    });
+
+    it('ends an identical subscription waiting on an un-awaited cancel() with ConnectionClosed when the client closes', async () => {
+        const { calls, client, events, subscribe, unsubscribe } = await heldUnsubscribe();
+        try {
+            const old = await subscribe();
+            const cancelling = old.cancel();
+            const subscribing = events.subscribe({ name: 'tick' }).catch((error_: unknown) => error_);
+            await settle();
+
+            await client.close();
+            await cancelling;
+            const error = await subscribing;
+            expect(error).toBeInstanceOf(SdkError);
+            expect(error).toMatchObject({ code: SdkErrorCode.ConnectionClosed });
+            expect(calls.map(call => call.method)).toEqual(['events/list', 'events/subscribe', 'events/unsubscribe']);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            unsubscribe.answerAll();
+        }
     });
 
     it('ends every identical webhook subscription with the same error on a termination or a close', async () => {
