@@ -1071,7 +1071,8 @@ verifies('client-transport:http:body-stream-error-preserved', async (_args: Test
                     const encoder = new TextEncoder();
                     const stream = new ReadableStream({
                         async start(controller) {
-                            controller.enqueue(encoder.encode('data: {}\n\n'));
+                            // A comment frame: opens the stream without a message for the transport to parse.
+                            controller.enqueue(encoder.encode(': open\n\n'));
                             await new Promise(resolve => setTimeout(resolve, 10));
                             controller.error(originalError);
                         }
