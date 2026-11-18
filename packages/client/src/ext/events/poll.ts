@@ -1,8 +1,10 @@
 import type { PollEventsResult } from '@modelcontextprotocol/core/ext/events';
 import { EVENTS_POLL_METHOD, PollEventsResultSchema } from '@modelcontextprotocol/core/ext/events';
+import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 
+import { NoCompatibleDeliveryModeError } from './errors';
 import type { Driver, DriverContext } from './subscription';
-import { recoveryFor, refusesSubscription, stillOffered } from './subscription';
+import { closedError, connectionClosed, isSchemaChange, recoveryFor, refusesSubscription, stillOffered } from './subscription';
 
 const MAX_RETRY_DELAY_MS = 60_000;
 // setTimeout fires at once beyond this, which would bypass the floor.
@@ -17,6 +19,12 @@ export class PollDriver<T> implements Driver {
     // Sent until a poll succeeds.
     #maxAgeMs: number | undefined;
     #nextPollMs: number | undefined;
+    // A schema change has refused a poll since the last successful one.
+    #schemaChanged = false;
+    // The cursor was reset to now; the next successful poll reports the gap.
+    #reset = false;
+    // Set by the connection's close listener; ends the loop at once.
+    #closed = false;
     #wake: (() => void) | undefined;
     #running: Promise<void> = Promise.resolve();
 
@@ -30,10 +38,16 @@ export class PollDriver<T> implements Driver {
     start(): Promise<void> {
         let settle!: { resolve(): void; reject(error: unknown): void };
         const first = new Promise<void>((resolve, reject) => (settle = { resolve, reject }));
-        this.#running = this.#run(settle.resolve).then(settle.resolve, (error: unknown) => {
-            settle.reject(error);
-            this.#context.queue.fail(error);
+        const removeCloseListener = this.#context.connection.onClose(() => {
+            this.#closed = true;
+            this.#wake?.();
         });
+        this.#running = this.#run(settle.resolve)
+            .then(settle.resolve, (error: unknown) => {
+                settle.reject(error);
+                this.#context.queue.fail(error);
+            })
+            .finally(removeCloseListener);
         return first;
     }
 
@@ -43,17 +57,24 @@ export class PollDriver<T> implements Driver {
         await this.#running;
     }
 
-    // Calls `subscribed` after the first exchange unless it refuses the subscription, which rejects instead.
+    // Calls `subscribed` after the first exchange; throws, ending the subscription, on a first-exchange refusal or a closed connection.
     async #run(subscribed: () => void): Promise<void> {
         const { connection, queue, subscription } = this.#context;
         let first = true;
         let failures = 0;
         while (!this.#abort.signal.aborted) {
+            if (this.#closed) throw closedError();
             let result: PollEventsResult;
             try {
                 result = await this.#poll();
             } catch (error) {
                 if (this.#abort.signal.aborted) return;
+                const closed = connectionClosed(connection, error);
+                if (closed !== undefined) throw closed;
+                if (first && isSchemaChange(error) && this.#cursor !== null) {
+                    await this.#restartFromNow();
+                    continue;
+                }
                 if (first && refusesSubscription(error)) throw error;
                 first = false;
                 subscribed();
@@ -65,6 +86,7 @@ export class PollDriver<T> implements Driver {
                     queue.fail(error);
                     return;
                 }
+                if (isSchemaChange(error)) this.#schemaChange();
                 await this.#sleep(this.#retryDelay(failures++));
                 continue;
             }
@@ -83,13 +105,41 @@ export class PollDriver<T> implements Driver {
         return this.#context.connection.request(EVENTS_POLL_METHOD, params, PollEventsResultSchema, mirror, { signal: this.#abort.signal });
     }
 
+    // The first poll's cursor was refused for a schema change (a stale one passed to subscribe()): re-list, then poll from now or throw why not.
+    async #restartFromNow(): Promise<void> {
+        const { connection, subscription } = this.#context;
+        try {
+            await connection.list(undefined, { signal: this.#abort.signal });
+        } catch (error) {
+            throw connectionClosed(connection, error) ?? error;
+        }
+        const descriptor = connection.descriptor(subscription.name);
+        if (descriptor === undefined) throw new EventsError('notFound', 'Event type not found', { kind: 'event' });
+        if (!descriptor.delivery.includes('poll'))
+            throw new NoCompatibleDeliveryModeError(subscription.name, descriptor.delivery, ['poll']);
+        this.#cursor = null;
+        this.#reset = true;
+    }
+
+    // A second schema change in a row means the last cursor is refused (SEP: a stale schema epoch), so start again from now.
+    #schemaChange(): void {
+        if (this.#schemaChanged && this.#cursor !== null) {
+            this.#cursor = null;
+            this.#reset = true;
+        }
+        this.#schemaChanged = true;
+    }
+
     #deliver(result: PollEventsResult): void {
         const { queue, subscription } = this.#context;
         const cursor = result.cursor ?? null;
+        const reset = this.#reset;
         this.#maxAgeMs = undefined;
         this.#nextPollMs = result.nextPollMs;
+        this.#schemaChanged = false;
+        this.#reset = false;
         // A type without replay has no position to have skipped past (SEP: ignore `truncated`).
-        if (result.truncated === true && cursor !== null) subscription.onGap?.(cursor);
+        if (reset || (result.truncated === true && cursor !== null)) subscription.onGap?.(cursor);
         for (const event of result.events) queue.push(event);
         this.#cursor = cursor;
         queue.setCursor(cursor);
@@ -103,7 +153,7 @@ export class PollDriver<T> implements Driver {
 
     #sleep(ms: number): Promise<void> {
         return new Promise(resolve => {
-            if (this.#abort.signal.aborted) return resolve();
+            if (this.#abort.signal.aborted || this.#closed) return resolve();
             const wake = (): void => {
                 clearTimeout(timer);
                 this.#wake = undefined;

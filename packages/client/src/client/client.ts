@@ -454,6 +454,8 @@ export const clientInternals = {} as {
         handlers: { onNotification(notification: JSONRPCNotification): void; onEnd(end: StreamEnd): void },
         options?: { headers?: Readonly<Record<string, string>> }
     ): StreamHandle;
+    // Runs `listener` whenever the client's connection closes, until the returned function removes it.
+    onClose(client: Client, listener: () => void): () => void;
     enforceStrictCapabilities(client: Client): boolean;
     walkPages<R extends { nextCursor?: string }>(
         client: Client,
@@ -603,6 +605,8 @@ export class Client extends Protocol<ClientContext> {
     // Live `openStream` requests keyed by their `stream:N` id; an entry is removed when its stream ends.
     private _streamState = new Map<string, { onNotification(notification: JSONRPCNotification): void; end(end: StreamEnd): void }>();
     private _nextStreamId = 0;
+    // Run by `_onclose` after the request streams end; added through `clientInternals.onClose`.
+    private _closeListeners = new Set<() => void>();
     /** The auto-opened subscription backing ClientOptions.listChanged on a modern connection. */
     private _autoOpenedSubscription?: McpSubscription;
     /** Backing store for {@linkcode getDiscoverResult}. Per-connection. */
@@ -610,6 +614,10 @@ export class Client extends Protocol<ClientContext> {
 
     static {
         clientInternals.openStream = (client, request, handlers, options) => client._openStream(request, handlers, options);
+        clientInternals.onClose = (client, listener) => {
+            client._closeListeners.add(listener);
+            return () => void client._closeListeners.delete(listener);
+        };
         clientInternals.enforceStrictCapabilities = client => client._enforceStrictCapabilities;
         clientInternals.walkPages = (client, method, fetchPage, items) => client._walkPages(method, fetchPage, items);
         clientInternals.readResource = (client, params, options) => client._readResource(params, options);
@@ -2258,6 +2266,17 @@ export class Client extends Protocol<ClientContext> {
         };
     }
 
+    // Runs the `clientInternals.onClose` listeners from a snapshot; a throwing one goes to `onerror` and the rest still run.
+    private _runCloseListeners(): void {
+        for (const listener of this._closeListeners) {
+            try {
+                listener();
+            } catch (error) {
+                this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+            }
+        }
+    }
+
     // Ends every live `openStream` request as `remote`: the connection it was sent on is gone.
     private _endStreams(): void {
         // A snapshot, so a stream that an `onEnd` reopens is not ended (and reopened again) by this same loop.
@@ -2436,6 +2455,7 @@ export class Client extends Protocol<ClientContext> {
                 this._listenState.clear();
             }
             this._endStreams();
+            this._runCloseListeners();
         } finally {
             // Base teardown runs even if a callback above throws, so pending requests and timers are always settled.
             super._onclose();

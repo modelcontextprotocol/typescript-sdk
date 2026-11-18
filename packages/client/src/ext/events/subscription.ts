@@ -1,6 +1,6 @@
 import type { DeliveryMode, DeliveryStatus, EventOccurrence } from '@modelcontextprotocol/core/ext/events';
 import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
-import { SdkError } from '@modelcontextprotocol/core-internal/public';
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal/public';
 
 import type { EventsConnection } from './request';
 
@@ -32,9 +32,12 @@ export interface SubscribeOptions {
  * `subscribe()`; once subscribed, the loop ends with an `EventsError` when the
  * server ends the subscription (`kind` says why: `forbidden`,
  * `invalidParams`, or `notFound` and a schema change once the event type is no
- * longer listed). Other failures are retried. `T` types `data` and is not
- * checked against the event type's `payloadSchema`. Leaving the loop early
- * cancels the subscription.
+ * longer listed). Other failures are retried. Closing the client ends its
+ * subscriptions: the loop rejects with an `SdkError` (`ConnectionClosed`) at
+ * once when a request is in flight, otherwise when the next one would be sent;
+ * after reconnecting, subscribe again and pass {@linkcode EventSubscription.cursor}.
+ * `T` types `data` and is not checked against the event type's
+ * `payloadSchema`. Leaving the loop early cancels the subscription.
  *
  * Experimental: Events (SEP-3415) is new; this API may change in a minor release.
  *
@@ -74,25 +77,33 @@ export function refusesSubscription(error: unknown): boolean {
     return error instanceof EventsError || error instanceof SdkError;
 }
 
+// What a subscription ends with when its client's connection closes.
+export function closedError(cause?: unknown): SdkError {
+    return new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed', undefined, cause === undefined ? undefined : { cause });
+}
+
+// The SdkError a subscription ends with when its client's connection is gone, judged at a failed request; `undefined` while connected.
+export function connectionClosed(connection: EventsConnection, error: unknown): SdkError | undefined {
+    if (error instanceof SdkError && error.code === SdkErrorCode.ConnectionClosed) return error;
+    const notConnected = error instanceof SdkError && error.code === SdkErrorCode.NotConnected;
+    if (!notConnected && connection.client.transport !== undefined) return undefined;
+    return closedError(error);
+}
+
+// An `unsupported` error saying the event type's schema changed in place.
+export function isSchemaChange(error: unknown): boolean {
+    return (
+        error instanceof EventsError &&
+        error.kind === 'unsupported' &&
+        (error.data as { reason?: unknown } | undefined)?.reason === 'schema_changed'
+    );
+}
+
 // After a server error once subscribed (spec §6.3): re-list and go on if the event type is still offered, end the subscription, or retry later.
 export function recoveryFor(error: unknown): 'relist' | 'fail' | 'retry' {
     if (!(error instanceof EventsError)) return 'retry';
-    const data = error.data as Record<string, unknown> | undefined;
-    switch (error.kind) {
-        case 'notFound': {
-            return 'relist';
-        }
-        case 'unsupported': {
-            return data?.['reason'] === 'schema_changed' ? 'relist' : 'retry';
-        }
-        case 'forbidden':
-        case 'invalidParams': {
-            return 'fail';
-        }
-        default: {
-            return 'retry';
-        }
-    }
+    if (error.kind === 'notFound' || isSchemaChange(error)) return 'relist';
+    return error.kind === 'forbidden' || error.kind === 'invalidParams' ? 'fail' : 'retry';
 }
 
 // Re-lists, then whether `name` is still listed with `mode`; `undefined` when the list fails.

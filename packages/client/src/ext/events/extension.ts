@@ -125,14 +125,19 @@ export class EventsClientExtension {
      * the first exchange with the server succeeds (for poll, the first
      * `events/poll` response). A transient failure of that exchange (a
      * transport error, or a JSON-RPC error that is not an Events kind) does
-     * not reject: delivery is retried in the background. Once subscribed, the
-     * server ending the subscription ends its loop (see {@linkcode EventSubscription}).
+     * not reject: delivery is retried in the background. A `cursor` the
+     * server refuses because the event type's schema changed is dropped: the
+     * event types are listed again, the subscription starts from now, and
+     * `onGap` reports the fresh cursor. Once subscribed, the server ending the
+     * subscription ends its loop (see {@linkcode EventSubscription}).
      *
      * @throws {EventsError} when the server refuses the subscription: `notFound` for an event type it does not list or
      *   no longer serves, `invalidParams` for arguments its `inputSchema` rejects, `forbidden`, or another kind.
-     * @throws {NoCompatibleDeliveryModeError} when no delivery mode the event type offers is usable here.
-     * @throws {SdkError} `CapabilityNotSupported` when {@linkcode EventsClientExtension.supported} is `false`, or
-     *   another code when the first exchange fails in the SDK (for example a request timeout).
+     * @throws {NoCompatibleDeliveryModeError} when no delivery mode the event type offers is usable here, also when
+     *   the schema change that refused `cursor` left the event type without the selected mode.
+     * @throws {SdkError} `CapabilityNotSupported` when {@linkcode EventsClientExtension.supported} is `false`,
+     *   `ConnectionClosed` when the client closes before the first exchange answers, or another code when that
+     *   exchange fails in the SDK (for example a request timeout).
      */
     async subscribe<T = Record<string, unknown>>(options: SubscribeOptions): Promise<EventSubscription<T>> {
         const connection = this.#require('subscribe');

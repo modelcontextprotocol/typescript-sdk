@@ -1,6 +1,7 @@
 /**
  * `clientInternals.openStream`: the package-internal long-lived request (no timeout, `stream:N` ids, frames routed by
- * the subscription id in `_meta`) that the Events client's push mode opens `events/stream` with.
+ * the subscription id in `_meta`) that the Events client's push mode opens `events/stream` with; and
+ * `clientInternals.onClose`, the connection-closed listeners the Events client ends its subscriptions with.
  */
 import type { JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, TransportSendOptions } from '@modelcontextprotocol/core-internal';
 import {
@@ -315,5 +316,42 @@ describe('clientInternals.openStream', () => {
         expect(error).toBeInstanceOf(SdkError);
         expect((error as SdkError).code).toBe(SdkErrorCode.NotConnected);
         expect(stream.ends).toEqual([]);
+    });
+});
+
+describe('clientInternals.onClose', () => {
+    it('runs listeners when the connection closes, after the request streams end, unless removed', async () => {
+        const { client, clientTx } = await scriptedStreams();
+        const order: string[] = [];
+        clientInternals.openStream(client, streamRequest('a'), { onNotification: () => {}, onEnd: () => void order.push('stream end') });
+        clientInternals.onClose(client, () => void order.push('listener'));
+        const remove = clientInternals.onClose(client, () => void order.push('removed listener'));
+        remove();
+
+        await clientTx.close();
+
+        expect(order).toEqual(['stream end', 'listener']);
+        await client.close();
+    });
+
+    it('a throwing listener goes to onerror and the other listeners and pending requests still settle', async () => {
+        const { client, clientTx } = await scriptedStreams();
+        const errors: Error[] = [];
+        client.onerror = error => void errors.push(error);
+        const failure = new Error('listener failed');
+        clientInternals.onClose(client, () => {
+            throw failure;
+        });
+        const after = vi.fn();
+        clientInternals.onClose(client, after);
+        const pending = client.request({ method: 'tools/list', params: {} });
+        await flush();
+
+        await clientTx.close();
+
+        expect(after).toHaveBeenCalledOnce();
+        await expect(pending).rejects.toMatchObject({ code: SdkErrorCode.ConnectionClosed });
+        expect(errors).toEqual([failure]);
+        await client.close();
     });
 });

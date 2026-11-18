@@ -29,9 +29,25 @@ function asEventsError(error: unknown): unknown {
 export class EventsConnection {
     readonly client: Client;
     readonly #descriptors = new Map<string, { descriptor: EventDescriptor; declarations: readonly XMcpHeaderDeclaration[] }>();
+    readonly #closeListeners = new Set<() => void>();
 
     constructor(client: Client) {
         this.client = client;
+        clientInternals.onClose(client, () => {
+            for (const listener of this.#closeListeners) {
+                try {
+                    listener();
+                } catch (error) {
+                    client.onerror?.(error instanceof Error ? error : new Error(String(error)));
+                }
+            }
+        });
+    }
+
+    // Runs `listener` when the client's connection closes, until the returned function removes it.
+    onClose(listener: () => void): () => void {
+        this.#closeListeners.add(listener);
+        return () => void this.#closeListeners.delete(listener);
     }
 
     descriptor(name: string): EventDescriptor | undefined {
