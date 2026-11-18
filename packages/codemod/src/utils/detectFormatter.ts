@@ -24,10 +24,14 @@ const PRETTIER_CONFIG_FILES = [
     '.prettierrc.cjs',
     '.prettierrc.mjs',
     '.prettierrc.ts',
+    '.prettierrc.mts',
+    '.prettierrc.cts',
     'prettier.config.js',
     'prettier.config.cjs',
     'prettier.config.mjs',
-    'prettier.config.ts'
+    'prettier.config.ts',
+    'prettier.config.mts',
+    'prettier.config.cts'
 ];
 const ESLINT_CONFIG_FILES = [
     'eslint.config.js',
