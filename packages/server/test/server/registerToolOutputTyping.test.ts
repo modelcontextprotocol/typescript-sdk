@@ -1,8 +1,9 @@
 /**
  * Compile-time contract for `McpServer.registerTool` handler results (SEP-2106 / #2754).
  *
- * These are type-level tests: every `@ts-expect-error` line must fail to compile and every
- * other registration must compile. `pnpm typecheck` enforces both.
+ * Mostly type-level tests: every `@ts-expect-error` line must fail to compile and every other
+ * registration must compile; `pnpm typecheck` enforces both. The last describe block covers the
+ * runtime text block for results that omit `content`.
  */
 import type { StandardSchemaWithJSON } from '@modelcontextprotocol/core-internal';
 import { toStandardJsonSchema } from '@valibot/to-json-schema';

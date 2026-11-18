@@ -198,7 +198,7 @@ requests, the per-request `_meta.logLevel` envelope key is the filter — see
   inbound result without `content` defaults to `[]` (deployed servers omit it
   alongside `structuredContent`); 2026-07-28 connections stay strict. Authoring is
   era-independent: the TypeScript surface requires `content` on handler results, except
-  successful results of a `registerTool` tool with an `outputSchema`, which may omit it.
+  successful results of a `registerTool` tool with a typed `outputSchema`, which may omit it.
   `McpServer` gives any content-less tool result that carries `structuredContent` a JSON
   text block of that value; a content-less result without `structuredContent` is
   normalized to `content: []` before it reaches the wire. One sharpening remains: a
