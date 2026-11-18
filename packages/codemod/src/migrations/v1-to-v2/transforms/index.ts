@@ -5,6 +5,7 @@ import { handlerRegistrationTransform } from './handlerRegistration';
 import { importPathsTransform } from './importPaths';
 import { mcpServerApiTransform } from './mcpServerApi';
 import { mockPathsTransform } from './mockPaths';
+import { modernServerEntryNoticeTransform } from './modernServerEntryNotice';
 import { removedApisTransform } from './removedApis';
 import { schemaParamRemovalTransform } from './schemaParamRemoval';
 import { symbolRenamesTransform } from './symbolRenames';
@@ -37,6 +38,7 @@ import { symbolRenamesTransform } from './symbolRenames';
 //    independent of the other transforms.
 export const v1ToV2Transforms: Transform[] = [
     importPathsTransform,
+    modernServerEntryNoticeTransform,
     symbolRenamesTransform,
     removedApisTransform,
     mcpServerApiTransform,

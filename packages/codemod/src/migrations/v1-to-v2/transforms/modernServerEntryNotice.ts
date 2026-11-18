@@ -1,0 +1,79 @@
+import { SyntaxKind } from 'ts-morph';
+
+import type { Diagnostic, Transform, TransformResult } from '../../../types';
+import { info } from '../../../utils/diagnostics';
+
+const MODERN_PROTOCOL_GUIDE = 'https://ts.sdk.modelcontextprotocol.io/v2/migration/support-2026-07-28#serving-the-2026-07-28-revision';
+
+const LEGACY_SERVER_TRANSPORTS = new Map([
+    [
+        '@modelcontextprotocol/server/stdio:StdioServerTransport',
+        'This StdioServerTransport entry serves 2025-era clients only. To also serve protocol revision 2026-07-28, use serveStdio(() => buildServer()).'
+    ],
+    [
+        '@modelcontextprotocol/node:NodeStreamableHTTPServerTransport',
+        'This NodeStreamableHTTPServerTransport entry serves 2025-era clients only. To also serve protocol revision 2026-07-28, see the migration guide for routing modern clients through createMcpHandler while preserving legacy session state.'
+    ],
+    [
+        '@modelcontextprotocol/server:WebStandardStreamableHTTPServerTransport',
+        'This WebStandardStreamableHTTPServerTransport entry serves 2025-era clients only. To also serve protocol revision 2026-07-28, use createMcpHandler(() => buildServer()).'
+    ]
+]);
+
+export const modernServerEntryNoticeTransform: Transform = {
+    name: 'Modern server entry notices',
+    id: 'modern-server-entry-notices',
+    apply(sourceFile): TransformResult {
+        const diagnostics: Diagnostic[] = [];
+        const filePath = sourceFile.getFilePath();
+
+        for (const declaration of sourceFile.getImportDeclarations()) {
+            const specifier = declaration.getModuleSpecifierValue();
+
+            for (const namedImport of declaration.getNamedImports()) {
+                const message = LEGACY_SERVER_TRANSPORTS.get(`${specifier}:${namedImport.getName()}`);
+                if (message === undefined || namedImport.isTypeOnly() || declaration.isTypeOnly()) continue;
+
+                const binding = namedImport.getAliasNode() ?? namedImport.getNameNode().asKind(SyntaxKind.Identifier);
+                if (binding === undefined) continue;
+                const constructions = binding
+                    .findReferencesAsNodes()
+                    .filter(reference => reference.getSourceFile() === sourceFile)
+                    .map(reference => reference.getParentIfKind(SyntaxKind.NewExpression))
+                    .filter(construction => construction?.getExpression().getText() === binding.getText());
+
+                for (const construction of constructions) {
+                    if (construction === undefined) continue;
+                    diagnostics.push({
+                        ...info(filePath, construction.getStartLineNumber(), `${message} See ${MODERN_PROTOCOL_GUIDE}.`),
+                        advisoryOnly: true,
+                        resolveCurrentLine: () => construction.getStartLineNumber()
+                    });
+                }
+            }
+
+            const namespaceImport = declaration.getNamespaceImport();
+            if (namespaceImport === undefined || declaration.isTypeOnly()) continue;
+
+            for (const [transport, message] of LEGACY_SERVER_TRANSPORTS) {
+                const separator = transport.lastIndexOf(':');
+                if (transport.slice(0, separator) !== specifier) continue;
+                const transportName = transport.slice(separator + 1);
+
+                for (const construction of sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {
+                    const expression = construction.getExpression().asKind(SyntaxKind.PropertyAccessExpression);
+                    if (expression?.getExpression().getText() !== namespaceImport.getText() || expression.getName() !== transportName) {
+                        continue;
+                    }
+                    diagnostics.push({
+                        ...info(filePath, construction.getStartLineNumber(), `${message} See ${MODERN_PROTOCOL_GUIDE}.`),
+                        advisoryOnly: true,
+                        resolveCurrentLine: () => construction.getStartLineNumber()
+                    });
+                }
+            }
+        }
+
+        return { changesCount: 0, diagnostics };
+    }
+};
