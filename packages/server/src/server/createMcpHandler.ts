@@ -71,6 +71,7 @@ import type { ServerEventBus, ServerNotifier } from './serverEventBus';
 import { createServerNotifier, InMemoryServerEventBus } from './serverEventBus';
 import { DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 import { WebStandardStreamableHTTPServerTransport } from './streamableHttp';
+import { isStreamingMethod } from './streamingMethods';
 
 /* ------------------------------------------------------------------------ *
  * Factory and handler types
@@ -177,8 +178,9 @@ export interface CreateMcpHandlerOptions {
      * - `'sse'` — always stream.
      * - `'json'` — never stream. **Mid-call notifications (progress, logging,
      *   any related message emitted before the result) are dropped** — only the
-     *   terminal result is delivered. Listen-class subscription streams are
-     *   always served over SSE regardless of this setting.
+     *   terminal result is delivered. `subscriptions/listen` streams and the
+     *   Events extension's `events/stream` streams are always served over SSE
+     *   regardless of this setting.
      */
     responseMode?: PerRequestResponseMode;
     /**
@@ -716,7 +718,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     if (responseMode === 'json') {
         // eslint-disable-next-line no-console
         console.warn(
-            "responseMode: 'json' drops mid-call notifications. subscriptions/listen streams are always served over SSE regardless; " +
+            "responseMode: 'json' drops mid-call notifications. subscriptions/listen and events/stream are always streamed regardless; " +
                 'other notifications emitted before a result are dropped.'
         );
     }
@@ -890,12 +892,14 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         };
         server.onclose = onExchangeClose;
 
+        // A method the instance marks as streaming (`events/stream`) upgrades to SSE even under 'json'.
+        const exchangeMode = responseMode === 'json' && isStreamingMethod(server, route.message.method) ? 'auto' : responseMode;
         try {
             const response = await invoke(product, route.message, {
                 classification: route.classification,
                 request,
                 ...(authInfo !== undefined && { authInfo }),
-                ...(responseMode !== undefined && { responseMode }),
+                ...(exchangeMode !== undefined && { responseMode: exchangeMode }),
                 ...(options.keepAliveMs !== undefined && { keepAliveMs: options.keepAliveMs })
             });
             if (route.messageKind === 'notification') {

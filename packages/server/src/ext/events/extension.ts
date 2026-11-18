@@ -7,7 +7,8 @@ import {
     EVENTS_SUBSCRIBE_METHOD,
     EVENTS_UNSUBSCRIBE_METHOD,
     ListEventsRequestParamsSchema,
-    PollEventsRequestParamsSchema
+    PollEventsRequestParamsSchema,
+    StreamEventsRequestParamsSchema
 } from '@modelcontextprotocol/core/ext/events';
 import type { ServerContext, StandardSchemaWithJSON } from '@modelcontextprotocol/core-internal';
 import { scanXMcpHeaderDeclarations } from '@modelcontextprotocol/core-internal';
@@ -15,10 +16,12 @@ import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 
 import type { McpServer } from '../../server/mcp';
 import { markModernOnlyExtension } from '../../server/modernOnlyExtensions';
+import { markStreamingMethod } from '../../server/streamingMethods';
 import type { BufferedEvent } from './emitBuffer';
 import { EmitBuffer } from './emitBuffer';
 import { assertModernRequest } from './eraGate';
 import { PollSource, toOccurrence } from './poll';
+import { StreamSet } from './push';
 import type { AnyEventDefinition, RegisteredEvent } from './registry';
 import { changedSchema, deliveryModes, EventRegistry } from './registry';
 import { installTestHook } from './testHook';
@@ -50,6 +53,8 @@ const DEFAULT_EMIT_BUFFER_MAX_AGE_MS = 600_000;
 const DEFAULT_EMIT_BUFFER_MAX_EVENTS = 10_000;
 const DEFAULT_POLL_SUBSCRIPTION_TTL_MS = 300_000;
 const DEFAULT_NEXT_POLL_MS = 30_000;
+const DEFAULT_HEARTBEAT_MS = 30_000;
+const DEFAULT_CHECK_INTERVAL_MS = 5000;
 
 // Servers with an events extension attached: one per server, as SEP-3371 rejects a duplicate extension identifier.
 const eventsServers = new WeakSet<McpServer>();
@@ -120,6 +125,7 @@ export class EventsExtension {
     readonly #buffer: EmitBuffer;
     readonly #validator: SubscriptionValidator;
     readonly #poll: PollSource;
+    readonly #push: StreamSet;
     // Each emitted event is handed to these after it is buffered; push and webhook delivery add theirs.
     readonly #fanOuts: EmitFanOut[] = [];
     // Clears process-memory state on a simulated restart; each delivery mode adds its own.
@@ -145,7 +151,7 @@ export class EventsExtension {
             webhookEnabled: this.#webhookEnabled,
             getPrincipal: options.getPrincipal,
             maxSubscriptions: options.maxSubscriptions,
-            subscriptionCount: () => this.#poll.size
+            subscriptionCount: () => this.#poll.size + this.#push.size
         });
         this.#poll = new PollSource({
             validator: this.#validator,
@@ -154,10 +160,19 @@ export class EventsExtension {
             defaultNextPollMs: options.defaultNextPollMs ?? DEFAULT_NEXT_POLL_MS,
             report: error => this.#report(error)
         });
-        this.#sources.push(this.#poll);
+        this.#push = new StreamSet({
+            validator: this.#validator,
+            buffer: this.#buffer,
+            heartbeatMs: options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS,
+            checkIntervalMs: options.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS,
+            report: error => this.#report(error)
+        });
+        this.#sources.push(this.#poll, this.#push);
+        this.#fanOuts.push((name, buffered, { cursor }) => this.#push.fanOut(name, buffered, cursor));
         this.#restarts.push(
             () => this.#buffer.clear(),
-            () => this.#poll.clear()
+            () => this.#poll.clear(),
+            () => this.#push.closeAll()
         );
         installTestHook(this, {
             generation: () => this.#generation,
@@ -165,7 +180,12 @@ export class EventsExtension {
                 this.#generation += 1;
                 for (const clear of this.#restarts) clear();
             },
-            state: () => ({ trustedOrigins: [...this.#trustedOrigins], emitBuffer: this.#buffer.sizes(), pollLeases: this.#poll.size }),
+            state: () => ({
+                trustedOrigins: [...this.#trustedOrigins],
+                emitBuffer: this.#buffer.sizes(),
+                pollLeases: this.#poll.size,
+                pushStreams: this.#push.size
+            }),
             addTrustedOrigin: origin => {
                 assertOrigin(origin);
                 this.#trustedOrigins.add(origin);
@@ -204,8 +224,12 @@ export class EventsExtension {
         server.setRequestHandler(EVENTS_POLL_METHOD, { params: PollEventsRequestParamsSchema }, (params, ctx) =>
             this.#poll.handlePoll(params, ctx)
         );
+        server.setRequestHandler(EVENTS_STREAM_METHOD, { params: StreamEventsRequestParamsSchema }, (params, ctx) =>
+            this.#push.open(params, ctx)
+        );
         server.registerCapabilities({ extensions: { [EVENTS_EXTENSION_ID]: {} } });
         markModernOnlyExtension(server, EVENTS_EXTENSION_ID);
+        markStreamingMethod(server, EVENTS_STREAM_METHOD);
         this.#attached.add(mcp);
         eventsServers.add(mcp);
     }

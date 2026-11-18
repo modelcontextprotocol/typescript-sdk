@@ -8,7 +8,7 @@ import type { SubscriptionSource } from './extension';
 import type { Lease } from './leases';
 import { leaseKey, LeaseTable } from './leases';
 import type { RegisteredEvent } from './registry';
-import type { EventContext, EventInput } from './types';
+import type { EventContext, EventInput, EventResult } from './types';
 import type { SubscriptionValidator } from './validation';
 
 const DEFAULT_MAX_EVENTS = 100;
@@ -46,6 +46,56 @@ export async function toOccurrence(
         data: parsed.data,
         ...(input._meta === undefined ? {} : { _meta: input._meta })
     };
+}
+
+// A check result's events to send: off-schema ones dropped (reported), ones older than `maxAgeMs` skipped with `truncated`.
+export async function checkedEvents(
+    entry: RegisteredEvent,
+    result: EventResult<unknown>,
+    maxAgeMs: number | undefined,
+    report: (error: unknown) => void
+): Promise<{ events: EventOccurrence[]; truncated: boolean }> {
+    const floor = maxAgeMs === undefined ? undefined : Date.now() - maxAgeMs;
+    let truncated = result.truncated === true;
+    const events: EventOccurrence[] = [];
+    for (const input of result.events) {
+        const occurrence = await toOccurrence(entry, input, report);
+        if (occurrence === undefined) continue;
+        if (floor !== undefined && Date.parse(occurrence.timestamp) < floor) {
+            truncated = true;
+            continue;
+        }
+        events.push(occurrence);
+    }
+    return { events, truncated };
+}
+
+// What one subscription receives of an emitted event: broadcasts pass `match`, targeted ones reach only their subscription. A throwing hook skips the event.
+export function selectEvent(
+    entry: RegisteredEvent,
+    ctx: EventContext,
+    args: Record<string, unknown>,
+    buffered: BufferedEvent,
+    report: (error: unknown) => void
+): EventOccurrence | undefined {
+    const { occurrence, target } = buffered;
+    if (target !== undefined && target !== ctx.subscriptionId) return undefined;
+    const { match, transform } = entry.definition;
+    try {
+        if (target === undefined && match !== undefined && !match(ctx, occurrence, args)) return undefined;
+        if (transform === undefined) return occurrence;
+        const shaped = transform(ctx, occurrence, args);
+        return {
+            eventId: shaped.eventId ?? occurrence.eventId,
+            name: occurrence.name,
+            timestamp: shaped.timestamp ?? occurrence.timestamp,
+            data: shaped.data as Record<string, unknown>,
+            ...(shaped._meta === undefined ? {} : { _meta: shaped._meta })
+        };
+    } catch (error) {
+        report(error);
+        return undefined;
+    }
 }
 
 // `events/poll`: every request carries one subscription, and leases drive `onSubscribe` / `onUnsubscribe` (SEP-3415 Appendix A).
@@ -88,7 +138,7 @@ export class PollSource implements SubscriptionSource {
             const read = this.#deps.buffer.read(entry.name, cursor, {
                 maxEvents,
                 maxAgeMs: params.maxAgeMs,
-                select: buffered => this.#select(entry, selectCtx, args, buffered)
+                select: buffered => selectEvent(entry, selectCtx, args, buffered, this.#deps.report)
             });
             return { ...read, nextPollMs: this.#deps.defaultNextPollMs };
         }
@@ -96,18 +146,7 @@ export class PollSource implements SubscriptionSource {
         const result = await check(makeContext({ ...fields, maxEvents, maxAgeMs: params.maxAgeMs }), args, cursor);
         const nextPollMs = result.nextPollMs ?? this.#deps.defaultNextPollMs;
         if (cursor === null) return { events: [], cursor: result.cursor, truncated: false, hasMore: false, nextPollMs };
-        const floor = params.maxAgeMs === undefined ? undefined : Date.now() - params.maxAgeMs;
-        let truncated = result.truncated === true;
-        const events: EventOccurrence[] = [];
-        for (const input of result.events) {
-            const occurrence = await toOccurrence(entry, input, this.#deps.report);
-            if (occurrence === undefined) continue;
-            if (floor !== undefined && Date.parse(occurrence.timestamp) < floor) {
-                truncated = true;
-                continue;
-            }
-            events.push(occurrence);
-        }
+        const { events, truncated } = await checkedEvents(entry, result, params.maxAgeMs, this.#deps.report);
         return { events, cursor: result.cursor, truncated, hasMore: result.hasMore === true, nextPollMs };
     }
 
@@ -170,33 +209,6 @@ export class PollSource implements SubscriptionSource {
             this.#starting.delete(key);
         }
         return lease;
-    }
-
-    // Broadcast events pass `match`; targeted ones reach only their subscription. A throwing hook skips the event.
-    #select(
-        entry: RegisteredEvent,
-        ctx: EventContext,
-        args: Record<string, unknown>,
-        buffered: BufferedEvent
-    ): EventOccurrence | undefined {
-        const { occurrence, target } = buffered;
-        if (target !== undefined && target !== ctx.subscriptionId) return undefined;
-        const { match, transform } = entry.definition;
-        try {
-            if (target === undefined && match !== undefined && !match(ctx, occurrence, args)) return undefined;
-            if (transform === undefined) return occurrence;
-            const shaped = transform(ctx, occurrence, args);
-            return {
-                eventId: shaped.eventId ?? occurrence.eventId,
-                name: occurrence.name,
-                timestamp: shaped.timestamp ?? occurrence.timestamp,
-                data: shaped.data as Record<string, unknown>,
-                ...(shaped._meta === undefined ? {} : { _meta: shaped._meta })
-            };
-        } catch (error) {
-            this.#deps.report(error);
-            return undefined;
-        }
     }
 
     async #unsubscribe(lease: PollLease): Promise<void> {

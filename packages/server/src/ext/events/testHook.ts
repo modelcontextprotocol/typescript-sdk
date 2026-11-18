@@ -9,6 +9,8 @@ export interface EventsTestState {
     readonly emitBuffer: Readonly<Record<string, number>>;
     // Live poll leases.
     readonly pollLeases: number;
+    // Open push streams, counting those still starting.
+    readonly pushStreams: number;
 }
 
 // Internal controls for tests and the conformance fixture; never part of the public API or its declarations.
