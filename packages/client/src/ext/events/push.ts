@@ -266,9 +266,9 @@ export class PushDriver<T> implements Driver {
         this.#subscribed();
     }
 
-    // From `active` on, every message restarts the countdown to declaring the stream dead and reconnecting.
+    // From `active` on, every message restarts the countdown to declaring the stream dead, unless a callback in the frame already ended it.
     #alive(end: (ending: Ending) => void): void {
-        if (this.#grantMs === undefined) return;
+        if (this.#grantMs === undefined || this.#end !== end) return;
         clearTimeout(this.#dead);
         this.#dead = setTimeout(
             () => {

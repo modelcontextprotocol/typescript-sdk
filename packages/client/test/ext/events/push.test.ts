@@ -175,6 +175,41 @@ describe('push delivery', () => {
         expect(sub.cursor).toBe('c1');
     });
 
+    it('leaves no timer and no reopen when a callback cancels the subscription inside a frame', async () => {
+        // `trigger` sends frames on a subscription whose onGap (or client.onerror) calls cancel() synchronously.
+        const cancelledInside = async (
+            via: 'onGap' | 'onerror',
+            trigger: (last: () => ServerStream) => Promise<void>
+        ): Promise<{ timers: number; streams: number }> => {
+            const { client, last, streams, subscribe } = await pushWith();
+            const subscribed: { sub?: EventSubscription } = {};
+            const cancel = () => void subscribed.sub?.cancel();
+            if (via === 'onerror') client.onerror = cancel;
+            subscribed.sub = await subscribe({ cursor: 'c0', ...(via === 'onGap' && { onGap: cancel }) }, s =>
+                s.active({ cursor: 'c1', heartbeatMs: 5000 })
+            );
+            await trigger(last);
+            await settle();
+            const timers = vi.getTimerCount();
+            await vi.advanceTimersByTimeAsync(120_000);
+            return { timers, streams: streams().length };
+        };
+
+        // The truncated `active` that opens a reconnected stream.
+        const reopened = await cancelledInside('onGap', async last => {
+            await last().end();
+            await vi.advanceTimersByTimeAsync(500);
+            await last().active({ cursor: 'c2', truncated: true, heartbeatMs: 5000 });
+        });
+        const midStream = await cancelledInside('onGap', last => last().active({ cursor: 'c2', truncated: true, heartbeatMs: 5000 }));
+        const malformed = await cancelledInside('onerror', last => last().frame('notifications/events/event', { name: 'tick' }));
+        expect({ reopened, midStream, malformed }).toEqual({
+            reopened: { timers: 0, streams: 2 },
+            midStream: { timers: 0, streams: 1 },
+            malformed: { timers: 0, streams: 1 }
+        });
+    });
+
     it('advances the cursor on heartbeats', async () => {
         const { last, subscribe } = await pushWith();
         const sub = await subscribe({}, s => s.active({ cursor: 'c1' }));
