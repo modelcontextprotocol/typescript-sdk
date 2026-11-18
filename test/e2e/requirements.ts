@@ -100,7 +100,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         knownFailures: [
             {
                 transport: 'stdio',
-                note: 'connect rejects but client.transport is not cleared on stdio (other transports clear it)'
+                note: 'on stdio, connect rejects before client.transport is cleared: the failed handshake does not await close(), and the transport clears only once the server process has exited'
             }
         ]
     },
@@ -220,13 +220,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'typescript:protocol:error:connection-closed': {
         source: 'sdk',
-        behavior: 'Closing the transport invokes onclose and rejects all in-flight requests with ErrorCode.ConnectionClosed.',
-        knownFailures: [
-            {
-                transport: 'stdio',
-                note: 'in-process stdio does not fire client.onclose after close()'
-            }
-        ]
+        behavior: 'Closing the transport invokes onclose and rejects all in-flight requests with ErrorCode.ConnectionClosed.'
     },
     'protocol:error:internal-error': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#responses',
