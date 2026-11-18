@@ -196,6 +196,41 @@ describe('UriTemplate', () => {
             expect(template.match('/users/123/extra')).toBeNull();
             expect(template.match('/users')).toBeNull();
         });
+
+        it('matches a URI produced from a partial variable set', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            expect(template.match(template.expand({ q: 'test' }))).toEqual({ q: 'test' });
+        });
+
+        it('matches when the trailing query parameter is omitted', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            expect(template.match('/search?q=test')).toEqual({ q: 'test' });
+        });
+
+        it('keeps matching the full query string', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            expect(template.match('/search?q=test&page=1')).toEqual({ q: 'test', page: '1' });
+        });
+
+        // `expand` drops a pair whose variable is undefined, so the pair a URI starts with is
+        // not necessarily the first name in the expression.
+        it('matches when the first query parameter is omitted', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            expect(template.match(template.expand({ page: '1' }))).toEqual({ page: '1' });
+        });
+
+        it('matches any single variable of a three-name query expression', () => {
+            const template = new UriTemplate('/search{?a,b,c}');
+            for (const name of ['a', 'b', 'c'] as const) {
+                const expanded = template.expand({ [name]: '1' });
+                expect(template.match(expanded)).toEqual({ [name]: '1' });
+            }
+        });
+
+        it('matches a subset after a query the template already opened', () => {
+            const template = new UriTemplate('/search?fixed=1{?a,b}');
+            expect(template.match(template.expand({ b: '2' }))).toEqual({ b: '2' });
+        });
     });
 
     describe('security and edge cases', () => {
