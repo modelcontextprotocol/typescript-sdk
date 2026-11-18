@@ -357,6 +357,29 @@ describe('protocol tests', () => {
         });
     });
 
+    test('should deliver progress notifications received in the same tick as the response', async () => {
+        await protocol.connect(transport);
+        const onerrorMock = vi.fn();
+        protocol.onerror = onerrorMock;
+        const onProgressMock = vi.fn();
+        const requestPromise = testRequest(protocol, { method: 'example', params: {} }, z.object({ result: z.string() }), {
+            onprogress: onProgressMock
+        });
+
+        transport.onmessage?.({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: 0, progress: 1 } });
+        transport.onmessage?.({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: 0, progress: 2 } });
+        transport.onmessage?.({ jsonrpc: '2.0', id: 0, result: { result: 'done' } });
+
+        await expect(requestPromise).resolves.toEqual({ result: 'done' });
+        expect(onProgressMock.mock.calls).toEqual([[{ progress: 1 }], [{ progress: 2 }]]);
+        expect(onerrorMock).not.toHaveBeenCalled();
+
+        transport.onmessage?.({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: 0, progress: 3 } });
+        await vi.waitFor(() => expect(onerrorMock).toHaveBeenCalledOnce());
+        expect(onerrorMock.mock.calls[0]![0].message).toContain('unknown token');
+        expect(onProgressMock).toHaveBeenCalledTimes(2);
+    });
+
     describe('progress notification timeout behavior', () => {
         beforeEach(() => {
             vi.useFakeTimers();
