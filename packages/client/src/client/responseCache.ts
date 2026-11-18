@@ -253,6 +253,13 @@ function genKey(method: string, params?: string): string {
 export const MAX_CACHE_TTL_MS = 86_400_000;
 
 /**
+ * Memoized "this name has no output validator for the current stamp".
+ * Distinct from a missing map entry, which means the name has not been
+ * compiled yet.
+ */
+const NO_OUTPUT_VALIDATOR: unique symbol = Symbol('no-output-validator');
+
+/**
  * The `Client`'s cache-coordination collaborator.
  *
  * Owns the per-connection cache state that used to live as five private
@@ -291,13 +298,20 @@ export class ClientResponseCache {
      */
     private _toolIndex?: { stamp: number; byName: Map<string, Tool> };
     /**
-     * `name → compiled output-schema validator` derived from the cached
-     * `tools/list` entry; same stamp-keyed memoization as `_toolIndex`. Typed
-     * `unknown` so this class stays free of any validator-provider dependency
-     * — the compile callback supplied to {@linkcode outputValidator} owns the
-     * concrete type.
+     * Output validators derived from the cached `tools/list` entry. The
+     * decoded catalog (`toolsByName`) is complete for the stamp. Compiled
+     * validators are not: {@linkcode outputValidator} compiles only the name
+     * it is asked for, then memoizes that result until the stamp changes.
+     * Typed `unknown` so this class stays free of any validator-provider
+     * dependency — the compile callback owns the concrete type. A stored
+     * {@link NO_OUTPUT_VALIDATOR} means that name was resolved and has no
+     * validator (`compile` returned `undefined` for a catalogued tool).
      */
-    private _toolOutputValidatorIndex?: { stamp: number; byName: Map<string, unknown> };
+    private _toolOutputValidatorIndex?: {
+        stamp: number;
+        toolsByName: Map<string, Tool>;
+        byName: Map<string, unknown>;
+    };
     /**
      * The connected server's identity (`serverInfo.name@version`, the
      * transport's `sessionId`, or a client-generated per-connection
@@ -629,11 +643,14 @@ export class ClientResponseCache {
     /**
      * The compiled output-schema validator for tool `name`, derived from the
      * cached `tools/list` entry — same source and same stamp-keyed
-     * memoization as {@linkcode toolDefinition}. The `name → validator` index
-     * re-derives only when the backing entry's stamp changes (a refetched
-     * `tools/list` recompiles; a `list_changed` eviction drops it). Returns
-     * `undefined` when no `tools/list` is held, the tool is absent, or it has
-     * no `outputSchema`.
+     * memoization as {@linkcode toolDefinition}. The decoded name catalog is
+     * retained in full for the stamp. Validators are compiled only for names
+     * this method is asked for: an ordinary `callTool` does not compile the
+     * rest of the list. A refetched `tools/list` (new stamp) drops every
+     * memoized validator; a `list_changed` eviction drops the entry, and
+     * `resetForReconnect` clears the index. Returns `undefined` when no
+     * `tools/list` is held, the tool is absent, or it has no compilable
+     * validator.
      *
      * `compile` is the caller-supplied validator-compile callback (the
      * `Client` passes its `_jsonSchemaValidator` wrapper) so this
@@ -641,12 +658,13 @@ export class ClientResponseCache {
      * `outputSchema` (e.g. an invalid `pattern` regex or unresolvable `$ref`)
      * must not poison every other tool's `callTool` — the callback isolates
      * that compile error per tool by returning a per-tool error variant which
-     * the index stores alongside the good ones, and `callTool` surfaces it as
+     * the index stores for that name only, and `callTool` surfaces it as
      * a typed `InvalidParams` only for that name. Because the error is held on
      * this stamp-keyed substrate (not a parallel map), it inherits the
      * substrate's invalidation lifecycle: a `list_changed` eviction drops it,
-     * a refetched `tools/list` re-derives it, and `resetForReconnect` clears
-     * the lot.
+     * a refetched `tools/list` re-derives it from the new document, and
+     * `resetForReconnect` clears the lot. A changed document never returns the
+     * validator compiled for the previous stamp.
      */
     async outputValidator<V>(name: string, compile: (tool: Tool) => V | undefined): Promise<V | undefined> {
         const entry = await this._probe('tools/list');
@@ -655,15 +673,32 @@ export class ClientResponseCache {
             return undefined;
         }
         if (this._toolOutputValidatorIndex?.stamp !== entry.stamp) {
-            const list = this._decodeListTools(entry) ?? { tools: [] };
-            const byName = new Map<string, unknown>();
-            for (const tool of list.tools) {
-                const compiled = compile(tool);
-                if (compiled !== undefined) byName.set(tool.name, compiled);
+            const list = this._decodeListTools(entry);
+            const toolsByName = new Map<string, Tool>();
+            // A failed decode memoizes an empty catalog under this stamp, so
+            // the corrupt document is parsed (and reported) once — not once
+            // per callTool — matching {@linkcode toolDefinition}.
+            if (list !== undefined) {
+                for (const tool of list.tools) toolsByName.set(tool.name, tool);
             }
-            this._toolOutputValidatorIndex = { stamp: entry.stamp, byName };
+            this._toolOutputValidatorIndex = { stamp: entry.stamp, toolsByName, byName: new Map() };
         }
-        return this._toolOutputValidatorIndex.byName.get(name) as V | undefined;
+        const index = this._toolOutputValidatorIndex;
+        if (index.byName.has(name)) {
+            const cached = index.byName.get(name);
+            return cached === NO_OUTPUT_VALIDATOR ? undefined : (cached as V);
+        }
+        const tool = index.toolsByName.get(name);
+        if (tool === undefined) {
+            // Caller-selected absent names must not grow the catalog-bounded cache.
+            return undefined;
+        }
+        // A throwing callback is not memoized: the caller decides whether to
+        // retry. The Client's compile wrapper catches engine errors and
+        // returns a per-tool failure value, which is memoized below.
+        const compiled = compile(tool);
+        index.byName.set(name, compiled === undefined ? NO_OUTPUT_VALIDATOR : compiled);
+        return compiled;
     }
 
     /** Parse a held `tools/list` document for the index builders; a document

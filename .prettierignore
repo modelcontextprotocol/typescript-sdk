@@ -21,6 +21,12 @@ packages/core-internal/test/corpus/fixtures/
 # manifest.json by sha256 in schemaTwinConformance - reformatting breaks the lock.
 packages/core-internal/test/corpus/schema-twins/
 
+# Production-catalog bytes are locked by sha256 in identity.json.
+packages/client/test/client/fixtures/production-catalog/tools.json.gz
+packages/client/test/client/fixtures/production-catalog/binary-session-input.json
+packages/client/test/client/fixtures/production-catalog/binary-session-output.json
+packages/client/test/client/fixtures/production-catalog/LICENSE.MIT.txt
+
 # Batch test cloned repos and results
 packages/codemod/batch-test/repos
 packages/codemod/batch-test/results
