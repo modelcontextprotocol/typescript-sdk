@@ -50,15 +50,14 @@ function modernHeaders(message: JSONRPCRequest | JSONRPCNotification): Record<st
     return headers;
 }
 
-/** Serves `events` through `createMcpHandler`, attaching it to the fresh `McpServer` built for each request; `setup` adds more to each. */
+/** Serves `events` through `createMcpHandler`, in the `extensions` of the fresh `McpServer` built for each request; `setup` adds more to each. */
 export function serve(
     events: EventsExtension,
     options: { authInfo?: AuthInfo; responseMode?: 'auto' | 'json'; keepAliveMs?: number; setup?: (mcp: McpServer) => void } = {}
 ): Served {
     const handler = createMcpHandler(
         () => {
-            const mcp = new McpServer({ name: 'events-test', version: '1.0.0' });
-            events.attach(mcp);
+            const mcp = new McpServer({ name: 'events-test', version: '1.0.0' }, { extensions: [events] });
             options.setup?.(mcp);
             return mcp;
         },

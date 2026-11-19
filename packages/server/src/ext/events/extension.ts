@@ -16,7 +16,7 @@ import type { ServerContext, StandardSchemaWithJSON } from '@modelcontextprotoco
 import { scanXMcpHeaderDeclarations } from '@modelcontextprotocol/core-internal';
 import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 
-import type { McpServer } from '../../server/mcp';
+import type { ServerExtension, ServerExtensionContext } from '../../server/extension';
 import { markModernOnlyExtension } from '../../server/modernOnlyExtensions';
 import { registerParamHeaderSource } from '../../server/paramHeaderSources';
 import type { Server } from '../../server/server';
@@ -48,8 +48,6 @@ export type DefaultSchema = StandardSchemaWithJSON<Record<string, unknown>>;
 // The `events/*` requests that name an event type in `params.name`.
 const NAMED_EVENT_METHODS = [EVENTS_POLL_METHOD, EVENTS_STREAM_METHOD, EVENTS_SUBSCRIBE_METHOD, EVENTS_UNSUBSCRIBE_METHOD];
 
-const EVENTS_METHODS = [EVENTS_LIST_METHOD, ...NAMED_EVENT_METHODS];
-
 const NUMERIC_OPTIONS = ['webhookTtlMs', 'pollSubscriptionTtlMs', 'heartbeatMs', 'checkIntervalMs', 'defaultNextPollMs'] as const;
 
 const DEFAULT_EMIT_BUFFER_MAX_AGE_MS = 600_000;
@@ -60,11 +58,6 @@ const DEFAULT_HEARTBEAT_MS = 30_000;
 const DEFAULT_CHECK_INTERVAL_MS = 5000;
 // As `createMcpHandler` bounds `subscriptions/listen` streams.
 const DEFAULT_MAX_SUBSCRIPTIONS = 1024;
-
-// Servers with an events extension attached: one per server, as SEP-3371 rejects a duplicate extension identifier.
-const eventsServers = new WeakSet<McpServer>();
-
-const ONE_PER_SERVER = 'another events extension is already attached to this server; attach one per server';
 
 function assertPositive(name: string, value: unknown): void {
     if (value !== undefined && !(typeof value === 'number' && Number.isFinite(value) && value > 0)) {
@@ -116,20 +109,19 @@ function defaultOnerror(error: Error): void {
 
 /**
  * The MCP Events extension (SEP-3415). Register event types with
- * {@linkcode EventsExtension.registerEvent}, then call
- * {@linkcode EventsExtension.attach} on each server before connecting it; one
- * instance serves any number of servers. Events is served only on protocol
+ * {@linkcode EventsExtension.registerEvent}, and pass the extension in each
+ * server's `extensions` option (`new McpServer(info, { extensions: [events] })`);
+ * one instance serves any number of servers. Events is served only on protocol
  * revision `2026-07-28` and later.
  *
  * Experimental: Events (SEP-3415) is new; this API may change in a minor release.
  *
  * @experimental
  */
-export class EventsExtension {
+export class EventsExtension implements ServerExtension {
     readonly id = EVENTS_EXTENSION_ID;
     readonly #registry = new EventRegistry();
     readonly #sources: SubscriptionSource[] = [];
-    readonly #attached = new WeakSet<McpServer>();
     readonly #trustedOrigins: Set<string>;
     readonly #webhookEnabled: boolean;
     readonly #onerror: (error: Error) => void;
@@ -237,47 +229,36 @@ export class EventsExtension {
     }
 
     /**
-     * Serves these event types on `mcp`: registers the `events/*` methods,
-     * then declares the capability. Must run before connecting. Calling it
-     * again for the same server does nothing. One events extension per
-     * server: attaching another one throws and leaves the server as it was,
-     * as does attaching to a server that already handles one of the
-     * `events/*` methods. A legacy `initialize` result does not advertise
-     * Events, and a server serving an earlier revision than `2026-07-28`
-     * answers `events/*` requests with `-32601`.
+     * Serves these event types on a server that lists this extension in
+     * `extensions`: the server calls it once, while it is constructed, and
+     * advertises the extension as `{}`. A legacy `initialize` result does not
+     * advertise Events, and a server serving an earlier revision than
+     * `2026-07-28` answers `events/*` requests with `-32601`.
      */
-    attach(mcp: McpServer): void {
-        if (this.#attached.has(mcp)) return;
-        if (mcp.isConnected()) throw new Error('attach events before connecting the server');
-        if (eventsServers.has(mcp)) throw new Error(ONE_PER_SERVER);
-        const server = mcp.server;
-        // Check before changing anything; declare the capability last, so a server never advertises events it does not serve.
-        for (const method of EVENTS_METHODS) server.assertCanSetRequestHandler(method);
-        server.setRequestHandler(EVENTS_LIST_METHOD, { params: ListEventsRequestParamsSchema }, () =>
+    setup(ctx: ServerExtensionContext): void {
+        const server = ctx.mcp.server;
+        ctx.setRequestHandler(EVENTS_LIST_METHOD, { params: ListEventsRequestParamsSchema }, () =>
             this.#modernOnly(server, () => this.#list())
         );
-        server.setRequestHandler(EVENTS_POLL_METHOD, { params: PollEventsRequestParamsSchema }, (params, ctx) =>
-            this.#modernOnly(server, () => this.#poll.handlePoll(params, ctx))
+        ctx.setRequestHandler(EVENTS_POLL_METHOD, { params: PollEventsRequestParamsSchema }, (params, requestCtx) =>
+            this.#modernOnly(server, () => this.#poll.handlePoll(params, requestCtx))
         );
-        server.setRequestHandler(EVENTS_STREAM_METHOD, { params: StreamEventsRequestParamsSchema }, (params, ctx) =>
-            this.#modernOnly(server, () => this.#push.open(params, ctx))
+        ctx.setRequestHandler(EVENTS_STREAM_METHOD, { params: StreamEventsRequestParamsSchema }, (params, requestCtx) =>
+            this.#modernOnly(server, () => this.#push.open(params, requestCtx))
         );
-        server.setRequestHandler(EVENTS_SUBSCRIBE_METHOD, { params: SubscribeEventsRequestParamsSchema }, (params, ctx) =>
+        ctx.setRequestHandler(EVENTS_SUBSCRIBE_METHOD, { params: SubscribeEventsRequestParamsSchema }, (params, requestCtx) =>
             this.#modernOnly(server, () =>
-                this.#webhooks === undefined ? this.#refuseWebhook(params, ctx) : this.#webhooks.subscribe(params, ctx)
+                this.#webhooks === undefined ? this.#refuseWebhook(params, requestCtx) : this.#webhooks.subscribe(params, requestCtx)
             )
         );
-        server.setRequestHandler(EVENTS_UNSUBSCRIBE_METHOD, { params: UnsubscribeEventsRequestParamsSchema }, (params, ctx) =>
+        ctx.setRequestHandler(EVENTS_UNSUBSCRIBE_METHOD, { params: UnsubscribeEventsRequestParamsSchema }, (params, requestCtx) =>
             this.#modernOnly(server, () =>
-                this.#webhooks === undefined ? this.#refuseWebhook(params, ctx) : this.#webhooks.unsubscribe(params, ctx)
+                this.#webhooks === undefined ? this.#refuseWebhook(params, requestCtx) : this.#webhooks.unsubscribe(params, requestCtx)
             )
         );
-        server.registerCapabilities({ extensions: { [EVENTS_EXTENSION_ID]: {} } });
         markModernOnlyExtension(server, EVENTS_EXTENSION_ID);
         markStreamingMethod(server, EVENTS_STREAM_METHOD);
-        registerParamHeaderSource(mcp, NAMED_EVENT_METHODS, name => this.#registry.get(name)?.inputJson);
-        this.#attached.add(mcp);
-        eventsServers.add(mcp);
+        registerParamHeaderSource(ctx.mcp, NAMED_EVENT_METHODS, name => this.#registry.get(name)?.inputJson);
     }
 
     /**

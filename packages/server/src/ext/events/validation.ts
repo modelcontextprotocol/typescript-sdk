@@ -37,7 +37,7 @@ export class SubscriptionValidator {
         this.#deps = deps;
     }
 
-    // After the era gate in `attach`: webhook mode (webhook only), principal (required for webhook), event exists, mode offered, `beforeParse`, then the arguments.
+    // After the era gate in `setup`'s handlers: webhook mode (webhook only), principal (required for webhook), event exists, mode offered, `beforeParse`, then the arguments.
     async validate(
         mode: DeliveryMode,
         params: SubscriptionRequest,

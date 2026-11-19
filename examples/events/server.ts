@@ -68,12 +68,11 @@ let ticks = 0;
 setInterval(() => void tick.emit({ data: { tick: ++ticks } }), 200).unref();
 
 function buildServer(): McpServer {
-    const mcp = new McpServer({ name: 'events-example', version: '1.0.0' });
+    const mcp = new McpServer({ name: 'events-example', version: '1.0.0' }, { extensions: [events] });
     mcp.registerTool('increment', { description: 'Add one to the counter', inputSchema: z.object({}) }, () => {
         count += 1;
         return { content: [{ type: 'text', text: String(count) }] };
     });
-    events.attach(mcp);
     return mcp;
 }
 

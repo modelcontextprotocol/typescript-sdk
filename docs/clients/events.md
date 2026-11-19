@@ -14,9 +14,8 @@ Events (SEP-3415) is an accepted MCP extension. Its SDK API is new and may chang
 import { Client } from '@modelcontextprotocol/client';
 import { EventsClientExtension } from '@modelcontextprotocol/client/ext/events';
 
-const client = new Client({ name: 'ops-console', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
 const events = new EventsClientExtension();
-events.attach(client);
+const client = new Client({ name: 'ops-console', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' }, extensions: [events] });
 await client.connect(transport);
 
 const subscription = await events.subscribe({ name: 'ticket.updated', arguments: { queue: 'billing' } });
@@ -32,7 +31,7 @@ When a ticket in the billing queue opens, it prints:
 ticket.updated { ticketId: 'T-7', status: 'open' }
 ```
 
-Attach the extension before `connect()`. `subscribe()` resolves once its first exchange with the server succeeds, and the subscription starts from now unless you pass a `cursor`. `list()` returns the server's event types with their schemas and delivery modes.
+Pass the extension in the client's `extensions` option: the client calls its `setup` while it is constructed, which ties the extension to that one client. `subscribe()` resolves once its first exchange with the server succeeds, and the subscription starts from now unless you pass a `cursor`. `list()` returns the server's event types with their schemas and delivery modes.
 
 Each subscription takes the first delivery mode the event type offers out of webhook (when you configure it), push and poll; `delivery` forces one, and `subscription.deliveryMode` says which it got. The loop is the same in every mode, drops a repeated `eventId`, and leaving it cancels the subscription.
 
@@ -114,7 +113,7 @@ invalidParams
 
 ## Recap
 
-- `new EventsClientExtension()`, `attach(client)` before `connect()`, then `subscribe({ name, arguments })` and `for await`.
+- `new EventsClientExtension()` in the client's `extensions`, then `connect()`, `subscribe({ name, arguments })` and `for await`.
 - The loop is the same in every mode, and leaving it cancels the subscription.
 - `subscription.cursor` is safe to save; pass it back as `cursor` to resume, and expect the last event again.
 - `webhook: { url }`, with `createWebhookHandler()` served at that URL, turns on webhook delivery.

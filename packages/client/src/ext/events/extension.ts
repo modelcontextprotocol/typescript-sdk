@@ -3,7 +3,7 @@ import { EVENTS_EXTENSION_ID, EVENTS_LIST_METHOD, eventsCapabilityOf } from '@mo
 import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal/public';
 
-import type { Client } from '../../client/client';
+import type { ClientExtension, ClientExtensionContext } from '../../client/extension';
 import { NoCompatibleDeliveryModeError } from './errors';
 import { PollDriver } from './poll';
 import { PushDriver } from './push';
@@ -65,12 +65,13 @@ export function selectDeliveryMode(
  * types and subscribes to them. Each subscription picks a delivery mode,
  * preferring webhook (when configured), then push, then poll, and runs it,
  * deduplicating by `eventId` and tracking the cursor. Events is used only on
- * protocol revision `2026-07-28` and later.
+ * protocol revision `2026-07-28` and later. Pass it in one client's
+ * `extensions` option.
  *
  * @example
  * ```ts
  * const events = new EventsClientExtension();
- * events.attach(client);
+ * const client = new Client({ name: 'ops-console', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' }, extensions: [events] });
  * await client.connect(transport);
  * const subscription = await events.subscribe({ name: 'incident.created', arguments: { severity: 'P1' } });
  * for await (const event of subscription) {
@@ -82,7 +83,7 @@ export function selectDeliveryMode(
  *
  * @experimental
  */
-export class EventsClientExtension {
+export class EventsClientExtension implements ClientExtension {
     /** The extension identifier the client declares. */
     readonly id = EVENTS_EXTENSION_ID;
     readonly #options: EventsClientOptions;
@@ -103,17 +104,17 @@ export class EventsClientExtension {
     }
 
     /**
-     * Declares the extension in `client`'s capabilities. Call it before
-     * `client.connect()`; one client per instance, and attaching to the same
-     * client again does nothing.
+     * Binds this instance to the client that lists it in `extensions`: the
+     * client calls it once, while it is constructed, and declares the
+     * extension as `{}`. One client per instance.
      *
-     * @throws {Error} after `client` connected, or when already attached to another client.
+     * @throws {Error} when another client already holds this instance, which fails the new client's constructor.
      */
-    attach(client: Client): void {
-        if (this.#connection?.client === client) return;
-        if (this.#connection !== undefined) throw new Error('This EventsClientExtension is already attached to another client');
-        client.registerCapabilities({ extensions: { [EVENTS_EXTENSION_ID]: {} } });
-        this.#connection = new EventsConnection(client);
+    setup(ctx: ClientExtensionContext): void {
+        if (this.#connection !== undefined) {
+            throw new Error("This EventsClientExtension is already in another client; pass a new one in each client's extensions option");
+        }
+        this.#connection = new EventsConnection(ctx.client);
     }
 
     /** The server advertised the extension and the connection is on protocol `2026-07-28` or later. `false` before connect. */
@@ -216,7 +217,11 @@ export class EventsClientExtension {
 
     #require(method: string): EventsConnection {
         const connection = this.#connection;
-        if (connection === undefined) throw new Error(`Call attach(client) before ${method}`);
+        if (connection === undefined) {
+            throw new Error(
+                `No client was constructed with this EventsClientExtension; pass it in the client's extensions option before ${method}`
+            );
+        }
         if (!this.supported) {
             throw new SdkError(
                 SdkErrorCode.CapabilityNotSupported,

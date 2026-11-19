@@ -46,8 +46,6 @@ export interface ScriptedOptions {
     capabilities?: ServerCapabilities;
     revision?: typeof MODERN | typeof LEGACY;
     clientOptions?: ClientOptions;
-    /** Runs on the client before it connects. */
-    beforeConnect?: (client: Client) => void;
 }
 
 /** A scripted client, with the scripted server's side of its connection. */
@@ -139,7 +137,6 @@ export async function scriptedClient(handlers: Record<string, Handler>, options:
         { name: 'events-test-client', version: '1.0.0' },
         revision === MODERN ? { versionNegotiation: { mode: { pin: MODERN } }, ...options.clientOptions } : options.clientOptions
     );
-    options.beforeConnect?.(client);
     await client.connect(await link());
     return {
         client,
@@ -150,13 +147,13 @@ export async function scriptedClient(handlers: Record<string, Handler>, options:
     };
 }
 
-/** An `EventsClientExtension` attached to a scripted client before it connects. */
+/** An `EventsClientExtension` in the `extensions` of a scripted client. */
 export async function connectEvents(
     handlers: Record<string, Handler>,
     options: ScriptedOptions & { events?: EventsClientOptions } = {}
 ): Promise<Scripted & { events: EventsClientExtension }> {
     const events = new EventsClientExtension(options.events);
-    const connected = await scriptedClient(handlers, { ...options, beforeConnect: client => events.attach(client) });
+    const connected = await scriptedClient(handlers, { ...options, clientOptions: { ...options.clientOptions, extensions: [events] } });
     return { events, ...connected };
 }
 

@@ -60,15 +60,11 @@ const incidents = events.registerEvent('incident.created', {
 await incidents.emit({ eventId: 'INC-7', data: { incidentId: 'INC-7', title: 'Checkout is down', severity: 'P1' } });
 //#endregion registerEvent_emitOnly
 
-//#region attach
+//#region extensions
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 
-const handler = createMcpHandler(() => {
-    const mcp = new McpServer({ name: 'helpdesk', version: '1.0.0' });
-    events.attach(mcp);
-    return mcp;
-});
-//#endregion attach
+const handler = createMcpHandler(() => new McpServer({ name: 'helpdesk', version: '1.0.0' }, { extensions: [events] }));
+//#endregion extensions
 
 // ---------------------------------------------------------------------------
 // Harness (not shown on the page): clients that talk to a handler in process.
@@ -87,9 +83,11 @@ async function connect(
     target: McpHttpHandler,
     options: EventsClientOptions = {}
 ): Promise<{ client: Client; subscriber: EventsClientExtension }> {
-    const client = new Client({ name: 'events-docs-check', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
     const subscriber = new EventsClientExtension(options);
-    subscriber.attach(client);
+    const client = new Client(
+        { name: 'events-docs-check', version: '1.0.0' },
+        { versionNegotiation: { mode: 'auto' }, extensions: [subscriber] }
+    );
     await client.connect(
         new StreamableHTTPClientTransport(new URL('http://localhost/mcp'), { fetch: (url, init) => target.fetch(new Request(url, init)) })
     );
@@ -132,14 +130,9 @@ for (const delivery of ['push', 'poll'] as const) {
 }
 
 // Push still streams when the handler answers everything else as plain JSON.
-const jsonOnly = createMcpHandler(
-    () => {
-        const mcp = new McpServer({ name: 'helpdesk', version: '1.0.0' });
-        events.attach(mcp);
-        return mcp;
-    },
-    { responseMode: 'json' }
-);
+const jsonOnly = createMcpHandler(() => new McpServer({ name: 'helpdesk', version: '1.0.0' }, { extensions: [events] }), {
+    responseMode: 'json'
+});
 const plain = await connect(jsonOnly);
 const streamed = await plain.subscriber.subscribe({ name: 'ticket.updated', arguments: { queue: 'billing' }, cursor: '0' });
 claim(streamed.deliveryMode === 'push', "push is chosen under responseMode: 'json'");
@@ -287,11 +280,7 @@ function replica() {
 }
 const [first, second] = [replica(), replica()];
 const handlerOf = (extension: EventsExtension) =>
-    createMcpHandler(() => {
-        const mcp = new McpServer({ name: 'helpdesk', version: '1.0.0' });
-        extension.attach(mcp);
-        return mcp;
-    });
+    createMcpHandler(() => new McpServer({ name: 'helpdesk', version: '1.0.0' }, { extensions: [extension] }));
 const firstHandler = handlerOf(first.extension);
 const hooked = await connect(firstHandler, { webhook: { url: 'https://hooks.example.com/mcp/events' } });
 receive = hooked.subscriber.createWebhookHandler();
@@ -309,6 +298,6 @@ claim(
 );
 claim(database.size === 0, 'cancel must delete the record from the shared store');
 
-for (const extension of [webhookEvents, replicated]) extension.attach(new McpServer({ name: 'docs-check', version: '1.0.0' }));
+for (const extension of [webhookEvents, replicated]) new McpServer({ name: 'docs-check', version: '1.0.0' }, { extensions: [extension] });
 for (const { client } of [helpdesk, plain, hooked]) await client.close();
 for (const target of [handler, jsonOnly, firstHandler]) await target.close();

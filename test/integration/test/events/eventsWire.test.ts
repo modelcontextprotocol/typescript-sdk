@@ -57,11 +57,7 @@ function served(): Served {
         inputSchema: z.object({ region: z.string().meta({ 'x-mcp-header': 'Region' }), severity: z.string().optional() }),
         payloadSchema: z.object({ title: z.string() })
     });
-    const handler = createMcpHandler(() => {
-        const mcp = new McpServer({ name: 'events-wire', version: '1.0.0' });
-        events.attach(mcp);
-        return mcp;
-    });
+    const handler = createMcpHandler(() => new McpServer({ name: 'events-wire', version: '1.0.0' }, { extensions: [events] }));
     return { handler, incident };
 }
 
@@ -233,9 +229,11 @@ describe('what a client sends', () => {
 
     beforeAll(async () => {
         const server = served();
-        const client = new Client({ name: 'wire-client', version: '1.0.0' }, { versionNegotiation: { mode: { pin: MODERN } } });
         const events = new EventsClientExtension({ webhook: { url: HOOK_URL } });
-        events.attach(client);
+        const client = new Client(
+            { name: 'wire-client', version: '1.0.0' },
+            { versionNegotiation: { mode: { pin: MODERN } }, extensions: [events] }
+        );
         const fetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
             const request = new Request(url, init);
             const response = await server.handler.fetch(request);

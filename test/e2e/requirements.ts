@@ -3864,10 +3864,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: `${EVENTS_SPEC}#event-occurrences`,
         behavior: 'The client delivers each eventId once per subscription.'
     },
-    'typescript:events:attach:rules': {
+    'typescript:events:extensions:rules': {
         ...EVENTS_CELLS,
         source: 'sdk',
-        behavior: 'attach is idempotent per server, refuses a second Events extension and refuses after connect.'
+        behavior:
+            "Two Events extensions in one server's extensions fail its construction; one EventsExtension serves every server constructed with it; an EventsClientExtension serves one client, and a second client constructed with it fails."
     },
     'typescript:events:definition:kinds': {
         ...EVENTS_CELLS,

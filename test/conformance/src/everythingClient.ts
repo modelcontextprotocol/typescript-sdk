@@ -966,8 +966,10 @@ const EVENTS_WEBHOOK_URL = 'https://conformance-test.local/mcp-events';
 async function runEventsClient(serverUrl: string): Promise<void> {
     const { durationMs } = z.object({ durationMs: z.number() }).parse(JSON.parse(process.env.MCP_CONFORMANCE_CONTEXT ?? '{}'));
     const events = new EventsClientExtension({ webhook: { url: EVENTS_WEBHOOK_URL } });
-    const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {}, versionNegotiation: { mode: 'auto' } });
-    events.attach(client);
+    const client = new Client(
+        { name: 'test-client', version: '1.0.0' },
+        { capabilities: {}, versionNegotiation: { mode: 'auto' }, extensions: [events] }
+    );
     await client.connect(new StreamableHTTPClientTransport(new URL(serverUrl)));
     const subscriptions: EventSubscription[] = [];
     if (events.supported) {

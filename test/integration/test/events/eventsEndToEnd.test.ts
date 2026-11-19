@@ -26,7 +26,7 @@ import type { EventsClientOptions, EventSubscription } from '@modelcontextprotoc
 import { EVENTS_EXTENSION_ID, EventsClientExtension, EventsError } from '@modelcontextprotocol/client/ext/events';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { AuthInfo, CreateMcpHandlerOptions, McpHttpHandler } from '@modelcontextprotocol/server';
-import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import { createMcpHandler } from '@modelcontextprotocol/server';
 import type { EventsOptions, WebhookSender } from '@modelcontextprotocol/server/ext/events';
 import { EventsError as ServerEventsError, InMemoryWebhookSubscriptionStore } from '@modelcontextprotocol/server/ext/events';
 import { nodeWebhookSender } from '@modelcontextprotocol/server/ext/events/node';
@@ -68,10 +68,10 @@ interface HttpConnection extends Connection {
     dropStreams(): void;
 }
 
-function clientFor(revision: string): Client {
+function clientFor(revision: string, events: EventsClientExtension): Client {
     return new Client(
         { name: 'events-host', version: '1.0.0' },
-        revision === MODERN ? { versionNegotiation: { mode: { pin: MODERN } } } : {}
+        revision === MODERN ? { versionNegotiation: { mode: { pin: MODERN } }, extensions: [events] } : { extensions: [events] }
     );
 }
 
@@ -93,12 +93,8 @@ function tap(client: Client): Pick<Connection, 'received' | 'sent'> {
     return { received, sent };
 }
 
-function handlerFor(attach: (mcp: McpServer) => void, options?: CreateMcpHandlerOptions): McpHttpHandler {
-    return createMcpHandler(() => {
-        const mcp = new McpServer({ name: 'events-http', version: '1.0.0' });
-        attach(mcp);
-        return mcp;
-    }, options);
+function handlerFor(fixture: EventsFixture, options?: CreateMcpHandlerOptions): McpHttpHandler {
+    return createMcpHandler(() => fixture.server('events-http'), options);
 }
 
 // The response with a body the test can end, as a dropped connection ends it; the server sees the cancel.
@@ -137,9 +133,8 @@ async function overHttp(
     serve: () => McpHttpHandler,
     options: { revision?: string; events?: EventsClientExtension; authInfo?: AuthInfo } = {}
 ): Promise<HttpConnection> {
-    const client = clientFor(options.revision ?? MODERN);
     const events = options.events ?? new EventsClientExtension(CLIENT_OPTIONS);
-    events.attach(client);
+    const client = clientFor(options.revision ?? MODERN, events);
     const requests: HttpConnection['requests'] = [];
     const drops = new Set<() => void>();
     const fetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
@@ -165,9 +160,8 @@ async function overHttp(
 }
 
 async function overStdio(revision: string): Promise<Connection> {
-    const client = clientFor(revision);
     const events = new EventsClientExtension(CLIENT_OPTIONS);
-    events.attach(client);
+    const client = clientFor(revision, events);
     await client.connect(
         new StdioClientTransport({ command: process.execPath, args: ['--import', 'tsx', 'eventsStdioServer.ts'], cwd: FIXTURES_DIR })
     );
@@ -175,19 +169,11 @@ async function overStdio(revision: string): Promise<Connection> {
 }
 
 async function overMemory(revision: string): Promise<Connection> {
-    const { attach } = eventsFixture();
+    const { server } = eventsFixture();
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    const handle = serveStdio(
-        () => {
-            const mcp = new McpServer({ name: 'events-in-memory', version: '1.0.0' });
-            attach(mcp);
-            return mcp;
-        },
-        { transport: serverTransport }
-    );
-    const client = clientFor(revision);
+    const handle = serveStdio(() => server('events-in-memory'), { transport: serverTransport });
     const events = new EventsClientExtension(CLIENT_OPTIONS);
-    events.attach(client);
+    const client = clientFor(revision, events);
     await client.connect(clientTransport);
     return {
         client,
@@ -203,7 +189,7 @@ async function overMemory(revision: string): Promise<Connection> {
 async function connect(arm: Arm, revision: string): Promise<Connection> {
     if (arm === 'stdio') return overStdio(revision);
     if (arm === 'inMemory') return overMemory(revision);
-    const handler = handlerFor(eventsFixture().attach);
+    const handler = handlerFor(eventsFixture());
     const connection = await overHttp(() => handler, { revision });
     return {
         ...connection,
@@ -413,7 +399,7 @@ describe.each([['http'], ['stdio'], ['inMemory']] as const)('events over %s on 2
 
             it("delivers under responseMode: 'json', where a subscription picks push by default", async () => {
                 const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-                const handler = handlerFor(eventsFixture().attach, { responseMode: 'json' });
+                const handler = handlerFor(eventsFixture(), { responseMode: 'json' });
                 expect(warn).toHaveBeenCalledWith(expect.stringContaining('events/stream'));
                 warn.mockRestore();
                 const json = await overHttp(() => handler);
@@ -574,7 +560,7 @@ describe('webhook delivery over http', () => {
             webhookStore: store,
             getPrincipal
         });
-        const handler = handlerFor(fixture.attach);
+        const handler = handlerFor(fixture);
         const connection = await overHttp(() => handler, { events, authInfo: ALICE });
         return {
             ...connection,
@@ -681,7 +667,7 @@ describe('webhook delivery over http', () => {
         const events = new EventsClientExtension({ ...CLIENT_OPTIONS, webhook: { url: `${origin}/hooks` } });
         receive = events.createWebhookHandler();
         const fixture = eventsFixture({ webhookTtlMs: 60_000, webhookSender: nodeWebhookSender(), trustedOrigins: [origin], getPrincipal });
-        const handler = handlerFor(fixture.attach);
+        const handler = handlerFor(fixture);
         const connection = await overHttp(() => handler, { events, authInfo: ALICE });
         try {
             const subscription = await events.subscribe<Note>({ name: NOTE, arguments: { tag: 'loopback' } });
@@ -711,8 +697,8 @@ describe('webhook delivery over http', () => {
         };
         const first = eventsFixture(options);
         const second = eventsFixture(options);
-        const firstHandler = handlerFor(first.attach);
-        const secondHandler = handlerFor(second.attach);
+        const firstHandler = handlerFor(first);
+        const secondHandler = handlerFor(second);
         let target = firstHandler;
         const connection = await overHttp(() => target, { events, authInfo: ALICE });
         try {
@@ -767,7 +753,7 @@ describe('webhook delivery over http', () => {
             webhookStore: store,
             getPrincipal
         };
-        const before = handlerFor(eventsFixture(options).attach);
+        const before = handlerFor(eventsFixture(options));
         let target = before;
         const connection = await overHttp(() => target, { events, authInfo: ALICE });
         try {
@@ -775,7 +761,7 @@ describe('webhook delivery over http', () => {
             await before.close();
 
             const restarted = eventsFixture(options);
-            target = handlerFor(restarted.attach);
+            target = handlerFor(restarted);
             const requests = connection.requests.length;
             const delivered = posts.length;
             await emit(restarted, 'restart', 'after the restart');

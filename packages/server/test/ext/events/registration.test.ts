@@ -1,5 +1,4 @@
 import type { DiscoverResult, InitializeResult } from '@modelcontextprotocol/core-internal';
-import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
@@ -41,11 +40,12 @@ describe('discovery', () => {
     });
 
     it('hides only the modern-only extensions from the legacy capabilities', () => {
-        const mcp = new McpServer({ name: 't', version: '1' }, { capabilities: { extensions: { 'example.com/other': {} } } });
-        new EventsExtension().attach(mcp);
+        const mcp = new McpServer(
+            { name: 't', version: '1' },
+            { capabilities: { extensions: { 'example.com/other': {} } }, extensions: [new EventsExtension()] }
+        );
         expect(legacyAdvertisedCapabilities(mcp.server, mcp.server.getCapabilities()).extensions).toEqual({ 'example.com/other': {} });
-        const alone = new McpServer({ name: 't', version: '1' });
-        new EventsExtension().attach(alone);
+        const alone = new McpServer({ name: 't', version: '1' }, { extensions: [new EventsExtension()] });
         expect(legacyAdvertisedCapabilities(alone.server, alone.server.getCapabilities())).not.toHaveProperty('extensions');
     });
 
@@ -256,28 +256,20 @@ describe('registerEvent', () => {
     });
 });
 
-describe('attach', () => {
-    it('follows the Skills attach rules', async () => {
-        const events = new EventsExtension();
-        const mcp = new McpServer({ name: 't', version: '1' });
-        events.attach(mcp);
-        events.attach(mcp);
-        expect(mcp.server.getCapabilities().extensions).toEqual({ 'io.modelcontextprotocol/events': {} });
-        expect(() => new EventsExtension().attach(mcp)).toThrow(
-            'another events extension is already attached to this server; attach one per server'
+describe('extensions option', () => {
+    it('fails construction with a second Events extension', () => {
+        expect(() => new McpServer({ name: 't', version: '1' }, { extensions: [new EventsExtension(), new EventsExtension()] })).toThrow(
+            'Extension "io.modelcontextprotocol/events" is listed more than once; pass each extension once'
         );
+    });
 
-        const connected = new McpServer({ name: 't', version: '1' });
-        const [, serverSide] = InMemoryTransport.createLinkedPair();
-        await connected.connect(serverSide);
-        expect(() => events.attach(connected)).toThrow('attach events before connecting the server');
-        await connected.close();
-
-        const taken = new McpServer({ name: 't', version: '1' });
-        taken.server.setRequestHandler('events/poll', { params: z.object({}) }, () => ({}));
-        expect(() => events.attach(taken)).toThrow('A request handler for events/poll already exists, which would be overridden');
-        expect(taken.server.getCapabilities().extensions).toBeUndefined();
-        expect(() => taken.server.assertCanSetRequestHandler('events/list')).not.toThrow();
+    it('serves every server constructed with one instance', async () => {
+        const events = new EventsExtension();
+        events.registerEvent('tick', { payloadSchema: P, check: tick });
+        // Two handlers, each building a fresh server per request.
+        for (const { rpc } of [serve(events), serve(events)]) {
+            expect(resultOf(await rpc('events/list'))).toMatchObject({ events: [{ name: 'tick' }] });
+        }
     });
 });
 

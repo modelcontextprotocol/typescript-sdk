@@ -7,7 +7,7 @@ import { selectDeliveryMode } from '../../../src/ext/events/extension';
 import type { EventSubscription } from '../../../src/ext/events/index';
 import { EventsClientExtension, EventsError, NoCompatibleDeliveryModeError } from '../../../src/ext/events/index';
 import type { Handler } from './scripted';
-import { callsTo, connectEvents, descriptor, LEGACY, listing, occurrence, quietPoll, RpcError, script, scriptedClient } from './scripted';
+import { callsTo, connectEvents, descriptor, LEGACY, listing, occurrence, quietPoll, RpcError, script } from './scripted';
 
 const UNSUPPORTED = 'Server does not support the io.modelcontextprotocol/events extension (required for events/list)';
 
@@ -43,14 +43,15 @@ describe('EventsClientExtension gating', () => {
         expect(meta['io.modelcontextprotocol/clientCapabilities']!.extensions[EVENTS_EXTENSION_ID]).toEqual({});
     });
 
-    it('throws when attached after connect or to a second client', async () => {
-        const { client } = await scriptedClient({});
-        expect(() => new EventsClientExtension().attach(client)).toThrow('Cannot register capabilities after connecting to transport');
+    it('serves one client, and refuses calls before a client is constructed with it', async () => {
         const events = new EventsClientExtension();
-        const first = new Client({ name: 'a', version: '1.0.0' });
-        events.attach(first);
-        expect(() => events.attach(first)).not.toThrow();
-        expect(() => events.attach(new Client({ name: 'b', version: '1.0.0' }))).toThrow(Error);
+        await expect(events.list()).rejects.toThrow(
+            "No client was constructed with this EventsClientExtension; pass it in the client's extensions option before events/list"
+        );
+        new Client({ name: 'a', version: '1.0.0' }, { extensions: [events] });
+        expect(() => new Client({ name: 'b', version: '1.0.0' }, { extensions: [events] })).toThrow(
+            "This EventsClientExtension is already in another client; pass a new one in each client's extensions option"
+        );
     });
 
     it('rejects a pollIntervalFloorMs that is not a positive number', () => {

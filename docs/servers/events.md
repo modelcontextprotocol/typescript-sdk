@@ -77,19 +77,15 @@ Poll clients read emit-only events from an in-memory buffer (`emitBuffer`, by de
 
 ## Serve the event types from every server
 
-`attach` serves the event types on a server; one `EventsExtension` serves every server you attach it to.
+Pass the extension in each server's `extensions` option; one `EventsExtension` serves every server constructed with it.
 
-```ts source="../../examples/guides/servers/events.examples.ts#attach"
+```ts source="../../examples/guides/servers/events.examples.ts#extensions"
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 
-const handler = createMcpHandler(() => {
-    const mcp = new McpServer({ name: 'helpdesk', version: '1.0.0' });
-    events.attach(mcp);
-    return mcp;
-});
+const handler = createMcpHandler(() => new McpServer({ name: 'helpdesk', version: '1.0.0' }, { extensions: [events] }));
 ```
 
-Attach before connecting the server. Push streams under every `responseMode`, `'json'` included, as `subscriptions/listen` does.
+While it is constructed, each server advertises the extension and calls its `setup`, which registers the `events/*` methods (see [Extensions](../advanced/extensions.md)). Push streams under every `responseMode`, `'json'` included, as `subscriptions/listen` does.
 
 A push stream carries no SSE comment keepalive. The server sends `notifications/events/heartbeat` whenever the stream has been quiet for the granted interval, `heartbeatMs` (30 seconds by default) or a shorter one the client asks for, and the SDK's client reconnects after three intervals of silence. Keep `heartbeatMs` below your load balancer's idle timeout.
 
@@ -213,7 +209,7 @@ An `EventsError` thrown from `onUnsubscribe`, `match` or `transform` only reache
 
 - `registerEvent(name, { check })` reads events from an upstream that can answer what happened since a cursor, and clients resume from their cursor.
 - `emitOnly: true` and the handle's `emit()` publish events as they happen; poll reads them from a bounded in-memory buffer.
-- One `EventsExtension` serves every server it is attached to by poll and push, and by webhook once configured, on 2026-07-28 only; push streams under every `responseMode`.
+- One `EventsExtension` serves every server constructed with it in `extensions` by poll and push, and by webhook once configured, on 2026-07-28 only; push streams under every `responseMode`.
 - Webhook delivery needs `webhookTtlMs`, `webhookSender` and `getPrincipal`; `trustedOrigins` is for development only.
 - A shared `WebhookSubscriptionStore` holds webhook secrets and lets replicas share webhook subscriptions, while push streams and the poll buffer stay on one process.
 - `terminate` ends subscriptions with an `EventsError`, such as `forbidden` when access is revoked.

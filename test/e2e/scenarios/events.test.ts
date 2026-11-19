@@ -1,9 +1,9 @@
 /**
  * Self-contained test bodies for the Events extension (SEP-3415).
  *
- * Each body builds its own EventsExtension, attaches it inside the server
- * factory (the entry builds a server per request, so one extension serves
- * them all), wires a real Client and asserts through EventsClientExtension,
+ * Each body builds its own EventsExtension, passes it in the extensions of
+ * the servers its factory builds (the entry builds a server per request, so
+ * one extension serves them all), wires a real Client and asserts through EventsClientExtension,
  * raw events/* requests or the recorded HTTP exchanges. Webhook POSTs go to an
  * in-process endpoint through the extension's webhookSender: the client's
  * receiver, or a stand-in that echoes verification challenges. Bodies that
@@ -19,7 +19,7 @@ import {
     EventsError,
     NoCompatibleDeliveryModeError
 } from '@modelcontextprotocol/client/ext/events';
-import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import type { EventsOptions, WebhookSender } from '@modelcontextprotocol/server/ext/events';
 import {
     EventsError as ServerEventsError,
@@ -50,11 +50,7 @@ type Note = z.infer<typeof NotePayload>;
 const newClient = (): Client => new Client({ name: 'c', version: '0' });
 
 function serving(events: EventsExtension): () => McpServer {
-    return () => {
-        const s = new McpServer({ name: 's', version: '0' });
-        events.attach(s);
-        return s;
-    };
+    return () => new McpServer({ name: 's', version: '0' }, { extensions: [events] });
 }
 
 /** An extension with one emit-only event type, `note`. */
@@ -64,11 +60,10 @@ function noteEvents(options?: EventsOptions) {
     return { events, note };
 }
 
-/** A client with an EventsClientExtension attached, ready for wire(). */
+/** A client with an EventsClientExtension in its extensions, ready for wire(). */
 function eventsClient(options: EventsClientOptions = FAST): { client: Client; clientEvents: EventsClientExtension } {
-    const client = newClient();
     const clientEvents = new EventsClientExtension(options);
-    clientEvents.attach(client);
+    const client = new Client({ name: 'c', version: '0' }, { extensions: [clientEvents] });
     return { client, clientEvents };
 }
 
@@ -1098,28 +1093,33 @@ verifies('events:client:dedupe', async ({ transport }: TestArgs) => {
 // TypeScript SDK surface
 // ───────────────────────────────────────────────────────────────────────────────
 
-verifies('typescript:events:attach:rules', async ({ transport }: TestArgs) => {
-    const { events: first } = noteEvents();
-    const second = new EventsExtension();
-    second.registerEvent('other', { emitOnly: true, payloadSchema: NotePayload });
-    const makeServer = () => {
-        const s = new McpServer({ name: 's', version: '0' });
-        first.attach(s);
-        first.attach(s);
-        expect(() => second.attach(s)).toThrow(/another events extension is already attached/);
-        return s;
-    };
-    const client = newClient();
-    await using _ = await wire(transport, makeServer, client, EVENTS_WIRE);
+verifies('typescript:events:extensions:rules', async ({ transport }: TestArgs) => {
+    const { events, note } = noteEvents();
+    expect(() => new McpServer({ name: 's', version: '0' }, { extensions: [events, new EventsExtension()] })).toThrow(
+        'Extension "io.modelcontextprotocol/events" is listed more than once; pass each extension once'
+    );
 
-    const { events: listed } = (await raw(client, 'events/list')) as { events: Array<{ name: string }> };
-    expect(listed.map(descriptor => descriptor.name)).toEqual([NOTE]);
+    // One instance serves every server constructed with it: one emit reaches a subscriber of each.
+    const first = eventsClient();
+    const second = eventsClient();
+    await using _ = await wire(transport, serving(events), first.client, EVENTS_WIRE);
+    {
+        await using _ = await wire(transport, serving(events), second.client, EVENTS_WIRE);
+        const subscriptions = [
+            await first.clientEvents.subscribe<Note>({ name: NOTE, delivery: 'push' }),
+            await second.clientEvents.subscribe<Note>({ name: NOTE, delivery: 'push' })
+        ];
+        await note.emit({ eventId: 'evt-1', data: { text: 'both' } });
+        for (const subscription of subscriptions) {
+            expect(await take(subscription)).toEqual([{ text: 'both' }]);
+            await subscription.cancel();
+        }
+    }
 
-    const connected = new McpServer({ name: 's', version: '0' });
-    const [, serverTransport] = InMemoryTransport.createLinkedPair();
-    await connected.connect(serverTransport);
-    expect(() => second.attach(connected)).toThrow('attach events before connecting the server');
-    await connected.close();
+    // An EventsClientExtension serves one client: a second client constructed with it fails.
+    expect(() => new Client({ name: 'c2', version: '0' }, { extensions: [first.clientEvents] })).toThrow(
+        "This EventsClientExtension is already in another client; pass a new one in each client's extensions option"
+    );
 });
 
 verifies('typescript:events:definition:kinds', async ({ transport }: TestArgs) => {

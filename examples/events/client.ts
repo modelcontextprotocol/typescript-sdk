@@ -22,11 +22,13 @@ const RECEIVER_PORT = Number(process.env.EVENTS_RECEIVER_PORT ?? '8599');
 const { transport, url } = parseExampleArgs();
 const http = transport === 'http';
 
-// Events is a 2026-07-28 extension: negotiate the modern revision.
-const client = new Client({ name: 'events-example-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
 // Webhook delivery needs a URL the server can POST to: this process, on the HTTP leg.
 const events = new EventsClientExtension(http ? { webhook: { url: `http://127.0.0.1:${RECEIVER_PORT}/events` } } : {});
-events.attach(client);
+// Events is a 2026-07-28 extension: negotiate the modern revision.
+const client = new Client(
+    { name: 'events-example-client', version: '1.0.0' },
+    { versionNegotiation: { mode: 'auto' }, extensions: [events] }
+);
 
 // The receiver is up before any subscribe, since the server verifies the endpoint first.
 let receiver: ServerType | undefined;

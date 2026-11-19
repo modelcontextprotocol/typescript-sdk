@@ -37,8 +37,8 @@ export interface EventsFixture {
     readonly note: EmitOnlyEventHandle<{ tag: string; text: string }>;
     // Every onSubscribe and onUnsubscribe call, in order.
     readonly log: readonly HookEntry[];
-    // Attaches the extension, and the tools that drive it, to one server.
-    attach(mcp: McpServer): void;
+    // A server with the extension, and the tools that drive it.
+    server(name: string): McpServer;
 }
 
 // Every subscription names a tag, so tests sharing one server see only their own events and hooks.
@@ -89,8 +89,8 @@ export function eventsFixture(options: EventsOptions = {}): EventsFixture {
         ...hooks
     });
 
-    const attach = (mcp: McpServer): void => {
-        events.attach(mcp);
+    const server = (name: string): McpServer => {
+        const mcp = new McpServer({ name, version: '1.0.0' }, { extensions: [events] });
         mcp.registerTool('emit', { inputSchema: z.object({ tag: z.string(), texts: z.array(z.string()) }) }, async ({ tag, texts }) => {
             for (const text of texts) await note.emit({ data: { tag, text } });
             return { content: [] };
@@ -113,18 +113,15 @@ export function eventsFixture(options: EventsOptions = {}): EventsFixture {
         mcp.registerTool('hooks', { inputSchema: TagArgs }, ({ tag }) => ({
             content: [{ type: 'text', text: JSON.stringify(log.filter(entry => entry.tag === tag)) }]
         }));
+        return mcp;
     };
-    return { note, log, attach };
+    return { note, log, server };
 }
 
 // Run as a script (not imported): serve one stdio connection.
 if (process.argv[1] !== undefined && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-    const { attach } = eventsFixture();
-    const handle = serveStdio(() => {
-        const mcp = new McpServer({ name: 'events-stdio-fixture', version: '1.0.0' });
-        attach(mcp);
-        return mcp;
-    });
+    const { server } = eventsFixture();
+    const handle = serveStdio(() => server('events-stdio-fixture'));
 
     const exit = async () => {
         await handle.close();

@@ -50,11 +50,7 @@ const tickets = helpdesk.registerEvent('ticket.updated', {
         setTimeout(() => changes.push({ changeId: 'c1', queue: 'billing', ticketId: 'T-7', status: 'open' }), 0);
     }
 });
-const handler = createMcpHandler(() => {
-    const mcp = new McpServer({ name: 'helpdesk', version: '1.0.0' });
-    helpdesk.attach(mcp);
-    return mcp;
-});
+const handler = createMcpHandler(() => new McpServer({ name: 'helpdesk', version: '1.0.0' }, { extensions: [helpdesk] }));
 const inProcess = () =>
     new StreamableHTTPClientTransport(new URL('http://localhost/mcp'), { fetch: (url, init) => handler.fetch(new Request(url, init)) });
 const transport = inProcess();
@@ -71,9 +67,8 @@ console.log = (...args: unknown[]) => {
 import { Client } from '@modelcontextprotocol/client';
 import { EventsClientExtension } from '@modelcontextprotocol/client/ext/events';
 
-const client = new Client({ name: 'ops-console', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
 const events = new EventsClientExtension();
-events.attach(client);
+const client = new Client({ name: 'ops-console', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' }, extensions: [events] });
 await client.connect(transport);
 
 const subscription = await events.subscribe({ name: 'ticket.updated', arguments: { queue: 'billing' } });
@@ -138,9 +133,8 @@ claim(
 );
 claim(events.supported && firstMode === 'push', 'without a webhook URL, a subscription picks push where the server offers it');
 
-// The webhook client: attached and connected like the first one, its subscriptions take webhook.
-const hookedClient = new Client({ name: 'ops-console', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
-hooked.attach(hookedClient);
+// The webhook client: set up and connected like the first one, its subscriptions take webhook.
+const hookedClient = new Client({ name: 'ops-console', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' }, extensions: [hooked] });
 await hookedClient.connect(inProcess());
 receive = async request => app.fetch(request);
 const hook = await hooked.subscribe({ name: 'ticket.updated', arguments: { queue: 'billing' }, cursor: '0' });

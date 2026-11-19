@@ -165,11 +165,9 @@ function mint(name: string, revision: number): EventHandle {
 }
 
 // A subscribe sent on another principal's behalf, through a server serving the same extension and store.
-const subscribeAsHandler = createMcpHandler(() => {
-    const server = new Server({ name: 'events-conformance-subscribe-as', version: '1.0.0' });
-    conformanceEvents.attach(server);
-    return server;
-});
+const subscribeAsHandler = createMcpHandler(
+    () => new Server({ name: 'events-conformance-subscribe-as', version: '1.0.0' }, { extensions: [conformanceEvents] })
+);
 
 async function subscribeAs(principal: string, name: string, url: string): Promise<string> {
     const authInfo: AuthInfo = {
