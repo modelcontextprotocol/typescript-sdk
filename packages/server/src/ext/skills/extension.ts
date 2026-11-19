@@ -84,6 +84,7 @@ export class SkillsExtension implements ServerExtension {
     readonly #cache: { ttlMs: number; cacheScope: 'public' | 'private' };
     readonly #strict: boolean;
     readonly #warn: (warning: SkillWarning) => void;
+    // Servers this extension is set up on, so a repeated `attach` does nothing.
     readonly #attached = new WeakSet<McpServer>();
 
     /**
@@ -142,6 +143,7 @@ export class SkillsExtension implements ServerExtension {
                 (params, requestCtx) => this.#readDirectory(server, params.uri, params.cursor, requestCtx)
             );
         }
+        this.#attached.add(mcp);
         afterSetup.get(this)?.(mcp);
     }
 
@@ -166,7 +168,6 @@ export class SkillsExtension implements ServerExtension {
         server.assertCanSetRequestHandler(SKILLS_GET_METHOD);
         if (this.#source.readDirectory !== undefined) server.assertCanSetRequestHandler(RESOURCES_DIRECTORY_READ_METHOD);
         attachServerExtension(mcp, this);
-        this.#attached.add(mcp);
     }
 
     #cacheFields(server: Server): { ttlMs?: number; cacheScope?: 'public' | 'private' } {

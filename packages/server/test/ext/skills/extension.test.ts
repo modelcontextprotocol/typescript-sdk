@@ -299,6 +299,13 @@ describe('setup', () => {
         await connected.close();
     });
 
+    it('attach does nothing on a server that already took the same extension in extensions', () => {
+        const skills = new SkillsExtension({ source: sourceOf() });
+        const mcp = newServer(skills);
+        expect(() => skills.attach(mcp)).not.toThrow();
+        expect(mcp.server.getCapabilities().extensions).toEqual({ [skills.id]: {} });
+    });
+
     it('leaves no capability when attach fails on a taken template name', () => {
         const mcp = newServer();
         mcp.registerResource(
