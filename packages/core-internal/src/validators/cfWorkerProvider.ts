@@ -52,6 +52,11 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
     private readonly shortcircuit: boolean;
     /** Caller-supplied draft; when set, the `$schema` check is skipped (caller owns dialect). */
     private readonly draft?: CfWorkerSchemaDraft;
+    /**
+     * Content-keyed cache for compiled validators of schemas without `$id`.
+     * Prevents redundant Validator instantiation in long-running processes (see #2605).
+     */
+    private readonly _compiledCache: Map<string, Validator> = new Map();
 
     /**
      * Create a validator
@@ -78,9 +83,32 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
     }
 
     /**
+     * Retrieve or create a cached Validator instance for the given schema.
+     * Schemas are cached by their JSON-serialised content to prevent redundant
+     * instantiation in long-running processes (see #2605).
+     */
+    private _getValidator(schema: JsonSchemaType, draft: CfWorkerSchemaDraft): Validator {
+        let key: string;
+        try {
+            key = JSON.stringify(schema);
+        } catch {
+            // Non-serialisable schema: fall back to uncached instantiation.
+            return new Validator(schema as ConstructorParameters<typeof Validator>[0], draft, this.shortcircuit);
+        }
+
+        // Include draft in the key since the same schema content under different drafts
+        // may validate differently.
+        const cacheKey = `${draft}:${key}`;
+        let cached = this._compiledCache.get(cacheKey);
+        if (cached === undefined) {
+            cached = new Validator(JSON.parse(key) as ConstructorParameters<typeof Validator>[0], draft, this.shortcircuit);
+            this._compiledCache.set(cacheKey, cached);
+        }
+        return cached;
+    }
+
+    /**
      * Create a validator for the given JSON Schema
-     *
-     * Unlike AJV, this validator is not cached internally
      *
      * @param schema - Standard JSON Schema object
      * @returns A validator function that validates input data
@@ -88,7 +116,7 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
         const draft = this.draft ?? this._draftFor(schema);
         // Cast to the cfworker Schema type - our JsonSchemaType is structurally compatible
-        const validator = new Validator(schema as ConstructorParameters<typeof Validator>[0], draft, this.shortcircuit);
+        const validator = this._getValidator(schema, draft);
 
         return (input: unknown): JsonSchemaValidatorResult<T> => {
             const result = validator.validate(input);
