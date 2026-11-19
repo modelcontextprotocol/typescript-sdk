@@ -75,6 +75,8 @@ interface StreamMapping {
      * during the `storeEvent()` await and replay already delivered the event.
      */
     replayedEventIds?: Set<string>;
+    /** Settles once the stream's priming event, if any, has been written */
+    primed?: Promise<void>;
     /** Cleanup function to close stream and remove mapping */
     cleanup: () => void;
 }
@@ -469,35 +471,29 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
-     * Writes a priming event to establish resumption capability.
-     * Only sends if `eventStore` is configured (opt-in for resumability) and
+     * Stores a priming event and returns its SSE frame, to establish resumption capability.
+     * Only does so if `eventStore` is configured (opt-in for resumability) and
      * the client's protocol version supports empty SSE data (a supported
-     * version that is >= `2025-11-25`).
+     * version that is >= `2025-11-25`). Returns `undefined` otherwise.
      */
-    private async writePrimingEvent(
-        controller: ReadableStreamDefaultController<Uint8Array>,
-        encoder: InstanceType<typeof TextEncoder>,
-        streamId: string,
-        protocolVersion: string
-    ): Promise<void> {
+    private async createPrimingEvent(streamId: string, protocolVersion: string): Promise<string | undefined> {
         if (!this._eventStore) {
-            return;
+            return undefined;
         }
 
         // Priming events have empty data which older clients cannot handle.
         // Only send priming events to clients whose protocol version includes
         // the fix for handling empty SSE data.
         if (!this.supportsEmptySSEData(protocolVersion)) {
-            return;
+            return undefined;
         }
 
         const primingEventId = await this._eventStore.storeEvent(streamId, {} as JSONRPCMessage);
 
-        let primingEvent = `id: ${primingEventId}\ndata: \n\n`;
         if (this._retryInterval !== undefined) {
-            primingEvent = `id: ${primingEventId}\nretry: ${this._retryInterval}\ndata: \n\n`;
+            return `id: ${primingEventId}\nretry: ${this._retryInterval}\ndata: \n\n`;
         }
-        controller.enqueue(encoder.encode(primingEvent));
+        return `id: ${primingEventId}\ndata: \n\n`;
     }
 
     /**
@@ -572,12 +568,27 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             headers['mcp-session-id'] = this.sessionId;
         }
 
+        // Without a stored priming event the stream still opens, as it did before priming
+        const priming = this.createPrimingEvent(
+            this._standaloneSseStreamId,
+            req.headers.get('mcp-protocol-version') ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION
+        ).catch((error: unknown) => {
+            this.onerror?.(error as Error);
+            return;
+        });
+
+        let markPrimed!: () => void;
         // Store the stream mapping with the controller for pushing data
-        this._streamMapping.set(this._standaloneSseStreamId, {
+        const mapping: StreamMapping = {
             controller: streamController!,
             encoder,
+            // send() waits on this so nothing is written ahead of the priming event
+            primed: new Promise<void>(resolve => {
+                markPrimed = resolve;
+            }),
             cleanup: () => {
                 if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
+                markPrimed();
                 this._streamMapping.delete(this._standaloneSseStreamId);
                 try {
                     streamController!.close();
@@ -585,7 +596,25 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     // Controller might already be closed
                 }
             }
-        });
+        };
+        this._streamMapping.set(this._standaloneSseStreamId, mapping);
+
+        const primingEvent = await priming;
+        if (req.signal.aborted && this._streamMapping.get(this._standaloneSseStreamId) === mapping) {
+            mapping.cleanup();
+        }
+        if (this._closed) {
+            return this.createJsonErrorResponse(404, -32_001, 'Session not found');
+        }
+        // Closed while the priming event was being stored: hand back the ended stream so the client reconnects
+        if (this._streamMapping.get(this._standaloneSseStreamId) !== mapping) {
+            return new Response(readable, { headers });
+        }
+        if (primingEvent !== undefined) {
+            streamController!.enqueue(encoder.encode(primingEvent));
+        }
+        mapping.primed = undefined;
+        markPrimed();
 
         keepAliveTimer = this.startKeepAlive(streamController!, encoder);
         return new Response(readable, { headers });
@@ -663,6 +692,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const replayedEventIds = new Set<string>();
             replayedStreamId = await this._eventStore.replayEventsAfter(lastEventId, {
                 send: async (eventId: string, message: JSONRPCMessage) => {
+                    // Skip priming events, stored as `{}`; a reopened GET stream can have them after lastEventId
+                    if (!message || Object.keys(message).length === 0) {
+                        return;
+                    }
                     replayedEventIds.add(eventId);
                     const success = this.writeSSEEvent(streamController!, encoder, message, eventId);
                     if (!success) {
@@ -1005,7 +1038,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             }
 
             // Write priming event if event store is configured (after mapping is set up)
-            await this.writePrimingEvent(streamController!, encoder, streamId, clientProtocolVersion);
+            const primingEvent = await this.createPrimingEvent(streamId, clientProtocolVersion);
+            if (primingEvent !== undefined) {
+                streamController!.enqueue(encoder.encode(primingEvent));
+            }
 
             // handle each message
             for (const message of messages) {
@@ -1185,7 +1221,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 eventId = await this._eventStore.storeEvent(this._standaloneSseStreamId, message);
             }
 
-            const standaloneSse = this._streamMapping.get(this._standaloneSseStreamId);
+            let standaloneSse = this._streamMapping.get(this._standaloneSseStreamId);
+            while (standaloneSse?.primed) {
+                await standaloneSse.primed;
+                standaloneSse = this._streamMapping.get(this._standaloneSseStreamId);
+            }
             if (standaloneSse === undefined) {
                 // Stream is disconnected - event is stored for replay, nothing more to do
                 return;

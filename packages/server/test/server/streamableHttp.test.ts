@@ -1081,6 +1081,211 @@ describe('Zod v4', () => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             expect((transport as any)._requestToStreamMapping.has('stalecancel-1')).toBe(false);
         });
+
+        describe('standalone GET stream priming', () => {
+            const notification: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'notifications/message',
+                params: { level: 'info', data: 'server notice' }
+            };
+
+            async function primingIdOf(response: Response): Promise<string> {
+                const text = await readSSEEvent(response);
+                const id = /^id: (\S+)\n/.exec(text)?.[1];
+                expect(id, `expected a priming event, got ${JSON.stringify(text)}`).toBeDefined();
+                return id!;
+            }
+
+            it('should send a priming event with retry so the client can poll after closeStandaloneSSEStream()', async () => {
+                await transport.close();
+                transport = new WebStandardStreamableHTTPServerTransport({
+                    sessionIdGenerator: () => randomUUID(),
+                    eventStore,
+                    retryInterval: 1000
+                });
+                mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+                await mcpServer.connect(transport);
+                sessionId = await initializeServer();
+
+                const response = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+                expect(response.status).toBe(200);
+                const text = await readSSEEvent(response);
+                expect(text).toMatch(/^id: \S+\nretry: 1000\ndata: \n\n$/);
+                const primingId = /^id: (\S+)/.exec(text)![1]!;
+
+                transport.closeStandaloneSSEStream();
+                await transport.send(notification);
+
+                const reconnect = await transport.handleRequest(
+                    createRequest('GET', undefined, { sessionId, extraHeaders: { 'Last-Event-ID': primingId } })
+                );
+                expect(reconnect.status).toBe(200);
+                expect(await readSSEEvent(reconnect)).toContain('server notice');
+            });
+
+            it('should not send a priming event to clients older than 2025-11-25', async () => {
+                sessionId = await initializeServer();
+
+                const response = await transport.handleRequest(
+                    createRequest('GET', undefined, { sessionId, extraHeaders: { 'mcp-protocol-version': '2025-06-18' } })
+                );
+                expect(response.status).toBe(200);
+                await transport.send(notification);
+                const text = await readSSEEvent(response);
+                expect(text.startsWith('event: message\n')).toBe(true);
+            });
+
+            it('should not replay priming events of later GET streams as messages', async () => {
+                sessionId = await initializeServer();
+
+                // Both GET streams store a priming event under the same stream id
+                const first = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+                const firstPrimingId = await primingIdOf(first);
+                transport.closeStandaloneSSEStream();
+                const second = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+                await primingIdOf(second);
+                transport.closeStandaloneSSEStream();
+                await transport.send(notification);
+
+                const reconnect = await transport.handleRequest(
+                    createRequest('GET', undefined, { sessionId, extraHeaders: { 'Last-Event-ID': firstPrimingId } })
+                );
+                expect(reconnect.status).toBe(200);
+                const text = await readSSEEvent(reconnect);
+                expect(text).not.toContain('data: {}');
+                expect(text).toContain('server notice');
+            });
+
+            it('should write a notification sent during the priming store after the priming event', async () => {
+                sessionId = await initializeServer();
+
+                let release!: () => void;
+                const gate = new Promise<void>(resolve => {
+                    release = resolve;
+                });
+                const realStoreEvent = eventStore.storeEvent.bind(eventStore);
+                let gated = true;
+                eventStore.storeEvent = async (sid, msg) => {
+                    const id = await realStoreEvent(sid, msg);
+                    if (gated) {
+                        gated = false;
+                        await gate;
+                    }
+                    return id;
+                };
+
+                const pending = transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+                await new Promise(resolve => setTimeout(resolve, 5));
+                const sent = transport.send(notification);
+                await new Promise(resolve => setTimeout(resolve, 5));
+                release();
+                await sent;
+
+                const response = await pending;
+                const reader = response.body!.getReader();
+                let text = '';
+                while (!text.includes('server notice')) {
+                    text += new TextDecoder().decode((await reader.read()).value);
+                }
+                expect(text).toMatch(/^id: \S+\ndata: \n\nevent: message\nid: \S+\ndata: .*server notice/);
+                await reader.cancel();
+            });
+
+            it('should open the stream without a priming event when it cannot be stored', async () => {
+                sessionId = await initializeServer();
+                const errors: Error[] = [];
+                transport.onerror = error => errors.push(error);
+
+                const realStoreEvent = eventStore.storeEvent.bind(eventStore);
+                eventStore.storeEvent = async (sid, msg) => {
+                    if (sid === '_GET_stream' && Object.keys(msg).length === 0) throw new Error('store down');
+                    return realStoreEvent(sid, msg);
+                };
+                const response = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+                expect(response.status).toBe(200);
+                expect(errors.map(e => e.message)).toContain('store down');
+
+                await transport.send(notification);
+                expect((await readSSEEvent(response)).startsWith('event: message\n')).toBe(true);
+            });
+
+            describe('while the priming event is being stored', () => {
+                let release: () => void;
+
+                beforeEach(() => {
+                    const gate = new Promise<void>(resolve => {
+                        release = resolve;
+                    });
+                    const realStoreEvent = eventStore.storeEvent.bind(eventStore);
+                    eventStore.storeEvent = async (sid, msg) => {
+                        if (sid === '_GET_stream' && Object.keys(msg).length === 0) await gate;
+                        return realStoreEvent(sid, msg);
+                    };
+                });
+
+                it('should unregister the stream when the client disconnects', async () => {
+                    sessionId = await initializeServer();
+                    const abort = new AbortController();
+                    const request = createRequest('GET', undefined, { sessionId });
+
+                    const pending = transport.handleRequest(new Request(request, { signal: abort.signal }));
+                    abort.abort();
+                    release();
+                    await pending;
+
+                    const next = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+                    expect(next.status).toBe(200);
+                });
+
+                it('should end the stream, not answer 404, when closeStandaloneSSEStream() is called', async () => {
+                    sessionId = await initializeServer();
+
+                    const pending = transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+                    await new Promise(resolve => setTimeout(resolve, 5));
+                    transport.closeStandaloneSSEStream();
+                    release();
+
+                    const response = await pending;
+                    expect(response.status).toBe(200);
+                    expect(await response.text()).toBe('');
+                });
+
+                it('should not block send() after close()', async () => {
+                    sessionId = await initializeServer();
+
+                    void transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+                    await new Promise(resolve => setTimeout(resolve, 5));
+                    const sent = transport.send(notification);
+                    await new Promise(resolve => setTimeout(resolve, 5));
+                    await transport.close();
+
+                    await expect(sent).resolves.toBeUndefined();
+                });
+            });
+
+            it('should reject a second GET that arrives while the first is storing its priming event', async () => {
+                sessionId = await initializeServer();
+
+                let release!: () => void;
+                const gate = new Promise<void>(resolve => {
+                    release = resolve;
+                });
+                const realStoreEvent = eventStore.storeEvent.bind(eventStore);
+                eventStore.storeEvent = async (sid, msg) => {
+                    await gate;
+                    return realStoreEvent(sid, msg);
+                };
+
+                const pending = [
+                    transport.handleRequest(createRequest('GET', undefined, { sessionId })),
+                    transport.handleRequest(createRequest('GET', undefined, { sessionId }))
+                ];
+                release();
+                const responses = await Promise.all(pending);
+                expect(responses.map(r => r.status).toSorted()).toEqual([200, 409]);
+                await Promise.all(responses.map(r => r.body?.cancel()));
+            });
+        });
     });
 
     describe('HTTPServerTransport - Protocol Version Validation', () => {

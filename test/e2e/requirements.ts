@@ -1744,6 +1744,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither.'
     },
+    'hosting:resume:priming-get': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server',
+        behavior:
+            'With eventStore + new protocol, the standalone GET SSE stream begins with a priming event carrying the configured retry: interval, so a client can resume it with Last-Event-ID after the server closes it.',
+        transports: ['streamableHttp'],
+        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither.'
+    },
     'hosting:resume:replay': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery',
         behavior: 'GET with Last-Event-ID replays stored events for that stream after the given id.',
