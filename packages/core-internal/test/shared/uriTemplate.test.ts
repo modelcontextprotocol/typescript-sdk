@@ -98,6 +98,25 @@ describe('UriTemplate', () => {
             expect(match).toEqual({ username: 'fred', postId: '123' });
         });
 
+        it('should match a comma-separated multi-variable expression (#2166)', () => {
+            const template = new UriTemplate('/users/{userId,format}');
+            const match = template.match('/users/42,json');
+            expect(match).toEqual({ userId: '42', format: 'json' });
+        });
+
+        it('should round-trip expand and match for a multi-variable expression (#2166)', () => {
+            const template = new UriTemplate('data://users/{userId,format}');
+            const expanded = template.expand({ userId: '42', format: 'json' });
+            expect(expanded).toBe('data://users/42,json');
+            expect(template.match(expanded)).toEqual({ userId: '42', format: 'json' });
+        });
+
+        it('should match a multi-variable expression with the path operator (#2166)', () => {
+            const template = new UriTemplate('{/userId,format}');
+            const match = template.match('/42,json');
+            expect(match).toEqual({ userId: '42', format: 'json' });
+        });
+
         it('should return null for non-matching URIs', () => {
             const template = new UriTemplate('/users/{username}');
             const match = template.match('/posts/123');
