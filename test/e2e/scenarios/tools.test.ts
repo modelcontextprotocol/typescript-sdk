@@ -1364,19 +1364,34 @@ verifies('mcpserver:tool:metadata-roundtrip', async ({ transport }: TestArgs) =>
     expect(tool._meta).toEqual(meta);
 });
 
+const gatedFactory = () => {
+    const s = new McpServer({ name: 's', version: '0' });
+    s.registerTool('gated', { inputSchema: z.object({}) }, () => {
+        throw new MissingRequiredClientCapabilityError(
+            { requiredCapabilities: { extensions: { 'com.example/gate': {} } } },
+            'declare com.example/gate'
+        );
+    });
+    return s;
+};
+
 verifies('mcpserver:tool:missing-client-capability-error', async ({ transport }: TestArgs) => {
-    const required = { extensions: { 'com.example/gate': {} } };
-    const makeServer = () => {
-        const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('gated', { inputSchema: z.object({}) }, () => {
-            throw new MissingRequiredClientCapabilityError({ requiredCapabilities: required }, 'declare com.example/gate');
-        });
-        return s;
-    };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire(transport, gatedFactory, client);
 
     const err = await client.callTool({ name: 'gated', arguments: {} }).catch((error: unknown) => error);
     expect(err).toBeInstanceOf(ProtocolError);
-    expect(err).toMatchObject({ code: ProtocolErrorCode.MissingRequiredClientCapability, data: { requiredCapabilities: required } });
+    expect(err).toMatchObject({
+        code: ProtocolErrorCode.MissingRequiredClientCapability,
+        data: { requiredCapabilities: { extensions: { 'com.example/gate': {} } } }
+    });
+});
+
+verifies('typescript:mcpserver:tool:missing-client-capability-error:legacy', async ({ transport }: TestArgs) => {
+    const client = newClient();
+    await using _ = await wire(transport, gatedFactory, client);
+
+    const result = await client.callTool({ name: 'gated', arguments: {} });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([{ type: 'text', text: 'declare com.example/gate' }]);
 });

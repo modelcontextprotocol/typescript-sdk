@@ -714,7 +714,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'mcpserver:tool:missing-client-capability-error': {
         source: 'https://modelcontextprotocol.io/specification/draft/basic#_meta',
         behavior:
-            'A tool that throws MissingRequiredClientCapabilityError answers tools/call with JSON-RPC error -32021 and its requiredCapabilities, not an isError tool result.'
+            'On 2026-07-28, a tool that throws MissingRequiredClientCapabilityError answers tools/call with JSON-RPC error -32021 and its requiredCapabilities, not an isError tool result.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'entryModern is the arm that serves 2026-07-28 requests.'
+    },
+    'typescript:mcpserver:tool:missing-client-capability-error:legacy': {
+        source: 'sdk',
+        behavior:
+            'On 2025-11-25, which does not define -32021, a tool that throws MissingRequiredClientCapabilityError answers with an isError tool result carrying the message, like any other throw.',
+        removedInSpecVersion: '2026-07-28'
     },
     'mcpserver:tool:url-elicitation-error': {
         source: 'sdk',
