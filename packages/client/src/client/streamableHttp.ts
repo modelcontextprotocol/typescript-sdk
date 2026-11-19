@@ -1013,7 +1013,9 @@ export class StreamableHTTPClientTransport implements Transport {
                 this._startOrAuthSse({
                     resumptionToken,
                     replayMessageId: isJSONRPCRequest(message) ? message.id : undefined,
-                    requestSignal: options?.requestSignal
+                    requestSignal: options?.requestSignal,
+                    onresumptiontoken,
+                    onRequestStreamEnd: options?.onRequestStreamEnd
                 }).catch(error => this.onerror?.(error));
                 return;
             }

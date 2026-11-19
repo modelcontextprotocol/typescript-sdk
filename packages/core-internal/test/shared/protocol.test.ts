@@ -857,9 +857,11 @@ describe('protocol tests', () => {
             readonly hasPerRequestStream = true;
             sent: JSONRPCMessage[] = [];
             lastRequestSignal: AbortSignal | undefined;
+            lastOnRequestStreamEnd: (() => void) | undefined;
             override async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
                 this.sent.push(message);
                 this.lastRequestSignal = options?.requestSignal;
+                this.lastOnRequestStreamEnd = options?.onRequestStreamEnd;
             }
         }
 
@@ -944,6 +946,23 @@ describe('protocol tests', () => {
             await expect(pending).rejects.toThrow();
 
             expect(tx.lastRequestSignal?.aborted).toBe(true);
+            expect(cancelledSent(tx.sent)).toHaveLength(0);
+        });
+
+        test('modern era + per-request-stream transport: remote stream end rejects with ConnectionClosed', async () => {
+            const tx = new PerRequestStreamTransport();
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2026-07-28');
+
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { timeout: 60_000 });
+
+            expect(tx.lastOnRequestStreamEnd).toBeTypeOf('function');
+            tx.lastOnRequestStreamEnd?.();
+
+            await expect(pending).rejects.toMatchObject({
+                code: SdkErrorCode.ConnectionClosed
+            });
             expect(cancelledSent(tx.sent)).toHaveLength(0);
         });
 

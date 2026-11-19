@@ -1749,7 +1749,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     resumptionToken,
                     onresumptiontoken,
                     headers,
-                    requestSignal: requestAbort?.signal
+                    requestSignal: requestAbort?.signal,
+                    ...(streamCloseCancels && {
+                        onRequestStreamEnd: () => {
+                            cancel(
+                                new SdkError(SdkErrorCode.ConnectionClosed, 'Request stream closed before a response was received'),
+                                'cancelled'
+                            );
+                        }
+                    })
                 })
             ).catch(error => {
                 this._progressHandlers.delete(messageId);
