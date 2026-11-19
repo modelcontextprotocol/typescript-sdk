@@ -152,6 +152,11 @@ export class DriverLoop<T> {
         return this.#maxAgeMs;
     }
 
+    // start() has not settled: the first exchange has neither succeeded nor failed transiently.
+    get first(): boolean {
+        return this.#first;
+    }
+
     get signal(): AbortSignal {
         return this.#abort.signal;
     }

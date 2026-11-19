@@ -30,10 +30,10 @@ const TLS_FAILURE_CODE = /CERT|UNABLE_TO_VERIFY|INVALID_CA|SELF_SIGNED|DEPTH_ZER
  * (with a DNS query, not `getaddrinfo`, so `/etc/hosts` does not apply),
  * refuses with `connection_refused` when any resolved address is in an IANA
  * special-purpose range (loopback, private, link-local and the like), and
- * connects to the checked address with the URL's host name in the `Host`
- * header and TLS SNI. It follows no redirects (a 3xx answer is returned as it
- * is), gives up after 5 seconds with `{ error: 'timeout' }`, and reads at most
- * 64 KiB of the response body.
+ * connects only to the addresses it checked, which Node tries in turn, with
+ * the URL's host name in the `Host` header and TLS SNI. It follows no
+ * redirects (a 3xx answer is returned as it is), gives up after 5 seconds
+ * with `{ error: 'timeout' }`, and reads at most 64 KiB of the response body.
  *
  * Experimental: Events (SEP-3415) is new; this API may change in a minor release.
  *
@@ -60,9 +60,10 @@ async function send(request: WebhookSendRequest): Promise<WebhookSendOutcome> {
         let lookup: LookupFunction | undefined;
         if (!request.trusted) {
             const addresses = await resolve(hostnameOf(url), deadline.signal);
-            const [first] = addresses;
-            if (first === undefined || addresses.some(({ address }) => isSpecialPurposeAddress(address))) return REFUSED;
-            lookup = pinnedTo(first);
+            // An abort while one family was still resolving leaves the other family's addresses.
+            deadline.signal.throwIfAborted();
+            if (addresses.length === 0 || addresses.some(({ address }) => isSpecialPurposeAddress(address))) return REFUSED;
+            lookup = pinnedTo(addresses);
         }
         return await post(url, request, lookup, deadline.signal);
     } catch (error) {
@@ -73,9 +74,10 @@ async function send(request: WebhookSendRequest): Promise<WebhookSendOutcome> {
     }
 }
 
-// One POST; it rejects on a connection or TLS failure, and once `signal` aborts.
+// One POST; it rejects on a connection or TLS failure, and once `signal` aborts (at once, without a request, when it already has).
 function post(url: URL, request: WebhookSendRequest, lookup: LookupFunction | undefined, signal: AbortSignal): Promise<WebhookSendOutcome> {
     return new Promise((resolve, reject) => {
+        signal.throwIfAborted();
         const onResponse = (response: IncomingMessage): void => {
             const chunks: Buffer[] = [];
             let size = 0;
@@ -131,11 +133,19 @@ function hostnameOf(url: URL): string {
     return url.hostname.startsWith('[') ? url.hostname.slice(1, -1) : url.hostname;
 }
 
-// A lookup that answers with the checked address only, so the connection goes nowhere else.
-function pinnedTo({ address, family }: LookupAddress): LookupFunction {
-    return (_hostname, options, callback) => {
-        if (options.all) callback(null, [{ address, family }]);
-        else callback(null, address, family);
+// A lookup that answers with checked addresses only, so the connection goes nowhere else: those of the family asked for, all of them when asked for all (Node then tries each), else the first.
+function pinnedTo(addresses: readonly LookupAddress[]): LookupFunction {
+    return (hostname, options, callback) => {
+        const family = options.family === 'IPv4' ? 4 : options.family === 'IPv6' ? 6 : options.family;
+        const answers = family === 4 || family === 6 ? addresses.filter(address => address.family === family) : addresses;
+        const [first] = answers;
+        if (first === undefined) {
+            callback(Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), { code: 'ENOTFOUND', hostname }), []);
+        } else if (options.all) {
+            callback(null, [...answers]);
+        } else {
+            callback(null, first.address, first.family);
+        }
     };
 }
 

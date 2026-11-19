@@ -3,6 +3,7 @@ import http from 'node:http';
 import https from 'node:https';
 import type { AddressInfo } from 'node:net';
 import net from 'node:net';
+import os from 'node:os';
 import { Writable } from 'node:stream';
 
 import type { MockInstance } from 'vitest';
@@ -44,23 +45,26 @@ afterEach(async () => {
     );
 });
 
-async function listen(server: net.Server): Promise<number> {
+async function listen(server: net.Server, host = '127.0.0.1'): Promise<number> {
     servers.push(server);
-    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    await new Promise<void>(resolve => server.listen(0, host, resolve));
     return (server.address() as AddressInfo).port;
 }
 
 // A raw TCP server that counts connections and closes each one at once.
-async function countingServer(): Promise<{ port: number; connections: () => number }> {
+async function countingServer(host?: string): Promise<{ port: number; connections: () => number }> {
     let connections = 0;
     const port = await listen(
         net.createServer(socket => {
             connections += 1;
             socket.destroy();
-        })
+        }),
+        host
     );
     return { port, connections: () => connections };
 }
+
+const hasIpv6Loopback = Object.values(os.networkInterfaces()).some(entries => entries?.some(entry => entry.address === '::1'));
 
 function sendRequest(url: string, trusted: boolean, signal = new AbortController().signal): WebhookSendRequest {
     return { url, headers: HEADERS, body: BODY, trusted, signal };
@@ -87,29 +91,51 @@ function stubResolver(...answers: string[][]): { resolve4: Resolve; resolve6: Re
     return { resolve4: stub('resolve4', 4), resolve6: stub('resolve6', 6) };
 }
 
-// Stands in for https.request: records the address its pinned lookup gives, and fails the connection.
-function captureConnection(): { pinned: () => Promise<{ address: string; family: number }> } {
-    let lookup: net.LookupFunction | undefined;
+type Answer = { address: string; family: number } | dns.LookupAddress[];
+
+// Stands in for https.request: keeps the pinned lookup, which `lookup` calls with the options Node would pass, and fails the connection.
+function captureConnection(): { pinned: () => Promise<Answer>; lookup: (options: dns.LookupOptions) => Promise<Answer> } {
+    let pinned: net.LookupFunction | undefined;
     vi.spyOn(https, 'request').mockImplementation(((_url: URL, options: https.RequestOptions) => {
-        lookup = options.lookup as net.LookupFunction;
+        pinned = options.lookup as net.LookupFunction;
         return failingRequest('ECONNREFUSED');
     }) as unknown as typeof https.request);
-    return {
-        pinned: () =>
-            new Promise((resolve, reject) =>
-                lookup!('pinned.invalid', {}, (error, address, family) =>
-                    error ? reject(error) : resolve({ address: address as string, family: family! })
-                )
-            )
-    };
+    const lookup = (options: dns.LookupOptions): Promise<Answer> =>
+        new Promise((resolve, reject) =>
+            pinned!('pinned.invalid', options, (error, address, family) => {
+                if (error) reject(error);
+                else resolve(Array.isArray(address) ? address : { address, family: family! });
+            })
+        );
+    return { pinned: () => lookup({}), lookup };
 }
 
-// Classifies `ip` as a public address, so a loopback server can stand in for a remote receiver.
-async function treatAsPublic(ip: string): Promise<void> {
+// Classifies `ips` as public addresses, so a loopback server can stand in for a remote receiver.
+async function treatAsPublic(...ips: string[]): Promise<void> {
     const actual = await vi.importActual<typeof import('../../../src/ext/events/specialAddresses')>(
         '../../../src/ext/events/specialAddresses'
     );
-    vi.mocked(isSpecialPurposeAddress).mockImplementation(address => address !== ip && actual.isSpecialPurposeAddress(address));
+    vi.mocked(isSpecialPurposeAddress).mockImplementation(address => !ips.includes(address) && actual.isSpecialPurposeAddress(address));
+}
+
+// A resolver whose `family` query answers at once with `addresses` and whose other query waits for cancel().
+function halfAnsweringResolver(family: 4 | 6, addresses: string[]): void {
+    const pending: Array<(error: Error) => void> = [];
+    const [answering, hanging] = family === 4 ? (['resolve4', 'resolve6'] as const) : (['resolve6', 'resolve4'] as const);
+    vi.spyOn(dns.promises.Resolver.prototype, answering).mockResolvedValue(addresses as never);
+    vi.spyOn(dns.promises.Resolver.prototype, hanging).mockImplementation(
+        () => new Promise((_resolve, reject) => pending.push(reject)) as never
+    );
+    vi.spyOn(dns.promises.Resolver.prototype, 'cancel').mockImplementation(() => {
+        for (const reject of pending.splice(0)) reject(dnsError('ECANCELLED'));
+    });
+}
+
+// Stands in for https.request with a request that never answers.
+function hangingRequests(): void {
+    vi.spyOn(https, 'request').mockImplementation(
+        () => new Writable({ write: (_chunk, _encoding, callback) => callback() }) as unknown as http.ClientRequest
+    );
 }
 
 // A stand-in for the outgoing request that fails with `code` once its body is sent.
@@ -221,6 +247,68 @@ describe('nodeWebhookSender', () => {
         await vi.advanceTimersByTimeAsync(1);
         expect(await outcome).toEqual({ error: 'timeout' });
         expect(cancel).toHaveBeenCalledOnce();
+    });
+
+    it('times out at the deadline without a request when one family answered and the other was still resolving', async () => {
+        vi.useFakeTimers();
+        halfAnsweringResolver(4, ['1.1.1.1']);
+        hangingRequests();
+        let settled: unknown;
+        void nodeWebhookSender()(sendRequest('https://half.example.test/x', false)).then(outcome => (settled = outcome));
+
+        await vi.advanceTimersByTimeAsync(4999);
+        expect(settled).toBeUndefined();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(settled).toEqual({ error: 'timeout' });
+        expect(https.request).not.toHaveBeenCalled();
+    });
+
+    it('sends nothing when its signal aborts while one family is still resolving', async () => {
+        halfAnsweringResolver(6, ['2606:4700:4700::1111']);
+        hangingRequests();
+        const controller = new AbortController();
+
+        const outcome = nodeWebhookSender()(sendRequest('https://half.example.test/x', false, controller.signal));
+        await vi.waitFor(() => expect(dns.promises.Resolver.prototype.resolve6).toHaveBeenCalled());
+        controller.abort();
+
+        expect(await outcome).toEqual(REFUSED);
+        expect(https.request).not.toHaveBeenCalled();
+    });
+
+    it('answers every checked address of both families when asked for all, and only those of the family asked for', async () => {
+        stubResolver(['1.1.1.1', '1.0.0.1', '2606:4700:4700::1111']);
+        const connection = captureConnection();
+
+        expect(await nodeWebhookSender()(sendRequest('https://dual.example.test/x', false))).toEqual(REFUSED);
+        expect(await connection.lookup({ all: true })).toEqual([
+            { address: '1.1.1.1', family: 4 },
+            { address: '1.0.0.1', family: 4 },
+            { address: '2606:4700:4700::1111', family: 6 }
+        ]);
+        expect(await connection.lookup({ all: true, family: 6 })).toEqual([{ address: '2606:4700:4700::1111', family: 6 }]);
+        expect(await connection.lookup({ family: 6 })).toEqual({ address: '2606:4700:4700::1111', family: 6 });
+        expect(await connection.lookup({ family: 'IPv4' })).toEqual({ address: '1.1.1.1', family: 4 });
+        expect(await connection.lookup({})).toEqual({ address: '1.1.1.1', family: 4 });
+    });
+
+    it('fails the lookup for a family with no checked address', async () => {
+        stubResolver(['1.1.1.1']);
+        const connection = captureConnection();
+
+        await nodeWebhookSender()(sendRequest('https://v4only.example.test/x', false));
+        await expect(connection.lookup({ all: true, family: 6 })).rejects.toMatchObject({ code: 'ENOTFOUND' });
+        await expect(connection.lookup({ family: 6 })).rejects.toMatchObject({ code: 'ENOTFOUND' });
+    });
+
+    it.skipIf(!hasIpv6Loopback)('connects to the AAAA address when the A address refuses', async () => {
+        const receiver = await countingServer('::1');
+        await treatAsPublic('127.0.0.1', '::1');
+        stubResolver(['127.0.0.1', '::1']);
+
+        // Nothing listens on 127.0.0.1 at the receiver's port; the receiver closes the connection it gets.
+        expect(await nodeWebhookSender()(sendRequest(`https://dual.example.test:${receiver.port}/x`, false))).toEqual(REFUSED);
+        expect(receiver.connections()).toBe(1);
     });
 
     it('connects to the checked address and sends the URL host name as TLS SNI', async () => {

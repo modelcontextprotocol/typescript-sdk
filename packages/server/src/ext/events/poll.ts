@@ -48,7 +48,7 @@ export async function toOccurrence(
     };
 }
 
-// A check result's events to send, for every mode: off-schema ones dropped (reported), ones older than `maxAgeMs` skipped with `truncated` unless the result has no replay (`cursor: null`), which `maxAgeMs` does not apply to.
+// A check result's events to send, for every mode: ones without an eventId or off-schema dropped (reported), ones older than `maxAgeMs` skipped with `truncated` unless the result has no replay (`cursor: null`), which `maxAgeMs` does not apply to.
 export async function checkedEvents(
     entry: RegisteredEvent,
     result: EventResult<unknown>,
@@ -59,6 +59,11 @@ export async function checkedEvents(
     let truncated = result.truncated === true;
     const events: EventOccurrence[] = [];
     for (const input of result.events) {
+        // A generated id would differ on every read of the event, so only emit() makes one.
+        if (typeof input.eventId !== 'string' || input.eventId === '') {
+            report(new Error(`event '${entry.name}': dropped an event from check without an eventId`));
+            continue;
+        }
         const occurrence = await toOccurrence(entry, input, report);
         if (occurrence === undefined) continue;
         if (floor !== undefined && Date.parse(occurrence.timestamp) < floor) {

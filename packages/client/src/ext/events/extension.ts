@@ -6,7 +6,7 @@ import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal/publ
 import type { ClientExtension, ClientExtensionContext } from '../../client/extension';
 import { NoCompatibleDeliveryModeError } from './errors';
 import { PollDriver } from './poll';
-import { PushDriver } from './push';
+import { PushDriver, PushUnavailableError } from './push';
 import { WebhookReceiver } from './receiver';
 import { EventsConnection } from './request';
 import type { Driver, DriverContext, EventSubscription, SubscribeOptions } from './subscription';
@@ -147,7 +147,13 @@ export class EventsClientExtension implements ClientExtension {
      * transport error, a JSON-RPC error that is not an Events kind, or the
      * server's webhook verification limit, `resourceExhausted` with
      * `data.limit: 'verification'`, retried after its `data.retryAfterMs`
-     * when given) does not reject: delivery is retried in the background. A `cursor` the
+     * when given) does not reject: delivery is retried in the background.
+     * Without `delivery`, a push subscription whose first stream fails before
+     * its first `active` with anything but an `EventsError` (no valid `active`
+     * within the request timeout, as behind a host that buffers whole
+     * responses, a transport error, or an `active` that fails its schema)
+     * reports that failure to the client's `onerror` and subscribes by poll
+     * instead, once, when the event type offers poll. A `cursor` the
      * server refuses because the event type's schema changed is dropped: the
      * event types are listed again, the subscription starts from now, and
      * `onGap` reports the fresh cursor. A `-32020` lists the event types again
@@ -169,8 +175,9 @@ export class EventsClientExtension implements ClientExtension {
      *   the schema change that refused `cursor` left the event type without the selected mode.
      * @throws {SdkError} `CapabilityNotSupported` when {@linkcode EventsClientExtension.supported} is `false`,
      *   `ConnectionClosed` when the client closes before the first exchange answers, or another code when that
-     *   exchange fails in the SDK (for example `RequestTimeout`, also when a push stream sends no valid
-     *   `notifications/events/active` in time, or `InvalidResult` for an `active` that fails its schema).
+     *   exchange fails in the SDK (for example `RequestTimeout`, also when a push stream that does not fall back to
+     *   poll sends no valid `notifications/events/active` in time, or `InvalidResult` for an `active` that fails its
+     *   schema).
      * @throws {ProtocolError} `-32020` when the server rejects the `Mcp-Param` headers again after a re-list.
      * @throws {TypeError} when `webhook.secretProvider` returns something that is not a Standard Webhooks secret, or a
      *   secret another open server subscription signs with.
@@ -184,14 +191,15 @@ export class EventsClientExtension implements ClientExtension {
         }
         if (descriptor === undefined) throw new EventsError('notFound', 'Event type not found', { kind: 'event' });
         const mode = selectDeliveryMode(options.name, descriptor.delivery, options.delivery, this.#options.webhook !== undefined);
-        const queue = new SubscriptionQueue<T>(mode, options.cursor ?? null);
+        // Unless `delivery` forced push, a first push stream that cannot work hands the subscription to poll, once.
+        const fallback = options.delivery === undefined && mode === 'push' && descriptor.delivery.includes('poll');
         try {
-            await queue.run(this.#driver(mode, { subscription: { ...options }, queue, connection }));
+            return await this.#start<T>(mode, options, connection, fallback);
         } catch (error) {
-            await queue.cancel();
-            throw error;
+            if (!(error instanceof PushUnavailableError)) throw error;
+            connection.report(error);
+            return this.#start<T>('poll', options, connection, false);
         }
-        return queue;
     }
 
     /**
@@ -212,9 +220,26 @@ export class EventsClientExtension implements ClientExtension {
         return request => receiver.handle(request);
     }
 
-    #driver<T>(mode: DeliveryMode, context: DriverContext<T>): Driver {
+    // Runs a subscription in `mode`, resolving once its first exchange succeeds.
+    async #start<T>(
+        mode: DeliveryMode,
+        options: SubscribeOptions,
+        connection: EventsConnection,
+        fallback: boolean
+    ): Promise<EventSubscription<T>> {
+        const queue = new SubscriptionQueue<T>(mode, options.cursor ?? null);
+        try {
+            await queue.run(this.#driver(mode, { subscription: { ...options }, queue, connection }, fallback));
+        } catch (error) {
+            await queue.cancel();
+            throw error;
+        }
+        return queue;
+    }
+
+    #driver<T>(mode: DeliveryMode, context: DriverContext<T>, fallback: boolean): Driver {
         if (mode === 'poll') return new PollDriver(context, this.#floorMs);
-        if (mode === 'push') return new PushDriver(context);
+        if (mode === 'push') return new PushDriver(context, fallback);
         // Webhook is selected only with the `webhook` option set.
         return this.#webhooks!.driver(context);
     }

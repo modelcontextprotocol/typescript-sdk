@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventSubscription, SubscribeOptions } from '../../../src/ext/events/index';
 import { EventsError, NoCompatibleDeliveryModeError } from '../../../src/ext/events/index';
 import type { Call, Handler } from './scripted';
-import { callsTo, connectEvents, descriptor, listing, occurrence } from './scripted';
+import { callsTo, connectEvents, descriptor, listing, occurrence, RpcError, script } from './scripted';
 
 const subscriptions: EventSubscription[] = [];
 
@@ -574,6 +574,78 @@ describe('push delivery', () => {
         expect(later.streams()).toHaveLength(2);
         await vi.advanceTimersByTimeAsync(60_000 + 1000);
         expect(later.streams()).toHaveLength(3);
+    });
+
+    describe('falling back to poll', () => {
+        const both = descriptor('tick', { delivery: ['push', 'poll'] });
+        const FALLBACK = "events/stream for 'tick' failed before its first notifications/events/active; subscribing by poll instead";
+
+        async function pushOrPoll(stream: Handler) {
+            const scripted = await connectEvents({
+                'events/list': listing(both),
+                'events/stream': stream,
+                'events/poll': script({ events: [occurrence('e1')], cursor: 'c1', nextPollMs: 60_000 })
+            });
+            const errors: Error[] = [];
+            scripted.client.onerror = error => void errors.push(error);
+            return {
+                ...scripted,
+                errors,
+                streams: () => callsTo(scripted.calls, 'events/stream'),
+                polls: () => callsTo(scripted.calls, 'events/poll')
+            };
+        }
+
+        it.each([
+            [
+                'no valid active arrives within the request timeout',
+                () => new Promise<never>(() => {}),
+                { code: SdkErrorCode.RequestTimeout }
+            ],
+            [
+                'the stream fails with an error that is not an Events kind',
+                script(new RpcError(-32_603, 'Internal error')),
+                { code: -32_603 }
+            ]
+        ])('subscribes by poll when %s, and reports the push failure', async (_case, stream, cause) => {
+            const { events, errors, streams, polls } = await pushOrPoll(stream);
+            const subscribing = events.subscribe({ name: 'tick', cursor: 'c0' });
+            await settle();
+            await vi.advanceTimersByTimeAsync(60_000);
+            const subscription = await subscribing;
+            subscriptions.push(subscription);
+
+            expect(subscription.deliveryMode).toBe('poll');
+            expect(await nextEventId(subscription[Symbol.asyncIterator]())).toBe('e1');
+            expect(streams()).toHaveLength(1);
+            expect(polls()[0]!.params['cursor']).toBe('c0');
+            expect(errors).toEqual([expect.objectContaining({ message: FALLBACK, cause: expect.objectContaining(cause) })]);
+        });
+
+        it('rejects as before when delivery forces push', async () => {
+            const { events, errors, streams, polls } = await pushOrPoll(() => new Promise<never>(() => {}));
+            const subscribing = events.subscribe({ name: 'tick', delivery: 'push' }).catch((error_: unknown) => error_);
+            await settle();
+            await vi.advanceTimersByTimeAsync(60_000);
+
+            const error = await subscribing;
+            expect(error).toBeInstanceOf(SdkError);
+            expect(error).toMatchObject({ code: SdkErrorCode.RequestTimeout });
+            expect(streams()).toHaveLength(1);
+            expect(polls()).toHaveLength(0);
+            expect(errors).toEqual([]);
+        });
+
+        it('rejects as before when the first stream is refused with an EventsError', async () => {
+            const { events, errors, polls } = await pushOrPoll(script(new RpcError(-32_024, 'Forbidden')));
+            const error = await events.subscribe({ name: 'tick' }).catch((error_: unknown) => error_);
+
+            expect(error).toBeInstanceOf(EventsError);
+            expect(error).toMatchObject({ kind: 'forbidden' });
+            expect(polls()).toHaveLength(0);
+            expect(errors).toEqual([]);
+            expect(vi.getTimerCount()).toBe(0);
+        });
     });
 
     it('ends the stream on an active that fails its schema: subscribe() rejects, and once subscribed it reopens', async () => {

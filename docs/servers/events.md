@@ -37,7 +37,7 @@ events.registerEvent('ticket.updated', {
 });
 ```
 
-Clients subscribe by poll (`events/poll`) or push (`events/stream`), or by webhook (`events/subscribe`) once you turn it on, and the SDK runs each mode from this one definition. `check` returns the events since `cursor` and the cursor to resume from; for a subscription that starts now the SDK passes `cursor: null` and sends only the cursor you return. Return at most `ctx.maxEvents` events, set `hasMore` when more are waiting, and set `truncated: true` when the upstream no longer has the history since `cursor`.
+Clients subscribe by poll (`events/poll`) or push (`events/stream`), or by webhook (`events/subscribe`) once you turn it on, and the SDK runs each mode from this one definition. `check` returns the events since `cursor` and the cursor to resume from; for a subscription that starts now the SDK passes `cursor: null` and sends only the cursor you return. Return at most `ctx.maxEvents` events, set `hasMore` when more are waiting, and set `truncated: true` when the upstream no longer has the history since `cursor`. Give every event an `eventId` that stays the same whenever `check` returns that event again, so clients can drop a replayed one; the SDK drops an event without one and reports it to `onerror`.
 
 Clients resume from their cursor after a disconnect or a restart, for as long as your upstream accepts it. A `check` that returns `cursor: null` marks a type that cannot resume. The SDK then calls `check` with `cursor: null` every time: it drops the events of a subscription's first call, as for any subscription that starts now, and sends the events of every later call, so return what happened since the previous call for the same `ctx.subscriptionId`. The SDK never reports `truncated` for such a type, and ignores `maxAgeMs` for it.
 
@@ -73,7 +73,7 @@ const incidents = events.registerEvent('incident.created', {
 await incidents.emit({ eventId: 'INC-7', data: { incidentId: 'INC-7', title: 'Checkout is down', severity: 'P1' } });
 ```
 
-`emit()` sends the event to every subscription that `match` accepts, or to one with `emit(event, { subscriptionId })`; `transform` reshapes it per subscription. The SDK drops an event whose `data` fails `payloadSchema`, or whose `transform` output does, and reports it to `onerror`, for both kinds.
+`emit()` sends the event to every subscription that `match` accepts, or to one with `emit(event, { subscriptionId })`; `transform` reshapes it per subscription. An event emitted without an `eventId` gets one the SDK generates, which every replay of it keeps. The SDK drops an event whose `data` fails `payloadSchema`, or whose `transform` output does, and reports it to `onerror`, for both kinds.
 
 Poll clients read emit-only events from an in-memory buffer (`emitBuffer`, by default the last 10 minutes and at most 10 000 events), so events emitted before a restart are lost. Push and webhook subscriptions that pass a cursor replay that buffer first. `onSubscribe` and `onUnsubscribe` run as a subscription starts and ends, in every mode, and `ctx.subscriptionId` names it.
 
@@ -87,7 +87,7 @@ import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 const handler = createMcpHandler(() => new McpServer({ name: 'helpdesk', version: '1.0.0' }, { extensions: [events] }));
 ```
 
-While it is constructed, each server advertises the extension and calls its `setup`, which registers the `events/*` methods (see [Extensions](../advanced/extensions.md)). Push streams under every `responseMode`, `'json'` included, as `subscriptions/listen` does.
+While it is constructed, each server advertises the extension and calls its `setup`, which registers the `events/*` methods (see [Extensions](../advanced/extensions.md)). Push streams under every `responseMode`, `'json'` included, as `subscriptions/listen` does. On a host that buffers whole responses push cannot work: the SDK's client falls back to poll once its first push stream times out, or set `delivery: { push: false }` on the event type so clients choose poll at once.
 
 A push stream carries no SSE comment keepalive. The server sends `notifications/events/heartbeat` whenever the stream has been quiet for the granted interval, `heartbeatMs` (30 seconds by default) or a shorter one the client asks for, and the SDK's client reconnects after three intervals of silence. Keep `heartbeatMs` below your load balancer's idle timeout.
 
@@ -118,7 +118,7 @@ const webhookEvents = new EventsExtension({
 
 Setting `webhookTtlMs` or `webhookSender` without the other two throws `TypeError`. `getPrincipal` has no default, since `AuthInfo` has no subject field: return the user from wherever your token verifier puts it. A webhook subscription for which `getPrincipal` returns `null` is refused with `forbidden`, on stdio too; poll and push use the principal when there is one.
 
-`webhookTtlMs` is the longest a webhook subscription lives without a refresh, and clients refresh before it lapses. The SDK verifies each endpoint with a challenge before the first delivery, signs every POST (Standard Webhooks), and retries a failed delivery up to five attempts in all. It sends each destination host one challenge at a time, so a subscribe waits while another challenge to that host is in flight, and at most ten in any 60 seconds; past that, or when ten subscribes already wait for the host, it refuses with `resourceExhausted` (`data.limit: 'verification'`; `data.retryAfterMs` says when to try again, and the SDK's client does). It answers a principal's subscribes to a URL whose challenge failed with that failure for 60 seconds, without another challenge. `nodeWebhookSender()` requires `https`, resolves the host at every send by querying DNS directly (so `/etc/hosts` does not apply; origins in `trustedOrigins` skip resolution), refuses IANA special-purpose addresses (loopback, private, link-local and the like) and connects to the address it checked; it follows no redirects and gives up after 5 seconds.
+`webhookTtlMs` is the longest a webhook subscription lives without a refresh, and clients refresh before it lapses. The SDK verifies each endpoint with a challenge before the first delivery, signs every POST (Standard Webhooks), and retries a failed delivery up to five attempts in all. It keeps at most ten event deliveries per subscription in progress, waits between retries included, so a replayed backlog goes out ten at a time. It sends each destination host one challenge at a time, so a subscribe waits while another challenge to that host is in flight, and at most ten in any 60 seconds; past that, or when ten subscribes already wait for the host, it refuses with `resourceExhausted` (`data.limit: 'verification'`; `data.retryAfterMs` says when to try again, and the SDK's client does). It answers a principal's subscribes to a URL whose challenge failed with that failure for 60 seconds, without another challenge. `nodeWebhookSender()` requires `https`, resolves the host at every send by querying DNS directly (so `/etc/hosts` does not apply; origins in `trustedOrigins` skip resolution), refuses IANA special-purpose addresses (loopback, private, link-local and the like) and connects only to the addresses it checked, IPv4 and IPv6; it follows no redirects and gives up after 5 seconds.
 
 ::: warning
 `trustedOrigins` is for development only. Its exact origins, such as `http://127.0.0.1:9000`, are exempt from the `https` rule and the private-address check, so a receiver on your machine can take deliveries; endpoint verification, signing and the no-redirect rule still apply.
@@ -179,7 +179,11 @@ const replicated = new EventsExtension({
 
 Records hold each subscription's webhook secret, so protect the store as you protect credentials. The SDK deletes an expired record when it next reads it, or when the expiry timer of the replica that last granted it fires, and runs `onUnsubscribe` then. The store above keeps each record a minute past its `expiresAt`, because a record the database has already dropped is gone when that timer reads it, and `onUnsubscribe` never runs for it. A record that a stopped replica left behind stays until something reads it, so let the store expire records too, as the expiry passed to `set()` above does (with Redis, a key TTL).
 
+A store that outlives the process carries webhook subscriptions across a restart. Emit-only types keep delivering to the stored subscriptions, without a resubscribe or a new verification; a `check` type's loop starts again at the subscription's next refresh, from the cursor the client supplies.
+
 A replica runs `onUnsubscribe` after its `delete()` resolved `true`. Replicas racing on a store whose `delete()` is not atomic may each run it for one subscription, so keep `onUnsubscribe` idempotent.
+
+When a store read fails while `emit()` hands the event to its webhook subscriptions, the SDK lists them again, up to three tries within a few hundred milliseconds, and skips those it already reached. A store that keeps failing drops the emitted event for the webhook subscriptions it could not list, and the SDK reports the failure to `onerror`.
 
 With a shared store, webhook subscribe, refresh, secret rotation and unsubscribe work on any replica, and `emit()` on any replica reaches every matching webhook subscription. Some state stays on one process:
 

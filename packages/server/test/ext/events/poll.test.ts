@@ -37,7 +37,7 @@ afterEach(() => {
 describe('events/poll for a check type', () => {
     it('bootstraps a check type with cursor null', async () => {
         const events = new EventsExtension();
-        const check = vi.fn(() => ({ events: [{ data: { n: 1 } }], cursor: 'h1' }));
+        const check = vi.fn(() => ({ events: [{ eventId: 'e1', data: { n: 1 } }], cursor: 'h1' }));
         events.registerEvent('t', { payloadSchema: P, check });
         const { rpc } = poller(events);
         expect(bodyOf(await rpc('events/poll', { name: 't', cursor: null }))).toEqual({
@@ -60,13 +60,13 @@ describe('events/poll for a check type', () => {
         expect(check.mock.calls[0]![2]).toBeNull();
     });
 
-    it('fills name, timestamp and eventId on check events', async () => {
+    it('fills name and timestamp on check events', async () => {
         const events = new EventsExtension({ defaultNextPollMs: 1000 });
         events.registerEvent('t', {
             payloadSchema: P,
             check: () => ({
                 events: [
-                    { data: { n: 1 } },
+                    { eventId: 'upstream-1', data: { n: 1 } },
                     { eventId: 'upstream-2', timestamp: '2026-01-01T00:00:00.000Z', data: { n: 2 }, _meta: { k: 1 } }
                 ],
                 cursor: 'h2',
@@ -75,8 +75,7 @@ describe('events/poll for a check type', () => {
         });
         const result = await poller(events).poll({ name: 't', cursor: 'h1' });
         const [first, second] = result.events;
-        expect(first!.eventId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-        expect(first).toMatchObject({ name: 't', data: { n: 1 } });
+        expect(first).toMatchObject({ eventId: 'upstream-1', name: 't', data: { n: 1 } });
         expect(new Date(first!.timestamp).toISOString()).toBe(first!.timestamp);
         expect(first).not.toHaveProperty('cursor');
         expect(second).toEqual({
@@ -158,7 +157,7 @@ describe('events/poll for a check type', () => {
 
     it('starts a type with replay from now on every cursor: null poll', async () => {
         const events = new EventsExtension();
-        events.registerEvent('t', { payloadSchema: P, check: () => ({ events: [{ data: { n: 1 } }], cursor: 'h1' }) });
+        events.registerEvent('t', { payloadSchema: P, check: () => ({ events: [{ eventId: 'e1', data: { n: 1 } }], cursor: 'h1' }) });
         const { poll } = poller(events);
         expect(await poll({ name: 't', cursor: null })).toMatchObject({ events: [], cursor: 'h1' });
         expect(await poll({ name: 't', cursor: null })).toMatchObject({ events: [], cursor: 'h1' });
@@ -196,6 +195,23 @@ describe('events/poll for a check type', () => {
         const unbounded = await poll({ name: 't', cursor: 'h1' });
         expect(unbounded.events.map(event => event.eventId)).toEqual(['old', 'new']);
         expect(unbounded.truncated).toBe(false);
+    });
+
+    it('drops a check event without an eventId and reports it', async () => {
+        const onerror = vi.fn();
+        const events = new EventsExtension({ onerror });
+        // As plain JavaScript returns them, past the type that requires eventId.
+        const unidentified = [{ data: { n: 1 } }, { eventId: '', data: { n: 2 } }] as Array<{ eventId: string; data: { n: number } }>;
+        events.registerEvent('t', {
+            payloadSchema: P,
+            check: () => ({ events: [...unidentified, { eventId: 'kept', data: { n: 3 } }], cursor: 'h2' })
+        });
+        const result = await poller(events).poll({ name: 't', cursor: 'h1' });
+        expect(result.events.map(event => event.eventId)).toEqual(['kept']);
+        expect(onerror).toHaveBeenCalledTimes(2);
+        for (const [error] of onerror.mock.calls) {
+            expect((error as Error).message).toBe("event 't': dropped an event from check without an eventId");
+        }
     });
 
     it('drops an off-schema check payload and reports it', async () => {
@@ -289,6 +305,18 @@ describe('events/poll for an emit-only type', () => {
         expect(result.events).toHaveLength(1);
         expect(result.events[0]).toMatchObject({ name: 'i', data: { n: 2 } });
         expect(result.events[0]!.eventId).toEqual(expect.any(String));
+    });
+
+    it('gives an emit without an eventId a generated one, the same on every read', async () => {
+        const events = new EventsExtension();
+        const h = events.registerEvent('i', { emitOnly: true, payloadSchema: P });
+        const { poll } = poller(events);
+        const { cursor } = await poll({ name: 'i', cursor: null });
+        await h.emit({ data: { n: 1 } });
+        const [first] = (await poll({ name: 'i', cursor })).events;
+        const [again] = (await poll({ name: 'i', cursor })).events;
+        expect(first!.eventId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+        expect(again!.eventId).toBe(first!.eventId);
     });
 
     it('reports a gap for a cursor from before a restart (Review Focus 5)', async () => {

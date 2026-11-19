@@ -135,7 +135,7 @@ const pulse = conformanceEvents.registerEvent(PULSE, {
     check: ctx => {
         const seen = beatSeen.get(ctx.subscriptionId);
         beatSeen.set(ctx.subscriptionId, beat);
-        const events = seen === undefined || seen === beat ? [] : [{ data: { beat } }];
+        const events = seen === undefined || seen === beat ? [] : [{ eventId: `beat-${beat}`, data: { beat } }];
         // A gap yield_gap asked for comes out as `truncated` with `cursor: null`, which the SDK must not pass on (SEP l.713).
         return take(gapNext, ctx) ? { events, cursor: null, truncated: true } : { events, cursor: null };
     },

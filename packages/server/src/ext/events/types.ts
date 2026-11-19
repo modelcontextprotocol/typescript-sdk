@@ -43,14 +43,14 @@ export interface CheckContext extends EventContext {
 
 /**
  * One event as an author produces it. The SDK fills `name` and `cursor`, and
- * `eventId` and `timestamp` when absent.
+ * `timestamp` when absent; `emit()` also fills `eventId` when absent.
  *
  * Experimental: Events (SEP-3415) is new; this API may change in a minor release.
  *
  * @experimental
  */
 export interface EventInput<P = Record<string, unknown>> {
-    /** A unique id; the SDK generates one when absent. */
+    /** The upstream event's stable id, for deduplication: required in a `check` result; `emit()` generates one when absent. */
     eventId?: string;
     /** ISO 8601 time of the occurrence; the SDK uses the current time when absent. */
     timestamp?: string;
@@ -67,7 +67,11 @@ export interface EventInput<P = Record<string, unknown>> {
  * @experimental
  */
 export interface EventResult<P = Record<string, unknown>> {
-    events: EventInput<P>[];
+    /**
+     * Each with an `eventId` that stays the same whenever `check` returns the event again, as a replay does; the SDK
+     * drops an event without one (a non-empty string) and reports it to `onerror`.
+     */
+    events: Array<EventInput<P> & { eventId: string }>;
     /** Where the next `check` resumes; `null` when the upstream cannot resume. */
     cursor: string | null;
     /**

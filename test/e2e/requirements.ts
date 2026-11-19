@@ -3889,7 +3889,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         ...EVENTS_CELLS,
         source: 'sdk',
         behavior:
-            'A server rebuilt over the same WebhookSubscriptionStore keeps delivering to a stored subscription, without a resubscribe or a new verification.'
+            "A server rebuilt over the same WebhookSubscriptionStore keeps delivering an emit-only type to a stored subscription, without a resubscribe or a new verification; a check type resumes at the subscription's next refresh, from the cursor the client supplies."
     },
     'typescript:events:trusted-origins': {
         ...EVENTS_CELLS,

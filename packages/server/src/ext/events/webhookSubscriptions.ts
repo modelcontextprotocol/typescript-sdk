@@ -24,6 +24,8 @@ const TTL_FLOOR_MS = 60_000;
 const ROTATION_GRACE_MS = 300_000;
 // setTimeout fires at once for longer delays; a longer grant re-arms when the timer fires early.
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+// The waits between the three attempts of an emit's fan-out whose store read fails; after the last the failure is reported.
+const FAN_OUT_RETRY_DELAYS_MS = [100, 200];
 
 const encoder = new TextEncoder();
 let unwatched: AbortSignal | undefined;
@@ -522,16 +524,29 @@ export class WebhookSubscriptions implements SubscriptionSource {
         return makeContext({ name: record.name, subscriptionId: record.id, principal: record.principal, mode: 'webhook', signal });
     }
 
+    // A failed store read lists the subscriptions again after a wait, skipping those this emit already reached; the last failure throws.
     async #deliverEmitted(entry: RegisteredEvent, buffered: BufferedEvent, cursor: string, previous: string): Promise<void> {
-        for await (const record of this.#recordsFor(entry.name, buffered.target)) {
-            if (isExpired(record)) {
-                this.#later(record.id, () => this.#recheck(record.id));
-                continue;
+        const reached = new Set<string>();
+        for (let attempt = 0; ; attempt++) {
+            try {
+                for await (const record of this.#recordsFor(entry.name, buffered.target)) {
+                    if (reached.has(record.id)) continue;
+                    reached.add(record.id);
+                    if (isExpired(record)) {
+                        this.#later(record.id, () => this.#recheck(record.id));
+                        continue;
+                    }
+                    const ctx = this.#watched.get(record.id)?.ctx ?? this.#contextOf(record, unwatchedSignal());
+                    const selected = selectEvent(entry, ctx, record.arguments, buffered, this.#deps.report);
+                    const occurrence = selected === undefined ? undefined : await checkedSelection(entry, selected, this.#deps.report);
+                    if (occurrence !== undefined) this.#engine.deliver(record, occurrence, cursor, previous);
+                }
+                return;
+            } catch (error) {
+                const delay = FAN_OUT_RETRY_DELAYS_MS[attempt];
+                if (delay === undefined) throw error;
+                await new Promise(resolve => unref(setTimeout(resolve, delay)));
             }
-            const ctx = this.#watched.get(record.id)?.ctx ?? this.#contextOf(record, unwatchedSignal());
-            const selected = selectEvent(entry, ctx, record.arguments, buffered, this.#deps.report);
-            const occurrence = selected === undefined ? undefined : await checkedSelection(entry, selected, this.#deps.report);
-            if (occurrence !== undefined) this.#engine.deliver(record, occurrence, cursor, previous);
         }
     }
 

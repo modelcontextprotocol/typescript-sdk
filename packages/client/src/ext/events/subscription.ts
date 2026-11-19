@@ -14,7 +14,7 @@ export interface SubscribeOptions {
     name: string;
     /** Subscription arguments, valid against the event type's `inputSchema`. */
     arguments?: Record<string, unknown>;
-    /** Forces one delivery mode instead of the default preference (webhook, then push, then poll). */
+    /** Forces one delivery mode instead of the default preference (webhook, then push, then poll) and the fallback from push to poll. */
     delivery?: DeliveryMode;
     /** Resumes from a persisted {@linkcode EventSubscription.cursor}; `null` or absent starts from now. */
     cursor?: string | null;

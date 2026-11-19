@@ -208,6 +208,13 @@ describe('registerEvent', () => {
         expectTypeOf(checkHandle.update).toBeCallableWith({ description: 'v2' });
     });
 
+    it('requires an eventId on every event a check returns', () => {
+        const events = new EventsExtension();
+        // @ts-expect-error a check event needs its eventId
+        events.registerEvent('a', { payloadSchema: P, check: () => ({ events: [{ data: { n: 1 } }], cursor: null }) });
+        events.registerEvent('b', { payloadSchema: P, check: () => ({ events: [{ eventId: 'e1', data: { n: 1 } }], cursor: null }) });
+    });
+
     it('refuses the same schemas again and terminates live subscriptions when a schema changes', async () => {
         const events = new EventsExtension();
         const terminate = vi.fn<SubscriptionSource['terminate']>(async () => {});

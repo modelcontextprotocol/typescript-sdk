@@ -12,12 +12,13 @@ import {
 } from '@modelcontextprotocol/core/ext/events';
 import type { JSONRPCNotification } from '@modelcontextprotocol/core-internal';
 import { ProtocolError, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core-internal';
+import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 import { DEFAULT_REQUEST_TIMEOUT_MSEC, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal/public';
 import type * as z from 'zod/v4';
 
 import type { StreamEnd, StreamHandle } from '../../client/client';
 import { clientInternals } from '../../client/client';
-import { DriverLoop, isHeaderMismatch, jitteredDelay, MAX_TIMER_DELAY_MS } from './recovery';
+import { connectionClosed, DriverLoop, isHeaderMismatch, jitteredDelay, MAX_TIMER_DELAY_MS } from './recovery';
 import { asEventsError } from './request';
 import type { Driver, DriverContext } from './subscription';
 
@@ -27,6 +28,15 @@ const DEAD_AFTER_HEARTBEATS = 3;
 // How a stream ended: with the server's error (a `terminated` frame or an error response) or a failed send, or without an error.
 interface Ending {
     error?: unknown;
+}
+
+// The first stream of a subscription that may fall back ended before a valid `active`, with `cause`, which is not the server's refusal.
+export class PushUnavailableError extends Error {
+    constructor(name: string, cause: unknown) {
+        super(`${EVENTS_STREAM_METHOD} for '${name}' failed before its first ${EVENTS_ACTIVE_NOTIFICATION}; subscribing by poll instead`, {
+            cause
+        });
+    }
 }
 
 function endingOf(end: StreamEnd): Ending {
@@ -45,6 +55,8 @@ function withoutStreamId(event: EventOccurrence): EventOccurrence {
 export class PushDriver<T> implements Driver {
     readonly #context: DriverContext<T>;
     readonly #loop: DriverLoop<T>;
+    // A first stream that cannot work rejects start() with PushUnavailableError, for subscribe() to poll instead.
+    readonly #fallback: boolean;
     // Reconnect delays taken since the last `active`.
     #attempt = 0;
     // A -32020 has been re-listed for since the last `active`.
@@ -58,9 +70,10 @@ export class PushDriver<T> implements Driver {
     // Until the first valid `active`, the wait for it; from then on, the countdown to declaring the stream dead.
     #dead: ReturnType<typeof setTimeout> | undefined;
 
-    constructor(context: DriverContext<T>) {
+    constructor(context: DriverContext<T>, fallback = false) {
         this.#context = context;
         this.#loop = new DriverLoop(context, 'push');
+        this.#fallback = fallback;
     }
 
     start(): Promise<void> {
@@ -92,6 +105,10 @@ export class PushDriver<T> implements Driver {
             this.#mismatched = true;
             await this.#context.connection.list(undefined, { signal: this.#loop.signal }).catch(() => {});
             return;
+        }
+        const { connection, subscription } = this.#context;
+        if (this.#fallback && this.#loop.first && !(error instanceof EventsError) && connectionClosed(connection, error) === undefined) {
+            throw new PushUnavailableError(subscription.name, error);
         }
         await this.#loop.recover(error);
     }

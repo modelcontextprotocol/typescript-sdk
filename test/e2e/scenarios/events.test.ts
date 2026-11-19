@@ -324,7 +324,7 @@ verifies('events:poll:bootstrap', async ({ transport }: TestArgs) => {
     // A check that would return events: a null cursor still answers with none.
     events.registerEvent('ticket', {
         payloadSchema: NotePayload,
-        check: () => ({ events: [{ data: { text: 'old' } }], cursor: 't1' })
+        check: () => ({ events: [{ eventId: 'old', data: { text: 'old' } }], cursor: 't1' })
     });
     const client = newClient();
     await using _ = await wire(transport, serving(events), client, EVENTS_WIRE);
@@ -476,8 +476,8 @@ verifies('events:cursor:max-age', async ({ transport }: TestArgs) => {
                 ? { events: [], cursor: 't0' }
                 : {
                       events: [
-                          { timestamp: new Date(Date.now() - 600_000).toISOString(), data: { text: 'stale' } },
-                          { timestamp: new Date().toISOString(), data: { text: 'fresh' } }
+                          { eventId: 'stale', timestamp: new Date(Date.now() - 600_000).toISOString(), data: { text: 'stale' } },
+                          { eventId: 'fresh', timestamp: new Date().toISOString(), data: { text: 'fresh' } }
                       ],
                       cursor: 't2'
                   }
@@ -810,7 +810,9 @@ verifies('events:webhook:verification', async ({ transport }: TestArgs) => {
     const ticket = {
         payloadSchema: NotePayload,
         check: (_ctx: unknown, _args: unknown, cursor: string | null) =>
-            cursor === 'c0' ? { events: [{ data: { text: 'backlog' } }], cursor: 'c1' } : { events: [], cursor: cursor ?? 'c0' }
+            cursor === 'c0'
+                ? { events: [{ eventId: 'backlog', data: { text: 'backlog' } }], cursor: 'c1' }
+                : { events: [], cursor: cursor ?? 'c0' }
     };
     {
         // An endpoint that answers but does not echo the challenge.
@@ -1200,25 +1202,69 @@ verifies('typescript:events:store:replicas', async ({ transport }: TestArgs) => 
 });
 
 verifies('typescript:events:store:restart', async ({ transport }: TestArgs) => {
-    const posts: Post[] = [];
-    const { client, clientEvents } = eventsClient({ ...FAST, webhook: { url: HOOK_URL } });
-    const options = webhookOptions(senderTo(clientEvents.createWebhookHandler(), posts), {
-        webhookStore: new InMemoryWebhookSubscriptionStore()
-    });
-    let server = noteEvents(options);
-    const makeServer = () => serving(server.events)();
-    await using wired = await wire(transport, makeServer, client, EVENTS_WIRE);
-    const subscription = await clientEvents.subscribe<Note>({ name: NOTE });
-    const requests = wired.httpLog?.length;
+    {
+        const posts: Post[] = [];
+        const { client, clientEvents } = eventsClient({ ...FAST, webhook: { url: HOOK_URL } });
+        const options = webhookOptions(senderTo(clientEvents.createWebhookHandler(), posts), {
+            webhookStore: new InMemoryWebhookSubscriptionStore()
+        });
+        let server = noteEvents(options);
+        const makeServer = () => serving(server.events)();
+        await using wired = await wire(transport, makeServer, client, EVENTS_WIRE);
+        const subscription = await clientEvents.subscribe<Note>({ name: NOTE });
+        const requests = wired.httpLog?.length;
 
-    // The process restarts: a new extension over the same store, nothing carried over in memory.
-    server = noteEvents(options);
-    await server.note.emit({ data: { text: 'after the restart' } });
+        // The process restarts: a new extension over the same store, nothing carried over in memory.
+        server = noteEvents(options);
+        await server.note.emit({ data: { text: 'after the restart' } });
 
-    expect(await take(subscription)).toEqual([{ text: 'after the restart' }]);
-    expect(wired.httpLog?.length).toBe(requests);
-    expect(posts.map(post => post.json.type ?? 'event')).toEqual(['verification', 'event']);
-    await subscription.cancel();
+        expect(await take(subscription)).toEqual([{ text: 'after the restart' }]);
+        expect(wired.httpLog?.length).toBe(requests);
+        expect(posts.map(post => post.json.type ?? 'event')).toEqual(['verification', 'event']);
+        await subscription.cancel();
+    }
+    {
+        // A check type: the rebuilt server runs its check loop from the client's next refresh, which a short grant brings soon.
+        const posts: Post[] = [];
+        const { client, clientEvents } = eventsClient({ ...FAST, webhook: { url: HOOK_URL } });
+        const options = webhookOptions(senderTo(clientEvents.createWebhookHandler(), posts), {
+            webhookStore: new InMemoryWebhookSubscriptionStore(),
+            webhookTtlMs: 1000,
+            checkIntervalMs: 20
+        });
+        // The upstream outlives the process; a cursor counts its entries.
+        const upstream: string[] = [];
+        let current: EventsExtension | undefined;
+        const build = (): void => {
+            const events = new EventsExtension(options);
+            events.registerEvent('ticket', {
+                payloadSchema: NotePayload,
+                check: (_ctx, _args, cursor) => {
+                    // The process that was replaced reads nothing more.
+                    if (events !== current) return new Promise<never>(() => {});
+                    const from = cursor === null ? upstream.length : Number(cursor);
+                    const page = upstream.slice(from).map((text, index) => ({ eventId: `t${from + index}`, data: { text } }));
+                    return { events: page, cursor: String(upstream.length) };
+                }
+            });
+            current = events;
+        };
+        build();
+        await using _ = await wire(transport, () => serving(current!)(), client, EVENTS_WIRE);
+        const tap = tapWire(client);
+        const subscription = await clientEvents.subscribe<Note>({ name: 'ticket' });
+
+        build();
+        upstream.push('during the restart');
+
+        expect(await take(subscription)).toEqual([{ text: 'during the restart' }]);
+        const subscribes = tap.sent.filter(message => 'method' in message && message.method === 'events/subscribe') as Frame[];
+        // Delivered once the refresh, carrying the client's cursor, started the loop on the rebuilt server.
+        expect(subscribes.length).toBeGreaterThanOrEqual(2);
+        expect(subscribes.slice(0, 2).map(message => message.params['cursor'])).toEqual([null, '0']);
+        expect(posts.map(post => post.json.type ?? 'event')).toEqual(['verification', 'event']);
+        await subscription.cancel();
+    }
 });
 
 verifies('typescript:events:trusted-origins', async ({ transport }: TestArgs) => {

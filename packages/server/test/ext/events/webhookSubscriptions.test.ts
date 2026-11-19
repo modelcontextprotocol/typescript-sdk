@@ -6,6 +6,7 @@ import * as z from 'zod/v4';
 
 import type {
     CheckContext,
+    EmitOnlyEventHandle,
     EventContext,
     EventResult,
     EventsOptions,
@@ -25,6 +26,7 @@ const HOOK = 'https://hooks.example.com/mcp';
 const OTHER_HOOK = 'https://other.example.com/hook';
 const SECRET = generateWebhookSecret();
 const SUB_ID = /^sub_[\w-]{22}$/;
+const DELAYS = [5000, 30_000, 120_000, 300_000];
 const UNSUPPORTED = { code: -32_026, data: { feature: 'deliveryMode', value: 'webhook' } };
 
 type Respond = (request: WebhookSendRequest) => WebhookSendOutcome | Promise<WebhookSendOutcome>;
@@ -132,6 +134,30 @@ function verifies(request: WebhookSendRequest, secret: string): Promise<boolean>
 // Lets queued work act on answers already received, without moving the clock.
 const settle = (): Promise<unknown> => vi.advanceTimersByTimeAsync(0);
 
+// Emits `count` events that the receiver fails, and moves the clock through all five attempts of each, ten at a time, until the
+// last is abandoned; `sent` counts the requests before, and the count after is returned.
+async function emitFailing(
+    handle: EmitOnlyEventHandle<{ n: number }>,
+    until: (count: number) => Promise<void>,
+    sent: number,
+    count: number
+): Promise<number> {
+    for (let n = 1; n <= count; n++) await handle.emit({ data: { n } });
+    for (let left = count; left > 0; left -= 10) {
+        const batch = Math.min(10, left);
+        sent += batch;
+        await until(sent);
+        for (const delay of DELAYS) {
+            await settle();
+            await vi.advanceTimersByTimeAsync(delay);
+            sent += batch;
+            await until(sent);
+        }
+        await settle();
+    }
+    return sent;
+}
+
 const REVOKED = { code: -32_024, message: 'Forbidden', data: { reason: 'Access revoked' } };
 
 function revoked(): EventsError {
@@ -173,6 +199,31 @@ class GatedStore extends InMemoryWebhookSubscriptionStore {
         this.#held = undefined;
         held.reached();
         await held.released;
+    }
+}
+
+// A store whose listByName throws after yielding `after` records on the next calls fail() asks for; `listings` counts the calls.
+class FlakyStore extends InMemoryWebhookSubscriptionStore {
+    listings = 0;
+    #failing = 0;
+    #after = 0;
+
+    fail(listings: number, after: number): void {
+        this.#failing = listings;
+        this.#after = after;
+    }
+
+    override async *listByName(name: string): AsyncIterable<WebhookSubscriptionRecord> {
+        this.listings += 1;
+        const failing = this.#failing > 0;
+        if (failing) this.#failing -= 1;
+        let yielded = 0;
+        for await (const record of super.listByName(name)) {
+            if (failing && yielded === this.#after) throw new Error('store unavailable');
+            yield record;
+            yielded += 1;
+        }
+        if (failing) throw new Error('store unavailable');
     }
 }
 
@@ -610,6 +661,45 @@ describe('events/subscribe: creating', () => {
         expect(cursorOf('first')).not.toBe(cursor);
     });
 
+    it('replays a backlog of 50 events at most 10 POSTs at a time, starting them in position order', async () => {
+        const answers: Array<() => void> = [];
+        let inFlight = 0;
+        let most = 0;
+        const { events, post } = replica({
+            respond: request =>
+                isVerification(request)
+                    ? echo()(request)
+                    : new Promise(resolve => {
+                          inFlight += 1;
+                          most = Math.max(most, inFlight);
+                          answers.push(() => {
+                              inFlight -= 1;
+                              resolve({ status: 200, body: '' });
+                          });
+                      })
+        });
+        const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const alice = client(events);
+        const { cursor } = resultOf(await alice.rpc('events/poll', { name: 'e', cursor: null })) as PollEventsResult;
+        for (let n = 1; n <= 50; n++) await handle.emit({ eventId: `evt_${n}`, data: { n } });
+
+        subscribed(await alice.subscribe({ cursor }));
+        await post.until(11);
+        await settle();
+        expect(post.deliveries()).toHaveLength(10);
+        // Each answer frees a slot for the next event, which starts before the next answer.
+        for (let n = 0; n < 50; n++) {
+            answers[n]!();
+            await post.until(Math.min(12 + n, 51));
+        }
+        await settle();
+        const replayed = post.deliveries().map(request => bodyOf(request).eventId);
+        expect(replayed).toHaveLength(50);
+        expect(replayed.slice(0, 10).sort()).toEqual(Array.from({ length: 10 }, (_, n) => `evt_${n + 1}`).sort());
+        expect(replayed.slice(10)).toEqual(Array.from({ length: 40 }, (_, n) => `evt_${n + 11}`));
+        expect(most).toBe(10);
+    });
+
     it('delivers each event once across the seam between an emit-only replay and live fan-out', async () => {
         const store = new GatedStore();
         const { events, post } = replica({ webhookStore: store });
@@ -716,9 +806,8 @@ describe('events/subscribe: refreshing', () => {
         const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
         const alice = client(events);
         subscribed(await alice.subscribe());
-        for (let n = 1; n <= 100; n++) await handle.emit({ data: { n } });
-        await post.until(101);
-        await settle();
+        // 20 events, five failed attempts each: the 100th suspends delivery.
+        await emitFailing(handle, post.until, 1, 20);
         expect(subscribed(await alice.subscribe()).deliveryStatus).toMatchObject({ active: false, lastError: 'http_5xx' });
         expect(subscribed(await alice.subscribe()).deliveryStatus).toMatchObject({ active: true, lastError: 'http_5xx' });
     });
@@ -805,6 +894,38 @@ describe('several replicas sharing one store', () => {
         expect(bodyOf(delivery!)).toMatchObject({ eventId: 'evt_1', name: 'e', data: { n: 1 }, cursor: expect.any(String) });
         expect(await verifies(delivery!, SECRET)).toBe(true);
         expect(a.post.deliveries()).toEqual([]);
+    });
+
+    it('ends a suspension on A when B serves the refresh: A delivers its next emit and what it parked', async () => {
+        let healthy = false;
+        const store = new InMemoryWebhookSubscriptionStore();
+        const a = replica({ webhookStore: store, respond: echo(() => (healthy ? { status: 200, body: '' } : { status: 503, body: '' })) });
+        const b = replica({ webhookStore: store });
+        const handle = a.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        b.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const { id } = subscribed(await client(a.events).subscribe());
+        // 20 events, five failed attempts each: the 100th suspends delivery on A.
+        const sent = await emitFailing(handle, a.post.until, 1, 20);
+        await handle.emit({ eventId: 'parked', data: { n: 21 } });
+        await settle();
+        expect(a.post.requests).toHaveLength(sent);
+
+        healthy = true;
+        const before = (await store.get(id))!.expiresAt;
+        subscribed(await client(b.events).subscribe());
+        expect((await store.get(id))!.expiresAt).toBeGreaterThan(before);
+        await handle.emit({ eventId: 'after', data: { n: 22 } });
+        await a.post.until(sent + 2);
+        await settle();
+        expect(
+            a.post.requests
+                .slice(sent)
+                .map(request => bodyOf(request).eventId)
+                .sort()
+        ).toEqual(['after', 'parked']);
+        expect(b.post.requests).toHaveLength(0);
+        // A's own refresh now finds delivery active.
+        expect(subscribed(await client(a.events).subscribe()).deliveryStatus).toMatchObject({ active: true, lastError: null });
     });
 
     it('stops retries on A after an unsubscribe on B', async () => {
@@ -909,6 +1030,51 @@ describe('fan-out', () => {
         ]);
     });
 
+    it('lists again after a store read fails mid-fan-out, delivering to every subscription once', async () => {
+        const store = new FlakyStore();
+        const onerror = vi.fn();
+        const { events, post } = replica({ webhookStore: store, onerror });
+        const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const alice = client(events);
+        const ids: string[] = [];
+        for (const k of [1, 2, 3]) ids.push(subscribed(await alice.subscribe({ arguments: { k } })).id);
+
+        // The fan-out's first listing fails after handing one subscription to the engine.
+        store.fail(1, 1);
+        store.listings = 0;
+        await handle.emit({ eventId: 'evt_1', data: { n: 1 } });
+        await vi.advanceTimersByTimeAsync(100);
+        await post.until(4);
+        await settle();
+        expect(store.listings).toBe(2);
+        expect(post.deliveries().map(request => request.headers['X-MCP-Subscription-Id'])).toHaveLength(3);
+        expect(new Set(post.deliveries().map(request => request.headers['X-MCP-Subscription-Id']))).toEqual(new Set(ids));
+        expect(onerror).not.toHaveBeenCalled();
+    });
+
+    it('reports a fan-out whose store listing fails three times, and runs the next emit', async () => {
+        const store = new FlakyStore();
+        const onerror = vi.fn();
+        const { events, post } = replica({ webhookStore: store, onerror });
+        const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        subscribed(await client(events).subscribe());
+
+        store.fail(3, 0);
+        store.listings = 0;
+        await handle.emit({ eventId: 'lost', data: { n: 1 } });
+        await vi.advanceTimersByTimeAsync(299);
+        expect(onerror).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(store.listings).toBe(3);
+        expect(onerror).toHaveBeenCalledOnce();
+        expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'store unavailable' }));
+
+        await handle.emit({ eventId: 'next', data: { n: 2 } });
+        await post.until(2);
+        await settle();
+        expect(post.deliveries().map(request => bodyOf(request).eventId)).toEqual(['next']);
+    });
+
     it('drops a transform output that fails payloadSchema and reports it', async () => {
         const onerror = vi.fn();
         const { events, post } = replica({ onerror });
@@ -986,6 +1152,23 @@ describe('check-kind webhook subscriptions', () => {
         await vi.advanceTimersByTimeAsync(5000);
         await post.until(3);
         expect(bodyOf(post.requests[2]!)['data']).toEqual({ n: 1, label: '#1' });
+    });
+
+    it('drops a check event without an eventId and reports it', async () => {
+        const onerror = vi.fn();
+        // As plain JavaScript returns it, past the type that requires eventId.
+        const unidentified = { data: { n: 1 } } as { eventId: string; data: { n: number } };
+        const check = vi.fn<Check>(() => ({ events: [unidentified, { eventId: 'kept', data: { n: 2 } }], cursor: 'c1' }));
+        const { events, post } = replica({ onerror });
+        events.registerEvent('t', { payloadSchema: P, check });
+        subscribed(await client(events).subscribe({ name: 't', cursor: 'c0' }));
+        await post.until(2);
+        await settle();
+        expect(post.deliveries().map(request => bodyOf(request).eventId)).toEqual(['kept']);
+        expect(onerror).toHaveBeenCalledOnce();
+        expect(onerror).toHaveBeenCalledWith(
+            expect.objectContaining({ message: "event 't': dropped an event from check without an eventId" })
+        );
     });
 
     it('replays from a cursor on create, and sends a gap envelope for a gap between refreshes', async () => {

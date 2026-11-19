@@ -263,6 +263,22 @@ describe('events/stream: a check type', () => {
         expect(check.mock.calls[0]![0]).toMatchObject({ mode: 'push', maxAgeMs: 300_000 });
     });
 
+    it('drops a check event without an eventId and reports it', async () => {
+        const onerror = vi.fn();
+        // As plain JavaScript returns it, past the type that requires eventId.
+        const unidentified = { data: { n: 1 } } as { eventId: string; data: { n: number } };
+        const check = vi.fn<Check>(() => ({ events: [unidentified, { eventId: 'kept', data: { n: 2 } }], cursor: 'h2' }));
+        const events = new EventsExtension({ onerror });
+        events.registerEvent('tick', { payloadSchema: P, check });
+        const stream = await open(serve(events), { name: 'tick', cursor: 'h1' });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE, params: { cursor: 'h1', truncated: false } });
+        expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'kept', data: { n: 2 }, cursor: 'h2' } });
+        expect(onerror).toHaveBeenCalledOnce();
+        expect(onerror).toHaveBeenCalledWith(
+            expect.objectContaining({ message: "event 'tick': dropped an event from check without an eventId" })
+        );
+    });
+
     it('keeps the stream open after a transient check error', async () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
         const check = vi

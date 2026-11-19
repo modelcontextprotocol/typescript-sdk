@@ -33,7 +33,7 @@ ticket.updated { ticketId: 'T-7', status: 'open' }
 
 Pass the extension in the client's `extensions` option: the client calls its `setup` while it is constructed, which ties the extension to that one client. `subscribe()` resolves once its first exchange with the server succeeds, and the subscription starts from now unless you pass a `cursor`. `list()` returns the server's event types with their schemas and delivery modes.
 
-Each subscription takes the first delivery mode the event type offers out of webhook (when you configure it), push and poll; `delivery` forces one, and `subscription.deliveryMode` says which it got. The loop is the same in every mode, drops a repeated `eventId`, and leaving it cancels the subscription.
+Each subscription takes the first delivery mode the event type offers out of webhook (when you configure it), push and poll; `delivery` forces one, and `subscription.deliveryMode` says which it got. Without `delivery`, when a push subscription's first stream fails before its first `notifications/events/active` with anything but an `EventsError` (no valid `active` within the request timeout, say, behind a host that buffers whole responses), the client reports the failure to its `onerror` and subscribes by poll instead, if the event type offers poll. The loop is the same in every mode, drops a repeated `eventId`, and leaving it cancels the subscription.
 
 ::: info
 Events is used on protocol 2026-07-28 only, so create the client with `versionNegotiation: { mode: 'auto' }` or a pin — see [Protocol versions](../protocol-versions.md).
@@ -85,6 +85,8 @@ With `webhook` set, a subscription prefers webhook wherever the event type offer
 
 Webhook subscriptions with the same name and arguments share one server subscription, and cancelling the last of them sends `events/unsubscribe`. The SDK's server accepts a webhook subscription only from an authenticated principal and answers `forbidden` otherwise. The receiver answers `503` to a subscription it does not know yet, and the server retries.
 
+The receiver answers `2xx` once it has queued an event in memory, so events queued but not yet read by your loop are lost if the process exits. Subscribing again within the grant, while the server still delivers to the subscription, continues from the server's position rather than from your saved cursor.
+
 ## Handle errors
 
 Catch `EventsError` around `subscribe()` and the loop; `kind` says what went wrong.
@@ -107,7 +109,7 @@ The server rejects `queue: 42` against the event type's `inputSchema`, so it pri
 invalidParams
 ```
 
-`subscribe()` rejects with an `EventsError` when the server does not list the event type or refuses the subscription (`notFound`, `invalidParams`, `forbidden`, `unsupported`, `resourceExhausted` or `callbackEndpointError`), and with an `SdkError` when the exchange fails in the SDK, such as a closed connection or a push stream with no valid `notifications/events/active` within the request timeout; other failures of the first exchange are retried in the background. The server's webhook verification limit (`resourceExhausted` with `data.limit: 'verification'`) is one of those: the client subscribes again after `data.retryAfterMs` (or its usual backoff without one), before and after the first exchange. Once subscribed, the loop ends with an `EventsError` when the server ends the subscription, such as `forbidden` when access is revoked. A `notFound`, or an `unsupported` for a schema change, makes the client list the event types again and carry on while the type is still offered in that mode.
+`subscribe()` rejects with an `EventsError` when the server does not list the event type or refuses the subscription (`notFound`, `invalidParams`, `forbidden`, `unsupported`, `resourceExhausted` or `callbackEndpointError`), and with an `SdkError` when the exchange fails in the SDK, such as a closed connection or a push stream with no valid `notifications/events/active` within the request timeout; other failures of the first exchange are retried in the background. A push subscription that can fall back to poll, as above, does so instead on any of these failures but an `EventsError` or a closed connection. The server's webhook verification limit (`resourceExhausted` with `data.limit: 'verification'`) is one of those: the client subscribes again after `data.retryAfterMs` (or its usual backoff without one), before and after the first exchange. Once subscribed, the loop ends with an `EventsError` when the server ends the subscription, such as `forbidden` when access is revoked. A `notFound`, or an `unsupported` for a schema change, makes the client list the event types again and carry on while the type is still offered in that mode.
 
 `NoCompatibleDeliveryModeError` means no delivery mode the event type offers is usable here: webhook needs the `webhook` option, and `delivery` narrows the choice to one mode. Against a server without Events, or on a connection older than 2026-07-28, `events.supported` is `false`, and `list()` and `subscribe()` throw `SdkError` (`CapabilityNotSupported`). An error thrown from `onGap` goes to the client's `onerror`.
 
