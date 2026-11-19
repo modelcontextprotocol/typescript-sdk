@@ -1,8 +1,8 @@
 /**
  * Self-contained test bodies for the Skills extension (SEP-2640).
  *
- * Each body builds its own catalog (in memory) or SkillSource, attaches it
- * inside the server factory, wires a real Client and asserts through
+ * Each body builds its own catalog (in memory) or SkillSource, passes it in
+ * `extensions` inside the server factory, wires a real Client and asserts through
  * SkillsClient or raw requests. Bodies that send skills/* or
  * resources/directory/read pass SKILLS_WIRE so the wire sniffer permits them.
  */
@@ -41,12 +41,8 @@ function catalogOf(files: Record<string, string | Uint8Array>, options?: SkillCa
     return SkillsExtension.load(memorySkillFiles(files), { onWarning: quiet, ...options });
 }
 
-function serving(skills: { attach(mcp: McpServer): void }): () => McpServer {
-    return () => {
-        const s = new McpServer({ name: 's', version: '0' });
-        skills.attach(s);
-        return s;
-    };
+function serving(skills: SkillsExtension): () => McpServer {
+    return () => new McpServer({ name: 's', version: '0' }, { extensions: [skills] });
 }
 
 function raw(client: Client, method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -147,9 +143,8 @@ verifies('typescript:skills:resources:template', async ({ transport }: TestArgs)
 verifies('typescript:skills:resources:app-resource-first', async ({ transport }: TestArgs) => {
     const catalog = await catalogOf({ 'git-workflow/SKILL.md': GIT_MD, 'git-workflow/references/REVIEW.md': REVIEW_MD });
     const makeServer = () => {
-        const s = new McpServer({ name: 's', version: '0' });
+        const s = new McpServer({ name: 's', version: '0' }, { extensions: [catalog] });
         s.registerResource('override', REVIEW, { mimeType: 'text/plain' }, () => ({ contents: [{ uri: REVIEW, text: 'app wins' }] }));
-        catalog.attach(s);
         return s;
     };
     const client = newClient();
@@ -916,6 +911,20 @@ verifies('typescript:skills:attach:rules', async ({ transport }: TestArgs) => {
     const connected = defined(server, 'server');
     expect(() => a.attach(connected)).not.toThrow();
     expect(() => b.attach(connected)).toThrow('attach skills before connecting the server');
+});
+
+verifies('typescript:skills:extension:one-per-server', async ({ transport }: TestArgs) => {
+    const a = await catalogOf({ 'alpha/SKILL.md': skillMd('alpha', 'First catalog.') });
+    const b = await catalogOf({ 'bravo/SKILL.md': skillMd('bravo', 'Second catalog.') });
+    const info = { name: 's', version: '0' };
+    expect(() => new McpServer(info, { extensions: [a, b] })).toThrow(/listed more than once/);
+    expect(() => new McpServer(info, { extensions: [a, a] })).toThrow(/listed more than once/);
+
+    const client = newClient();
+    await using _ = await wire(transport, serving(a), client, SKILLS_WIRE);
+
+    const { skills } = await new SkillsClient(client).list();
+    expect(skills.map(entry => entry.uri)).toEqual(['skill://alpha/SKILL.md']);
 });
 
 verifies('typescript:skills:catalog:reload-notifies', async ({ transport }: TestArgs) => {

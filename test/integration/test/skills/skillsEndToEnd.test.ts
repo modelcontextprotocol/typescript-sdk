@@ -31,9 +31,7 @@ function clientFor(revision: string): Client {
 async function overHttp(catalog: SkillCatalog, revision: string, onServer: () => void = () => {}): Promise<Client> {
     const handler = createMcpHandler(() => {
         onServer();
-        const mcp = new McpServer({ name: 'skills-http', version: '1.0.0' });
-        catalog.attach(mcp);
-        return mcp;
+        return new McpServer({ name: 'skills-http', version: '1.0.0' }, { extensions: [catalog] });
     });
     const client = clientFor(revision);
     await client.connect(
@@ -166,14 +164,9 @@ describe('one catalog behind per-request HTTP servers', () => {
     it('tells listen streams about a listing change through handler.notify, which reload() alone cannot reach', async () => {
         const editable = await writeSkillTree();
         const own = await loadSkills(editable, { onWarning: () => {} });
-        const handler = createMcpHandler(
-            () => {
-                const mcp = new McpServer({ name: 'skills-http', version: '1.0.0' });
-                own.attach(mcp);
-                return mcp;
-            },
-            { keepAliveMs: 0 }
-        );
+        const handler = createMcpHandler(() => new McpServer({ name: 'skills-http', version: '1.0.0' }, { extensions: [own] }), {
+            keepAliveMs: 0
+        });
         const client = clientFor(MODERN);
         await client.connect(
             new StreamableHTTPClientTransport(new URL('http://localhost/mcp'), {

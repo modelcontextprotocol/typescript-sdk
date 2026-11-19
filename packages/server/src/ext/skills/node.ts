@@ -59,7 +59,7 @@ export function nodeSkillFiles(root: string): SkillFiles {
  * @example
  * ```ts
  * const skills = await loadSkills('./skills');
- * skills.attach(mcp);
+ * const server = new McpServer(info, { extensions: [skills] });
  * ```
  */
 export function loadSkills(root: string, options?: SkillCatalogOptions): Promise<SkillCatalog> {
