@@ -122,9 +122,12 @@ export class PollSource implements SubscriptionSource {
     readonly #leases: LeaseTable<PollLease>;
     // First-sight onSubscribe calls in flight, so a concurrent poll for the same lease waits for the outcome.
     readonly #starting = new Map<string, Promise<void>>();
+    // The longest `nextPollMs` sent, so a client that waits it polls before its lease lapses.
+    readonly #maxNextPollMs: number;
 
     constructor(deps: PollDeps) {
         this.#deps = deps;
+        this.#maxNextPollMs = Math.floor(deps.pollSubscriptionTtlMs / 2);
         this.#leases = new LeaseTable<PollLease>(deps.pollSubscriptionTtlMs, lease => {
             if (lease.terminated === undefined) void this.#unsubscribe(lease);
         });
@@ -132,6 +135,10 @@ export class PollSource implements SubscriptionSource {
 
     get size(): number {
         return this.#leases.size;
+    }
+
+    countOf(principal: string | null): number {
+        return this.#leases.countOf(principal);
     }
 
     async handlePoll(params: PollEventsRequestParams, ctx: ServerContext): Promise<PollEventsResult> {
@@ -160,11 +167,11 @@ export class PollSource implements SubscriptionSource {
             });
             const checked = await Promise.all(read.events.map(occurrence => checkedSelection(entry, occurrence, this.#deps.report)));
             const events = checked.filter((occurrence): occurrence is EventOccurrence => occurrence !== undefined);
-            return { ...read, events, nextPollMs: this.#deps.defaultNextPollMs };
+            return { ...read, events, nextPollMs: this.#nextPollMs(undefined) };
         }
 
         const result = await check(makeContext({ ...fields, maxEvents, maxAgeMs: params.maxAgeMs }), args, cursor);
-        const nextPollMs = result.nextPollMs ?? this.#deps.defaultNextPollMs;
+        const nextPollMs = this.#nextPollMs(result.nextPollMs);
         // `null` starts from now on a new lease or for a type with replay; on a lease's later polls a type without replay gets its events.
         if (cursor === null && (created || result.cursor !== null)) {
             return { events: [], cursor: result.cursor, truncated: false, hasMore: false, nextPollMs };
@@ -191,6 +198,12 @@ export class PollSource implements SubscriptionSource {
         this.#starting.clear();
     }
 
+    // Whole milliseconds, at least 0 and at most #maxNextPollMs; anything but a finite number sends the default.
+    #nextPollMs(value: number | undefined): number {
+        const ms = typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.ceil(value)) : this.#deps.defaultNextPollMs;
+        return Math.min(ms, this.#maxNextPollMs);
+    }
+
     // A terminated lease answers its error once, then is gone.
     #throwTerminated(key: string): void {
         const terminated = this.#leases.get(key)?.terminated;
@@ -209,7 +222,7 @@ export class PollSource implements SubscriptionSource {
         const pending = this.#starting.get(key);
         // Await only a pending start: an unconditional await would let a concurrent first poll in before `touch`.
         if (pending !== undefined) await pending;
-        if (this.#leases.get(key) === undefined) this.#deps.validator.assertCapacity();
+        if (this.#leases.get(key) === undefined) this.#deps.validator.assertCapacity(principal);
         const { lease, created } = this.#leases.touch(key, () => ({
             subscriptionId: globalThis.crypto.randomUUID(),
             name: entry.name,

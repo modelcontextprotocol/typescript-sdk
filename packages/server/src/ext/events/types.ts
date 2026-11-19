@@ -70,7 +70,10 @@ export interface EventResult<P = Record<string, unknown>> {
     events: EventInput<P>[];
     /** Where the next `check` resumes; `null` when the upstream cannot resume. */
     cursor: string | null;
-    /** How long a poll client should wait before polling again. */
+    /**
+     * How long a poll client should wait before polling again. It is sent rounded up to whole milliseconds and at
+     * most half of `pollSubscriptionTtlMs`; a value that is not a finite number sends `defaultNextPollMs`.
+     */
     nextPollMs?: number;
     /** The upstream lost history since the cursor it was given. Ignored with `cursor: null`, which has no position to skip past. */
     truncated?: boolean;
@@ -110,7 +113,11 @@ export interface CheckEventDefinition<I extends StandardSchemaWithJSON, P extend
      * a call with `cursor: null` whose events the SDK drops: it takes only the cursor returned. A type without
      * replay returns `cursor: null`, so after that first call the SDK calls `check` with `null` every time and
      * sends the events each call returns: return what happened since the previous call for the same
-     * `ctx.subscriptionId`.
+     * `ctx.subscriptionId`. Poll serves such a type one subscription per lease (principal, event name and
+     * arguments), so clients that share a lease, as every caller does on a server without `getPrincipal`,
+     * split its events between them, and a client's first poll on an existing lease can return events from
+     * before it subscribed. A poll client that waits longer than `pollSubscriptionTtlMs` between polls starts
+     * a new lease each time and gets nothing. Clients that need every event use push or webhook.
      */
     check(ctx: CheckContext, args: InferOutput<I>, cursor: string | null): EventResult<InferInput<P>> | Promise<EventResult<InferInput<P>>>;
     match?: never;
@@ -119,7 +126,8 @@ export interface CheckEventDefinition<I extends StandardSchemaWithJSON, P extend
 
 /**
  * An event type fed by `emit()` on its handle. Poll clients read a bounded
- * in-memory buffer; events emitted before a restart are lost, and so is
+ * in-memory buffer, and push and webhook subscriptions that pass a cursor
+ * replay it first; events emitted before a restart are lost, and so is
  * anything older than the buffer holds.
  *
  * Experimental: Events (SEP-3415) is new; this API may change in a minor release.
@@ -247,8 +255,9 @@ export interface WebhookSubscriptionRecord {
 /**
  * Where webhook subscriptions live. Records hold webhook secrets: protect the
  * storage accordingly. The SDK treats a record with `expiresAt <= now` as
- * expired: it deletes it and calls the event type's `onUnsubscribe`. Several
- * server replicas may share one store.
+ * expired: it deletes it and calls the event type's `onUnsubscribe`, so a
+ * store that drops records itself should keep each one a while past
+ * `expiresAt`. Several server replicas may share one store.
  *
  * Experimental: Events (SEP-3415) is new; this API may change in a minor release.
  *
@@ -265,7 +274,8 @@ export interface WebhookSubscriptionStore {
 /**
  * Options for `new EventsExtension(options)`. Durations are in milliseconds;
  * every number must be positive and finite, and the counts
- * (`maxSubscriptions`, `emitBuffer.maxEvents`) whole numbers.
+ * (`maxSubscriptions`, `emitBuffer.maxEvents`) and the durations clients
+ * receive (`webhookTtlMs`, `heartbeatMs`, `defaultNextPollMs`) whole numbers.
  *
  * Experimental: Events (SEP-3415) is new; this API may change in a minor release.
  *
@@ -282,19 +292,22 @@ export interface EventsOptions {
     trustedOrigins?: readonly string[];
     /** Who the request is from. Required for webhook delivery; poll and push use it when set. There is no default. */
     getPrincipal?: (ctx: ServerContext) => string | null | Promise<string | null>;
-    /** Bounds of the in-memory buffer that emit-only event types are polled from. */
+    /** Bounds of the in-memory buffer that emit-only event types are polled and replayed from. */
     emitBuffer?: { maxAgeMs?: number; maxEvents?: number };
-    /** How long a poll subscription lives without a poll. */
+    /** How long a poll subscription lives without a poll. Every `nextPollMs` sent is at most half of it. */
     pollSubscriptionTtlMs?: number;
     /** The push heartbeat interval granted when the client suggests none, and the longest granted. */
     heartbeatMs?: number;
     /** How often `check` runs for push and webhook subscriptions. */
     checkIntervalMs?: number;
-    /** The `nextPollMs` sent when `check` gives none. */
+    /** The `nextPollMs` sent when `check` gives none, capped at half of `pollSubscriptionTtlMs`; setting it over that half throws `TypeError`. */
     defaultNextPollMs?: number;
     /**
      * The most subscriptions this process serves at once, counting poll leases, push streams and the webhook
-     * subscriptions whose subscribe or refresh it handled or is still creating; more are refused with `resourceExhausted`.
+     * subscriptions whose subscribe or refresh it handled or is still creating; more are refused with `resourceExhausted`
+     * (`data.limit: 'subscriptions'`). With `getPrincipal` set, each principal may hold a quarter of them (at least
+     * one), and so may all callers without a principal together; more are refused with
+     * `data.limit: 'principalSubscriptions'`. Without `getPrincipal` only the process-wide limit applies.
      * @default 1024
      */
     maxSubscriptions?: number;

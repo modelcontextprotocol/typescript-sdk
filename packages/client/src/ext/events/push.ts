@@ -12,6 +12,7 @@ import {
 } from '@modelcontextprotocol/core/ext/events';
 import type { JSONRPCNotification } from '@modelcontextprotocol/core-internal';
 import { ProtocolError, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core-internal';
+import { DEFAULT_REQUEST_TIMEOUT_MSEC, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal/public';
 import type * as z from 'zod/v4';
 
 import type { StreamEnd, StreamHandle } from '../../client/client';
@@ -54,6 +55,7 @@ export class PushDriver<T> implements Driver {
     #end: ((ending: Ending) => void) | undefined;
     // The open stream's heartbeat grant, from its last `active`.
     #grantMs: number | undefined;
+    // Until the first valid `active`, the wait for it; from then on, the countdown to declaring the stream dead.
     #dead: ReturnType<typeof setTimeout> | undefined;
 
     constructor(context: DriverContext<T>) {
@@ -119,6 +121,21 @@ export class PushDriver<T> implements Driver {
                 resolve(ending);
             };
             this.#end = end;
+            // Bounded as listen() bounds its ack: with no valid `active` in time, the stream fails as a timed-out request does.
+            this.#dead = setTimeout(
+                () =>
+                    this.#fault(
+                        end,
+                        new SdkError(
+                            SdkErrorCode.RequestTimeout,
+                            `${EVENTS_STREAM_METHOD}: no valid ${EVENTS_ACTIVE_NOTIFICATION} in time`,
+                            {
+                                timeout: DEFAULT_REQUEST_TIMEOUT_MSEC
+                            }
+                        )
+                    ),
+                DEFAULT_REQUEST_TIMEOUT_MSEC
+            );
             try {
                 this.#handle = clientInternals.openStream(
                     connection.client,
@@ -142,7 +159,11 @@ export class PushDriver<T> implements Driver {
         switch (notification.method) {
             case EVENTS_ACTIVE_NOTIFICATION: {
                 const params = this.#parse(EventsActiveNotificationParamsSchema, notification);
-                if (params !== undefined) this.#active(params);
+                if (params === undefined) {
+                    this.#fault(end, new SdkError(SdkErrorCode.InvalidResult, `Invalid ${EVENTS_ACTIVE_NOTIFICATION} params`));
+                    return;
+                }
+                this.#active(params);
                 break;
             }
             case EVENTS_EVENT_NOTIFICATION: {
@@ -183,13 +204,13 @@ export class PushDriver<T> implements Driver {
     #alive(end: (ending: Ending) => void): void {
         if (this.#grantMs === undefined || this.#end !== end) return;
         clearTimeout(this.#dead);
-        this.#dead = setTimeout(
-            () => {
-                end({});
-                void this.#handle?.close();
-            },
-            Math.min(DEAD_AFTER_HEARTBEATS * this.#grantMs, MAX_TIMER_DELAY_MS)
-        );
+        this.#dead = setTimeout(() => this.#fault(end, undefined), Math.min(DEAD_AFTER_HEARTBEATS * this.#grantMs, MAX_TIMER_DELAY_MS));
+    }
+
+    // Ends the open stream from this side, with `error` for the recovery to judge, and closes its request.
+    #fault(end: (ending: Ending) => void, error: unknown): void {
+        end(error === undefined ? {} : { error });
+        void this.#handle?.close();
     }
 
     // The frame's params, or `undefined` (reported to onerror) when they do not match the schema.

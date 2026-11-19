@@ -21,7 +21,7 @@ import type { BufferedEvent, EmitBuffer } from './emitBuffer';
 import type { SubscriptionSource } from './extension';
 import { checkedEvents, checkedSelection, selectEvent } from './poll';
 import type { RegisteredEvent } from './registry';
-import type { CheckContext, EventResult } from './types';
+import type { CheckContext, EventContext, EventResult } from './types';
 import type { SubscriptionValidator } from './validation';
 
 // The shortest heartbeat granted, whatever the client suggests (D33).
@@ -126,6 +126,34 @@ export async function startCheck(
     return checkedBatch(entry, from, result, maxAgeMs, report);
 }
 
+// Where an emit-only type starts: `null` is the buffer head, a cursor replays the buffer since it, each event at its own position.
+export function replayBuffer(
+    buffer: EmitBuffer,
+    entry: RegisteredEvent,
+    ctx: EventContext,
+    args: Record<string, unknown>,
+    from: string | null,
+    maxAgeMs: number | undefined,
+    report: (error: unknown) => void
+): Batch {
+    const { name } = entry;
+    if (from === null) {
+        const head = buffer.head(name);
+        return { cursor: head, truncated: false, events: [], position: head };
+    }
+    const select = (buffered: BufferedEvent) => selectEvent(entry, ctx, args, buffered, report);
+    // `maxEvents: 0` finds where replay starts (after a gap or the `maxAgeMs` floor) without reading an event.
+    const start = buffer.read(name, from, { maxEvents: 0, maxAgeMs, select });
+    const events: EventOccurrence[] = [];
+    let { cursor: position, hasMore } = start;
+    while (hasMore) {
+        const read = buffer.read(name, position, { maxEvents: 1, select });
+        for (const occurrence of read.events) events.push({ ...occurrence, cursor: read.cursor });
+        ({ cursor: position, hasMore } = read);
+    }
+    return { cursor: events.length === 0 ? position : start.cursor, truncated: start.truncated, events, position };
+}
+
 // `events/stream`: one long-lived request per subscription, answered with `notifications/events/*` until it ends (SEP-3415 §Push).
 export class StreamSet implements SubscriptionSource {
     readonly #deps: PushDeps;
@@ -139,9 +167,15 @@ export class StreamSet implements SubscriptionSource {
         return this.#streams.size;
     }
 
+    countOf(principal: string | null): number {
+        let count = 0;
+        for (const stream of this.#streams) if (stream.ctx.principal === principal) count += 1;
+        return count;
+    }
+
     async open(params: StreamEventsRequestParams, ctx: ServerContext): Promise<StreamEventsResult> {
         const { entry, principal, args } = await this.#deps.validator.validate('push', params, ctx);
-        this.#deps.validator.assertCapacity();
+        this.#deps.validator.assertCapacity(principal);
         const stream = this.#create(entry, principal, args, params, ctx);
         const result = { _meta: { [SUBSCRIPTION_ID_META_KEY]: ctx.mcpReq.id } };
         try {
@@ -168,7 +202,9 @@ export class StreamSet implements SubscriptionSource {
         }
         // Synchronous from the replay read to going live, so no emit falls between them.
         stream.live = true;
-        this.#send(stream, checked ?? this.#replay(stream, params), true);
+        const { buffer, report } = this.#deps;
+        const from = params.cursor ?? null;
+        this.#send(stream, checked ?? replayBuffer(buffer, stream.entry, stream.ctx, stream.args, from, params.maxAgeMs, report), true);
         this.#scheduleCheck(stream);
         await stream.done;
         return result;
@@ -243,28 +279,6 @@ export class StreamSet implements SubscriptionSource {
         return stream;
     }
 
-    // Where an emit-only type starts: `null` is the buffer head, a cursor replays the buffer since it, each event at its own position.
-    #replay(stream: PushStream, params: StreamEventsRequestParams): Batch {
-        const { buffer, report } = this.#deps;
-        const { name } = stream.entry;
-        const from = params.cursor ?? null;
-        if (from === null) {
-            const head = buffer.head(name);
-            return { cursor: head, truncated: false, events: [], position: head };
-        }
-        const select = (buffered: BufferedEvent) => selectEvent(stream.entry, stream.ctx, stream.args, buffered, report);
-        // `maxEvents: 0` finds where replay starts (after a gap or the `maxAgeMs` floor) without reading an event.
-        const start = buffer.read(name, from, { maxEvents: 0, maxAgeMs: params.maxAgeMs, select });
-        const events: EventOccurrence[] = [];
-        let { cursor: position, hasMore } = start;
-        while (hasMore) {
-            const read = buffer.read(name, position, { maxEvents: 1, select });
-            for (const occurrence of read.events) events.push({ ...occurrence, cursor: read.cursor });
-            ({ cursor: position, hasMore } = read);
-        }
-        return { cursor: events.length === 0 ? position : start.cursor, truncated: start.truncated, events, position };
-    }
-
     #send(stream: PushStream, batch: Batch, active: boolean): void {
         if (active) {
             this.#write(stream, EVENTS_ACTIVE_NOTIFICATION, {
@@ -305,14 +319,15 @@ export class StreamSet implements SubscriptionSource {
         this.#scheduleCheck(stream);
     }
 
-    // Params that resolve to `undefined` (a dropped event) send nothing.
+    // Params that resolve to `undefined` (a dropped event) send nothing; an event's own `_meta` keys stay beside the stream's id.
     #write(stream: PushStream, method: string, params: Record<string, unknown> | Promise<Record<string, unknown> | undefined>): void {
-        const _meta = { [SUBSCRIPTION_ID_META_KEY]: stream.requestId };
         // A failed write means the client is gone.
         stream.queue = stream.queue
             .then(async () => {
                 const resolved = await params;
-                if (resolved !== undefined) await stream.notify({ method, params: { ...resolved, _meta } });
+                if (resolved === undefined) return;
+                const _meta = { ...(resolved._meta as Record<string, unknown> | undefined), [SUBSCRIPTION_ID_META_KEY]: stream.requestId };
+                await stream.notify({ method, params: { ...resolved, _meta } });
             })
             .catch(() => void this.#end(stream));
         if (!stream.live) return;

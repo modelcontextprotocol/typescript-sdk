@@ -122,13 +122,25 @@ describe('options', () => {
         expect(() => new EventsExtension({ webhookTtlMs: value, webhookSender, getPrincipal: () => 'alice' })).toThrow(TypeError);
     });
 
-    it.each([1.5, 0.5])('refuses %s for a count option', value => {
+    it.each([1.5, 0.5])('refuses %s for a count option and for a duration clients receive', value => {
         expect(() => new EventsExtension({ maxSubscriptions: value })).toThrow(/maxSubscriptions must be a positive integer/);
         expect(() => new EventsExtension({ emitBuffer: { maxEvents: value } })).toThrow(TypeError);
-        expect(() => new EventsExtension({ heartbeatMs: value })).not.toThrow();
+        expect(() => new EventsExtension({ heartbeatMs: value })).toThrow(/heartbeatMs must be a positive integer/);
+        expect(() => new EventsExtension({ defaultNextPollMs: value })).toThrow(TypeError);
+        expect(() => new EventsExtension({ webhookTtlMs: value, webhookSender, getPrincipal: () => 'alice' })).toThrow(TypeError);
+        expect(() => new EventsExtension({ checkIntervalMs: value, pollSubscriptionTtlMs: 60_000 + value })).not.toThrow();
     });
 
-    it('serves at most 1024 subscriptions by default', async () => {
+    it('refuses a defaultNextPollMs set over half of pollSubscriptionTtlMs, and caps a defaulted one instead', () => {
+        expect(() => new EventsExtension({ pollSubscriptionTtlMs: 10_000, defaultNextPollMs: 5001 })).toThrow(
+            'defaultNextPollMs (5001) must be at most half of pollSubscriptionTtlMs (10000)'
+        );
+        expect(() => new EventsExtension({ pollSubscriptionTtlMs: 10_001, defaultNextPollMs: 5001 })).toThrow(TypeError);
+        expect(() => new EventsExtension({ pollSubscriptionTtlMs: 10_000, defaultNextPollMs: 5000 })).not.toThrow();
+        expect(() => new EventsExtension({ pollSubscriptionTtlMs: 50_000 })).not.toThrow();
+    });
+
+    it('serves at most 1024 subscriptions by default, and without getPrincipal no share limits them', async () => {
         const events = new EventsExtension();
         events.registerEvent('tick', { payloadSchema: P, check: tick });
         const { rpc } = serve(events);
@@ -138,6 +150,27 @@ describe('options', () => {
             data: { limit: 'subscriptions', max: 1024 }
         });
         resultOf(await rpc('events/poll', { name: 'tick', arguments: { n: 0 } }));
+    });
+
+    it('serves 256 subscriptions of the default 1024 to each principal when getPrincipal is set', async () => {
+        const events = new EventsExtension({ getPrincipal: ctx => (ctx.http?.authInfo?.extra?.sub as string | undefined) ?? null });
+        events.registerEvent('tick', { payloadSchema: P, check: tick });
+        const as = (sub: string) => serve(events, { authInfo: { token: 'tok', clientId: 'client', scopes: [], extra: { sub } } }).rpc;
+        const fill = async (rpc: ReturnType<typeof as>) => {
+            for (let n = 0; n < 256; n++) resultOf(await rpc('events/poll', { name: 'tick', arguments: { n } }));
+        };
+        const u1 = as('u1');
+        await fill(u1);
+        expect(errorOf(await u1('events/poll', { name: 'tick', arguments: { n: 256 } }))).toMatchObject({
+            code: -32_025,
+            data: { limit: 'principalSubscriptions', max: 256 }
+        });
+        for (const sub of ['u2', 'u3', 'u4']) await fill(as(sub));
+        expect(errorOf(await as('u5')('events/poll', { name: 'tick', arguments: { n: 0 } }))).toMatchObject({
+            code: -32_025,
+            data: { limit: 'subscriptions', max: 1024 }
+        });
+        resultOf(await u1('events/poll', { name: 'tick', arguments: { n: 0 } }));
     });
 
     it('accepts only exact origins as trustedOrigins', () => {

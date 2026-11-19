@@ -233,8 +233,10 @@ function sharedWebhookStore(kv: SharedKeyValue): WebhookSubscriptionStore {
     return {
         get: read,
         async put(record) {
-            await kv.set(`events:sub:${record.id}`, JSON.stringify(record), record.expiresAt);
-            await kv.set(`events:name:${record.name}:${record.id}`, '', record.expiresAt);
+            // A minute past expiresAt, so the SDK's expiry timer still reads the record and runs onUnsubscribe.
+            const keepUntil = record.expiresAt + 60_000;
+            await kv.set(`events:sub:${record.id}`, JSON.stringify(record), keepUntil);
+            await kv.set(`events:name:${record.name}:${record.id}`, '', keepUntil);
         },
         async delete(id) {
             const record = await read(id);

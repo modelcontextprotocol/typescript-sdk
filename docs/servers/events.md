@@ -41,6 +41,8 @@ Clients subscribe by poll (`events/poll`) or push (`events/stream`), or by webho
 
 Clients resume from their cursor after a disconnect or a restart, for as long as your upstream accepts it. A `check` that returns `cursor: null` marks a type that cannot resume. The SDK then calls `check` with `cursor: null` every time: it drops the events of a subscription's first call, as for any subscription that starts now, and sends the events of every later call, so return what happened since the previous call for the same `ctx.subscriptionId`. The SDK never reports `truncated` for such a type, and ignores `maxAgeMs` for it.
 
+Poll serves such a type one subscription per lease, keyed by principal, event name and arguments: clients that share a lease (every caller on a server without `getPrincipal`, or one user's several clients) split its events between them, and a client's first poll on an existing lease can return events from before it subscribed. The SDK caps every `nextPollMs` it sends at half of `pollSubscriptionTtlMs`, how long a lease lives without a poll (5 minutes by default), but a client that polls less often than that starts a new lease each time and gets nothing. Clients that need every event use push or webhook.
+
 ::: info
 Events is served on protocol 2026-07-28 only; a 2025-11-25 connection sees no Events capability and gets `-32601` for `events/*` — see [Protocol versions](../protocol-versions.md).
 :::
@@ -73,7 +75,7 @@ await incidents.emit({ eventId: 'INC-7', data: { incidentId: 'INC-7', title: 'Ch
 
 `emit()` sends the event to every subscription that `match` accepts, or to one with `emit(event, { subscriptionId })`; `transform` reshapes it per subscription. The SDK drops an event whose `data` fails `payloadSchema`, or whose `transform` output does, and reports it to `onerror`, for both kinds.
 
-Poll clients read emit-only events from an in-memory buffer (`emitBuffer`, by default the last 10 minutes and at most 10 000 events), so events emitted before a restart are lost. `onSubscribe` and `onUnsubscribe` run as a subscription starts and ends, in every mode, and `ctx.subscriptionId` names it.
+Poll clients read emit-only events from an in-memory buffer (`emitBuffer`, by default the last 10 minutes and at most 10 000 events), so events emitted before a restart are lost. Push and webhook subscriptions that pass a cursor replay that buffer first. `onSubscribe` and `onUnsubscribe` run as a subscription starts and ends, in every mode, and `ctx.subscriptionId` names it.
 
 ## Serve the event types from every server
 
@@ -91,7 +93,7 @@ A push stream carries no SSE comment keepalive. The server sends `notifications/
 
 Both hold under `createMcpHandler`. A custom HTTP entry built directly on `PerRequestHTTPServerTransport` must stream `events/stream` itself: serve it with `responseMode` `'auto'` or `'sse'`, never `'json'`, and the transport's `keepAliveMs` applies to it as to any stream.
 
-One `EventsExtension` serves at most `maxSubscriptions` subscriptions at once, 1024 by default, counting its poll leases, push streams and the webhook subscriptions this process handles; it refuses more with `resourceExhausted`.
+One `EventsExtension` serves at most `maxSubscriptions` subscriptions at once, 1024 by default, counting its poll leases, push streams and the webhook subscriptions this process handles; it refuses more with `resourceExhausted` (`data.limit: 'subscriptions'`). With `getPrincipal` set, each principal may hold a quarter of them, and so may all callers without a principal together, refused past that with `data.limit: 'principalSubscriptions'`; without `getPrincipal` only the process-wide limit applies.
 
 ## Deliver events to webhooks
 
@@ -116,7 +118,7 @@ const webhookEvents = new EventsExtension({
 
 Setting `webhookTtlMs` or `webhookSender` without the other two throws `TypeError`. `getPrincipal` has no default, since `AuthInfo` has no subject field: return the user from wherever your token verifier puts it. A webhook subscription for which `getPrincipal` returns `null` is refused with `forbidden`, on stdio too; poll and push use the principal when there is one.
 
-`webhookTtlMs` is the longest a webhook subscription lives without a refresh, and clients refresh before it lapses. The SDK verifies each endpoint with a challenge before the first delivery, signs every POST (Standard Webhooks), and retries a failed delivery up to five attempts in all. It sends each destination host one challenge at a time and at most ten in any 60 seconds, refusing a subscribe past that with `resourceExhausted` (`data.retryAfterMs` says when to try again), and answers a principal's subscribes to a URL whose challenge failed with that failure for 60 seconds, without another challenge. `nodeWebhookSender()` requires `https`, resolves the host at every send, refuses IANA special-purpose addresses (loopback, private, link-local and the like) and connects to the address it checked; it follows no redirects and gives up after 5 seconds.
+`webhookTtlMs` is the longest a webhook subscription lives without a refresh, and clients refresh before it lapses. The SDK verifies each endpoint with a challenge before the first delivery, signs every POST (Standard Webhooks), and retries a failed delivery up to five attempts in all. It sends each destination host one challenge at a time, so a subscribe waits while another challenge to that host is in flight, and at most ten in any 60 seconds; past that, or when ten subscribes already wait for the host, it refuses with `resourceExhausted` (`data.limit: 'verification'`; `data.retryAfterMs` says when to try again, and the SDK's client does). It answers a principal's subscribes to a URL whose challenge failed with that failure for 60 seconds, without another challenge. `nodeWebhookSender()` requires `https`, resolves the host at every send by querying DNS directly (so `/etc/hosts` does not apply; origins in `trustedOrigins` skip resolution), refuses IANA special-purpose addresses (loopback, private, link-local and the like) and connects to the address it checked; it follows no redirects and gives up after 5 seconds.
 
 ::: warning
 `trustedOrigins` is for development only. Its exact origins, such as `http://127.0.0.1:9000`, are exempt from the `https` rule and the private-address check, so a receiver on your machine can take deliveries; endpoint verification, signing and the no-redirect rule still apply.
@@ -146,8 +148,10 @@ function sharedWebhookStore(kv: SharedKeyValue): WebhookSubscriptionStore {
     return {
         get: read,
         async put(record) {
-            await kv.set(`events:sub:${record.id}`, JSON.stringify(record), record.expiresAt);
-            await kv.set(`events:name:${record.name}:${record.id}`, '', record.expiresAt);
+            // A minute past expiresAt, so the SDK's expiry timer still reads the record and runs onUnsubscribe.
+            const keepUntil = record.expiresAt + 60_000;
+            await kv.set(`events:sub:${record.id}`, JSON.stringify(record), keepUntil);
+            await kv.set(`events:name:${record.name}:${record.id}`, '', keepUntil);
         },
         async delete(id) {
             const record = await read(id);
@@ -173,13 +177,13 @@ const replicated = new EventsExtension({
 });
 ```
 
-Records hold each subscription's webhook secret, so protect the store as you protect credentials. The SDK deletes an expired record when it next reads it, or when the expiry timer of the replica that last granted it fires. A record that a stopped replica left behind stays until something reads it, so let the store expire records too, as the `expiresAt` passed to `set()` above does (with Redis, a key TTL).
+Records hold each subscription's webhook secret, so protect the store as you protect credentials. The SDK deletes an expired record when it next reads it, or when the expiry timer of the replica that last granted it fires, and runs `onUnsubscribe` then. The store above keeps each record a minute past its `expiresAt`, because a record the database has already dropped is gone when that timer reads it, and `onUnsubscribe` never runs for it. A record that a stopped replica left behind stays until something reads it, so let the store expire records too, as the expiry passed to `set()` above does (with Redis, a key TTL).
 
 A replica runs `onUnsubscribe` after its `delete()` resolved `true`. Replicas racing on a store whose `delete()` is not atomic may each run it for one subscription, so keep `onUnsubscribe` idempotent.
 
 With a shared store, webhook subscribe, refresh, secret rotation and unsubscribe work on any replica, and `emit()` on any replica reaches every matching webhook subscription. Some state stays on one process:
 
-- `emit()` reaches push streams and the poll buffer on the emitting process only. A poll that lands on another replica gets `truncated: true` and a fresh cursor.
+- `emit()` reaches push streams and the poll buffer on the emitting process only. A poll, or a webhook subscribe that resumes from a cursor, that lands on another replica gets `truncated: true` and a fresh cursor.
 - A webhook subscription to a `check` type runs its `check` loop on every replica that handled its subscribe or a refresh, so its receiver may get an event more than once (same `eventId`, different `webhook-id`); the SDK's client drops the repeats by `eventId`. Prefer emit-only types for webhook subscribers, or run one replica.
 - `remove()` on one replica may skip `onUnsubscribe` for subscriptions another replica handled.
 - Retries, the delivery watermark and `deliveryStatus` stay with the replica that delivers.

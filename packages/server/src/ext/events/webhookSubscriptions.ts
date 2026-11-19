@@ -12,7 +12,7 @@ import type { BufferedEvent, EmitBuffer } from './emitBuffer';
 import type { SubscriptionSource } from './extension';
 import { checkedSelection, selectEvent } from './poll';
 import type { Batch } from './push';
-import { checkedBatch, errorObject, startCheck, TERMINAL_KINDS } from './push';
+import { checkedBatch, errorObject, replayBuffer, startCheck, TERMINAL_KINDS } from './push';
 import type { EventRegistry, RegisteredEvent } from './registry';
 import type { CheckContext, WebhookSender, WebhookSubscriptionRecord, WebhookSubscriptionStore } from './types';
 import type { SubscriptionValidator, ValidSubscription } from './validation';
@@ -66,6 +66,9 @@ interface Watched {
 interface Subscribing {
     readonly id: string;
     readonly name: string;
+    readonly principal: string;
+    // Aborts when the client cancels the request.
+    readonly signal: AbortSignal;
     // A termination that reached it meanwhile, which the request applies before or after its write.
     terminated?: EventsError;
 }
@@ -149,6 +152,14 @@ export class WebhookSubscriptions implements SubscriptionSource {
         return this.#watched.size + this.#starting.size;
     }
 
+    // Those of them `principal` holds.
+    countOf(principal: string | null): number {
+        let count = 0;
+        for (const watched of this.#watched.values()) if (watched.ctx.principal === principal) count += 1;
+        for (const subscribing of this.#starting) if (subscribing.principal === principal) count += 1;
+        return count;
+    }
+
     // Subscriptions this process watches (an expiry timer each), after handling their subscribe or refresh.
     get watching(): number {
         return this.#watched.size;
@@ -170,7 +181,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
         // validate('webhook', …) refuses a request without a principal.
         const id = await subscriptionIdOf(valid.principal!, url, valid.entry.name, params.arguments ?? {});
         const ttl = grantMs(params.ttlMs, this.#deps.webhookTtlMs);
-        const subscribing: Subscribing = { id, name: valid.entry.name };
+        const subscribing: Subscribing = { id, name: valid.entry.name, principal: valid.principal!, signal: ctx.mcpReq.signal };
         this.#subscribing.add(subscribing);
         try {
             return await enqueue(this.#byId, id, async () => {
@@ -261,11 +272,11 @@ export class WebhookSubscriptions implements SubscriptionSource {
         const { url, secret } = params.delivery;
         // A watch left over here belongs to a subscription that ended elsewhere: its record is gone.
         this.#release(id);
-        this.#deps.validator.assertCapacity();
+        this.#deps.validator.assertCapacity(principal);
         // Counted from the quota check on, so concurrent creates cannot all pass it; the watch takes the count over in one step.
         this.#starting.add(subscribing);
         try {
-            await this.#engine.verify(principal, url, secret, id);
+            await this.#engine.verify(principal, url, secret, id, subscribing.signal);
             const watched = this.#watch(id, entry, principal);
             try {
                 await entry.definition.onSubscribe?.(watched.ctx, args);
@@ -291,7 +302,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
                 start =
                     entry.kind === 'check'
                         ? await this.#startCheck(record, watched, from, params.maxAgeMs, subscribing)
-                        : await enqueue(this.#byName, entry.name, () => this.#startEmitOnly(record, from, subscribing));
+                        : await this.#startEmitOnly(record, watched, from, params.maxAgeMs, subscribing);
                 const terminated = takeTermination(subscribing);
                 if (terminated !== undefined) {
                     await this.#deps.store.delete(id);
@@ -331,14 +342,25 @@ export class WebhookSubscriptions implements SubscriptionSource {
         return start;
     }
 
-    // Runs in line with the fan-out: an emit either comes before the head read here or finds the stored record. Nothing is replayed.
-    async #startEmitOnly(record: WebhookSubscriptionRecord, from: string | null, subscribing: Subscribing): Promise<Batch> {
-        const terminated = takeTermination(subscribing);
-        if (terminated !== undefined) throw terminated;
-        const head = this.#deps.buffer.head(record.name);
-        this.#engine.track(record.id, head);
-        await this.#deps.store.put(record);
-        return { cursor: head, truncated: from !== null && from !== head, events: [], position: head };
+    // Reads the replay as it queues behind the fan-out, so an emit is either replayed or finds the stored record; the replay reaches the engine before the next fan-out.
+    #startEmitOnly(
+        record: WebhookSubscriptionRecord,
+        watched: Watched,
+        from: string | null,
+        maxAgeMs: number | undefined,
+        subscribing: Subscribing
+    ): Promise<Batch> {
+        const { buffer, report } = this.#deps;
+        const replay = replayBuffer(buffer, watched.entry, watched.ctx, record.arguments, from, maxAgeMs, report);
+        return enqueue(this.#byName, record.name, async () => {
+            const terminated = takeTermination(subscribing);
+            if (terminated !== undefined) throw terminated;
+            this.#engine.track(record.id, replay.cursor);
+            await this.#deps.store.put(record);
+            const checked = await Promise.all(replay.events.map(event => checkedSelection(watched.entry, event, report)));
+            for (const event of checked) if (event !== undefined) this.#engine.deliver(record, event, event.cursor ?? null, replay.cursor);
+            return { ...replay, events: [] };
+        });
     }
 
     // A new grant and a rotated secret; the client's cursor seeds the watermark only where this process tracks none.

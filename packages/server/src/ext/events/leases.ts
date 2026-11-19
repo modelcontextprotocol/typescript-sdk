@@ -44,6 +44,13 @@ export class LeaseTable<L extends Lease = Lease> {
         return this.#slots.get(key)?.lease;
     }
 
+    // The leases `principal` holds.
+    countOf(principal: string | null): number {
+        let count = 0;
+        for (const { lease } of this.#slots.values()) if (lease.principal === principal) count += 1;
+        return count;
+    }
+
     touch(key: string, create: () => L): { lease: L; created: boolean } {
         const existing = this.#slots.get(key);
         if (existing !== undefined) {

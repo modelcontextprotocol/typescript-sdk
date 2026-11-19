@@ -9,11 +9,15 @@ import type { IncomingMessage } from 'node:http';
 import http from 'node:http';
 import https from 'node:https';
 import type { LookupFunction } from 'node:net';
+import net from 'node:net';
 
 import { isSpecialPurposeAddress } from './specialAddresses';
 import type { WebhookSender, WebhookSendOutcome, WebhookSendRequest } from './types';
 
 const TIMEOUT_MS = 5000;
+// The resolver's timeout per query and its tries per name server; the 5 s deadline cancels whatever resolution is left.
+const RESOLVE_TIMEOUT_MS = 1000;
+const RESOLVE_TRIES = 2;
 const MAX_RESPONSE_BYTES = 65_536;
 const REFUSED: WebhookSendOutcome = { error: 'connection_refused' };
 // OpenSSL certificate and verification codes, Node's TLS and OpenSSL error codes, and EPROTO, which Node reports for a failed TLS handshake.
@@ -22,13 +26,14 @@ const TLS_FAILURE_CODE = /CERT|UNABLE_TO_VERIFY|INVALID_CA|SELF_SIGNED|DEPTH_ZER
 /**
  * The default {@linkcode WebhookSender} for Node.js, hardened against
  * server-side request forgery. Unless the URL's origin is in `trustedOrigins`,
- * it requires `https`, resolves the host at every send, refuses with
- * `connection_refused` when any resolved address is in an IANA special-purpose
- * range (loopback, private, link-local and the like), and connects to the
- * checked address with the URL's host name in the `Host` header and TLS SNI.
- * It follows no redirects (a 3xx answer is returned as it is), gives up after
- * 5 seconds with `{ error: 'timeout' }`, and reads at most 64 KiB of the
- * response body.
+ * it requires `https`, resolves the host's A and AAAA records at every send
+ * (with a DNS query, not `getaddrinfo`, so `/etc/hosts` does not apply),
+ * refuses with `connection_refused` when any resolved address is in an IANA
+ * special-purpose range (loopback, private, link-local and the like), and
+ * connects to the checked address with the URL's host name in the `Host`
+ * header and TLS SNI. It follows no redirects (a 3xx answer is returned as it
+ * is), gives up after 5 seconds with `{ error: 'timeout' }`, and reads at most
+ * 64 KiB of the response body.
  *
  * Experimental: Events (SEP-3415) is new; this API may change in a minor release.
  *
@@ -54,7 +59,7 @@ async function send(request: WebhookSendRequest): Promise<WebhookSendOutcome> {
     try {
         let lookup: LookupFunction | undefined;
         if (!request.trusted) {
-            const addresses = await untilAborted(dns.promises.lookup(hostnameOf(url), { all: true }), deadline.signal);
+            const addresses = await resolve(hostnameOf(url), deadline.signal);
             const [first] = addresses;
             if (first === undefined || addresses.some(({ address }) => isSpecialPurposeAddress(address))) return REFUSED;
             lookup = pinnedTo(first);
@@ -102,16 +107,26 @@ function post(url: URL, request: WebhookSendRequest, lookup: LookupFunction | un
     });
 }
 
-// Settles as `promise` does, or rejects once `signal` aborts; a DNS lookup cannot itself be cancelled.
-function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-        const abort = (): void => reject(signal.reason);
-        signal.addEventListener('abort', abort, { once: true });
-        promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
-    });
+// The host's A and AAAA addresses, from a resolver of its own (c-ares, off libuv's thread pool) that `signal` cancels; an IP literal is its own address. Rejects when neither family resolves.
+async function resolve(hostname: string, signal: AbortSignal): Promise<LookupAddress[]> {
+    const family = net.isIP(hostname);
+    if (family !== 0) return [{ address: hostname, family }];
+    const resolver = new dns.promises.Resolver({ timeout: RESOLVE_TIMEOUT_MS, tries: RESOLVE_TRIES });
+    const cancel = (): void => resolver.cancel();
+    signal.addEventListener('abort', cancel, { once: true });
+    try {
+        const [v4, v6] = await Promise.allSettled([resolver.resolve4(hostname), resolver.resolve6(hostname)]);
+        if (v4.status === 'rejected' && v6.status === 'rejected') throw v4.reason;
+        return [
+            ...(v4.status === 'fulfilled' ? v4.value.map(address => ({ address, family: 4 })) : []),
+            ...(v6.status === 'fulfilled' ? v6.value.map(address => ({ address, family: 6 })) : [])
+        ];
+    } finally {
+        signal.removeEventListener('abort', cancel);
+    }
 }
 
-// URL keeps the brackets of an IPv6 literal host; the resolver takes the bare address.
+// URL keeps the brackets of an IPv6 literal host; net.isIP and the resolver take the bare address.
 function hostnameOf(url: URL): string {
     return url.hostname.startsWith('[') ? url.hostname.slice(1, -1) : url.hostname;
 }

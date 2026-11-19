@@ -138,11 +138,13 @@ function revoked(): EventsError {
     return new EventsError('forbidden', 'Forbidden', { reason: 'Access revoked' });
 }
 
-// A store whose next `get` or `put` waits for the test, which can act while a subscribe is between its read and its write.
-class GatedStore extends InMemoryWebhookSubscriptionStore {
-    #held: { method: 'get' | 'put'; reached(): void; released: Promise<void> } | undefined;
+type Gated = 'get' | 'put' | 'listByName';
 
-    hold(method: 'get' | 'put'): { reached: Promise<void>; release(): void } {
+// A store whose next `get`, `put` or `listByName` waits for the test, which can act while a subscribe or a fan-out is between its steps.
+class GatedStore extends InMemoryWebhookSubscriptionStore {
+    #held: { method: Gated; reached(): void; released: Promise<void> } | undefined;
+
+    hold(method: Gated): { reached: Promise<void>; release(): void } {
         let reached!: () => void;
         let release!: () => void;
         const arrived = new Promise<void>(resolve => (reached = resolve));
@@ -160,7 +162,12 @@ class GatedStore extends InMemoryWebhookSubscriptionStore {
         return super.put(record);
     }
 
-    async #wait(method: 'get' | 'put'): Promise<void> {
+    override async *listByName(name: string): AsyncIterable<WebhookSubscriptionRecord> {
+        await this.#wait('listByName');
+        yield* super.listByName(name);
+    }
+
+    async #wait(method: Gated): Promise<void> {
         const held = this.#held;
         if (held?.method !== method) return;
         this.#held = undefined;
@@ -351,8 +358,102 @@ describe('events/subscribe: creating', () => {
         expect(onSubscribe).toHaveBeenCalledOnce();
     });
 
+    it("lets another principal's subscribe to the same host wait for the verification in flight, then verify", async () => {
+        let release!: () => void;
+        const held = new Promise<void>(resolve => (release = resolve));
+        let holdNext = true;
+        const respond: Respond = async request => {
+            if (isVerification(request) && holdNext) {
+                holdNext = false;
+                await held;
+            }
+            return echo()(request);
+        };
+        const store = new GatedStore();
+        const { events, post } = replica({ webhookStore: store, respond });
+        events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const first = client(events, 'u1').subscribe();
+        await post.until(1);
+        // From its store read on, the second subscribe runs without a timer or I/O until it reaches the host's queue.
+        const gate = store.hold('get');
+        const second = client(events, 'u2').subscribe({ url: `${HOOK}/u2` });
+        await gate.reached;
+        gate.release();
+        await settle();
+        expect(post.requests).toHaveLength(1);
+
+        release();
+        expect(subscribed(await first).id).toMatch(SUB_ID);
+        expect(subscribed(await second).id).toMatch(SUB_ID);
+        expect(post.requests.filter(request => isVerification(request)).map(request => request.url)).toEqual([HOOK, `${HOOK}/u2`]);
+    });
+
+    it('holds a principal to its share and frees a place on unsubscribe, termination and expiry, while another principal subscribes', async () => {
+        const { events } = replica({ maxSubscriptions: 4 });
+        const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const [alice, bob] = [client(events, 'alice'), client(events, 'bob')];
+        const share = { code: -32_025, data: { limit: 'principalSubscriptions', max: 1 } };
+
+        subscribed(await alice.subscribe({ arguments: { a: 1 } }));
+        expect(errorOf(await alice.subscribe({ arguments: { a: 2 } }))).toMatchObject(share);
+        subscribed(await bob.subscribe({ arguments: { a: 1 } }));
+        // A refresh of the one alice holds is never refused.
+        subscribed(await alice.subscribe({ arguments: { a: 1 } }));
+
+        resultOf(await alice.unsubscribe({ arguments: { a: 1 } }));
+        subscribed(await alice.subscribe({ arguments: { a: 2 }, ttlMs: 60_000 }));
+        expect(errorOf(await alice.subscribe({ arguments: { a: 3 } }))).toMatchObject(share);
+        await vi.advanceTimersByTimeAsync(60_000);
+        subscribed(await alice.subscribe({ arguments: { a: 3 } }));
+        await handle.terminate(new EventsError('forbidden', 'Forbidden'));
+        subscribed(await alice.subscribe({ arguments: { a: 4 } }));
+    });
+
+    it('drops a subscribe cancelled while it waits for the host: no POST, no subscription, and the next waiter goes', async () => {
+        let release!: () => void;
+        const held = new Promise<void>(resolve => (release = resolve));
+        let holdNext = true;
+        const respond: Respond = async request => {
+            if (isVerification(request) && holdNext) {
+                holdNext = false;
+                await held;
+            }
+            return echo()(request);
+        };
+        const onSubscribe = vi.fn();
+        const store = new GatedStore();
+        const { events, post, hook } = replica({ webhookStore: store, respond });
+        events.registerEvent('e', { emitOnly: true, payloadSchema: P, onSubscribe });
+        const first = client(events, 'u1').subscribe();
+        await post.until(1);
+        const gate = store.hold('get');
+        const cancel = new AbortController();
+        const cancelled = client(events, 'u2')
+            .rpc(
+                'events/subscribe',
+                { name: 'e', delivery: { mode: 'webhook', url: `${HOOK}/u2`, secret: SECRET } },
+                { signal: cancel.signal }
+            )
+            .catch((error: unknown) => error);
+        await gate.reached;
+        gate.release();
+        await settle();
+        const next = client(events, 'u3').subscribe({ url: `${HOOK}/u3` });
+        await settle();
+        cancel.abort();
+        expect(await cancelled).toBeInstanceOf(Error);
+
+        release();
+        subscribed(await first);
+        subscribed(await next);
+        expect(post.requests.filter(request => isVerification(request)).map(request => request.url)).toEqual([HOOK, `${HOOK}/u3`]);
+        expect(onSubscribe.mock.calls.map(([ctx]) => (ctx as EventContext).principal)).toEqual(['u1', 'u3']);
+        expect((await stored(store)).map(record => record.principal).sort()).toEqual(['u1', 'u3']);
+        expect(hook.state()).toMatchObject({ webhookExpiryTimers: 2 });
+    });
+
     it('counts each webhook subscription once after its create', async () => {
-        const { events } = replica({ maxSubscriptions: 2 });
+        const { events } = replica({ maxSubscriptions: 8 });
         events.registerEvent('e', { emitOnly: true, payloadSchema: P });
         const alice = client(events);
         subscribed(await alice.subscribe({ arguments: { a: 1 } }));
@@ -434,20 +535,103 @@ describe('events/subscribe: creating', () => {
         expect(post.requests.filter(request => isVerification(request))).toHaveLength(2);
     });
 
-    it('starts an emit-only subscription at the buffer head and flags skipped events as truncated', async () => {
-        const { events } = replica();
+    it('starts an emit-only subscription at the buffer head, or replays the buffer since a cursor, truncated only past what it holds', async () => {
+        const { events, post } = replica({ emitBuffer: { maxEvents: 2 } });
         const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
         const alice = client(events);
         const fresh = subscribed(await alice.subscribe({ arguments: { k: 1 } }));
         expect(fresh).toMatchObject({ cursor: expect.any(String), truncated: false });
-        await handle.emit({ data: { n: 1 } });
+        await handle.emit({ eventId: 'evt_1', data: { n: 1 } });
+        await handle.emit({ eventId: 'evt_2', data: { n: 2 } });
+        const { cursor: afterFirst } = resultOf(
+            await alice.rpc('events/poll', { name: 'e', cursor: fresh.cursor, maxEvents: 1 })
+        ) as PollEventsResult;
 
-        const behind = subscribed(await alice.subscribe({ arguments: { k: 2 }, cursor: fresh.cursor }));
-        expect(behind.truncated).toBe(true);
-        expect(behind.cursor).not.toBe(fresh.cursor);
-        const current = subscribed(await alice.subscribe({ arguments: { k: 3 }, cursor: behind.cursor }));
-        expect(current).toMatchObject({ cursor: behind.cursor, truncated: false });
-        expect(subscribed(await alice.subscribe({ arguments: { k: 4 }, cursor: 'e00000000.0' })).truncated).toBe(true);
+        const resumed = subscribed(await alice.subscribe({ arguments: { k: 2 }, cursor: afterFirst }));
+        expect(resumed).toMatchObject({ cursor: afterFirst, truncated: false });
+        await handle.emit({ eventId: 'evt_3', data: { n: 3 } });
+        // The buffer now holds evt_2 and evt_3 only, so the fresh cursor is behind it.
+        const stale = subscribed(await alice.subscribe({ arguments: { k: 3 }, cursor: fresh.cursor }));
+        expect(stale).toMatchObject({ cursor: afterFirst, truncated: true });
+        const otherEpoch = subscribed(await alice.subscribe({ arguments: { k: 4 }, cursor: 'e00000000.0' }));
+        expect(otherEpoch.truncated).toBe(true);
+
+        // One verification, then k:1 live (3), k:2 replayed and live (2), k:3 and k:4 replayed (2 each).
+        await post.until(10);
+        await settle();
+        expect(post.requests).toHaveLength(10);
+        const delivered = (id: string) =>
+            post
+                .deliveries()
+                .filter(request => request.headers['X-MCP-Subscription-Id'] === id)
+                .map(request => bodyOf(request).eventId)
+                .sort();
+        expect(delivered(fresh.id)).toEqual(['evt_1', 'evt_2', 'evt_3']);
+        expect(delivered(resumed.id)).toEqual(['evt_2', 'evt_3']);
+        expect(delivered(stale.id)).toEqual(['evt_2', 'evt_3']);
+        expect(delivered(otherEpoch.id)).toEqual(['evt_2', 'evt_3']);
+    });
+
+    it('reads an emit-only replay as it queues behind a fan-out in flight, so each event reaches it once and in order', async () => {
+        const store = new GatedStore();
+        const { events, post } = replica({ webhookStore: store });
+        let resumed!: () => void;
+        const queued = new Promise<void>(resolve => (resumed = resolve));
+        const handle = events.registerEvent('e', {
+            emitOnly: true,
+            payloadSchema: P,
+            onSubscribe: (_ctx, args) => {
+                if (args.k === 2) resumed();
+            }
+        });
+        const alice = client(events);
+        const { cursor } = subscribed(await alice.subscribe({ arguments: { k: 1 } }));
+
+        // The fan-out of `first` holds the type's queue while it lists the stored subscriptions.
+        const gate = store.hold('listByName');
+        await handle.emit({ eventId: 'first', data: { n: 1 } });
+        await gate.reached;
+        const resuming = alice.subscribe({ arguments: { k: 2 }, cursor });
+        // After onSubscribe the resume reads its replay and queues behind that fan-out with no further wait.
+        await queued;
+        await settle();
+        await handle.emit({ eventId: 'second', data: { n: 2 } });
+        gate.release();
+        const { id } = subscribed(await resuming);
+
+        await post.until(5);
+        await settle();
+        expect(post.requests).toHaveLength(5);
+        const sent = post.deliveries().filter(request => request.headers['X-MCP-Subscription-Id'] === id);
+        expect(sent.map(request => bodyOf(request).eventId).sort()).toEqual(['first', 'second']);
+        // `second` reached the engine behind the unsettled `first`, so its body carries the replay's start.
+        const cursorOf = (eventId: string) => bodyOf(sent.find(request => bodyOf(request).eventId === eventId)!).cursor;
+        expect(cursorOf('second')).toBe(cursor);
+        expect(cursorOf('first')).not.toBe(cursor);
+    });
+
+    it('delivers each event once across the seam between an emit-only replay and live fan-out', async () => {
+        const store = new GatedStore();
+        const { events, post } = replica({ webhookStore: store });
+        const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P, transform: (_ctx, event) => event });
+        const alice = client(events);
+        const { cursor } = subscribed(await alice.subscribe({ arguments: { k: 1 } }));
+        await handle.emit({ eventId: 'before', data: { n: 1 } });
+
+        // An emit while the resumed subscription stores its record finds the record once it is stored.
+        const gate = store.hold('put');
+        const resuming = alice.subscribe({ arguments: { k: 2 }, cursor });
+        await gate.reached;
+        await handle.emit({ eventId: 'during', data: { n: 2 } });
+        gate.release();
+        const { id, truncated } = subscribed(await resuming);
+        expect(truncated).toBe(false);
+        await handle.emit({ eventId: 'after', data: { n: 3 } });
+
+        await post.until(7);
+        await settle();
+        const sent = post.deliveries().filter(request => request.headers['X-MCP-Subscription-Id'] === id);
+        expect(sent.map(request => bodyOf(request).eventId).sort()).toEqual(['after', 'before', 'during']);
     });
 });
 
@@ -767,7 +951,7 @@ describe('check-kind webhook subscriptions', () => {
         expect(check.mock.calls[1]![2]).toBe('c0');
         await post.until(2);
         await settle();
-        expect(bodyOf(post.requests[1]!)).toMatchObject({ eventId: 'evt_1', name: 't', data: { n: 1 }, cursor: 'c0' });
+        expect(bodyOf(post.requests[1]!)).toMatchObject({ eventId: 'evt_1', name: 't', data: { n: 1 }, cursor: 'c1' });
         await vi.advanceTimersByTimeAsync(5000);
         expect(check.mock.calls[2]![2]).toBe('c1');
 
@@ -818,7 +1002,7 @@ describe('check-kind webhook subscriptions', () => {
         expect(check.mock.calls[0]![0]).toMatchObject({ maxAgeMs: 300_000 });
         await post.until(2);
         await settle();
-        expect(bodyOf(post.requests[1]!)).toMatchObject({ eventId: 'evt_1', cursor: 'c0' });
+        expect(bodyOf(post.requests[1]!)).toMatchObject({ eventId: 'evt_1', cursor: 'c1' });
 
         await vi.advanceTimersByTimeAsync(5000);
         await post.until(3);

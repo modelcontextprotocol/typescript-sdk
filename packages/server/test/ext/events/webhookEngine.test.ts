@@ -115,6 +115,11 @@ function bodyOf(request: WebhookSendRequest): Record<string, unknown> {
     return JSON.parse(request.body) as Record<string, unknown>;
 }
 
+// The body cursor of each event POST by eventId; signing is asynchronous, so the sends need not come in delivery order.
+function cursorsByEvent(requests: WebhookSendRequest[]): Record<string, unknown> {
+    return Object.fromEntries(requests.map(request => [bodyOf(request).eventId, bodyOf(request).cursor]));
+}
+
 beforeEach(() => {
     vi.useFakeTimers();
 });
@@ -180,29 +185,98 @@ describe('endpoint verification', () => {
         expect(requests).toHaveLength(1);
     });
 
-    it('sends one verification POST to a host at a time, refusing another pair with resourceExhausted', async () => {
+    it('sends one verification POST to a host at a time: another pair waits its turn', async () => {
         const answers: Array<() => void> = [];
         const { engine, requests, until } = setup(
             request => new Promise(resolve => answers.push(() => resolve(echo(request) as WebhookSendOutcome)))
         );
         const first = engine.verify('u', HOOK_URL, SECRET, ID);
         await until(1);
-        // The same pair waits for the handshake in flight; another pair to that host is refused; another host is not.
+        // The same pair waits for the handshake in flight; another pair to that host waits its turn; another host does not wait.
         const samePair = engine.verify('u', HOOK_URL, SECRET, 'sub_2');
-        const refused = await engine.verify('v', 'https://HOOKS.example.com/other', SECRET, 'sub_3').catch((error: unknown) => error);
-        expect(refused).toBeInstanceOf(EventsError);
-        expect(refused).toMatchObject({ code: -32_025, data: { limit: 'verification', retryAfterMs: expect.any(Number) } });
+        const otherPair = engine.verify('v', 'https://HOOKS.example.com/other', SECRET, 'sub_3');
         const otherHost = engine.verify('v', 'https://elsewhere.example.com/mcp', SECRET, 'sub_4');
         await until(2);
+        await settle();
         expect(requests.map(request => request.url)).toEqual([HOOK_URL, 'https://elsewhere.example.com/mcp']);
 
-        for (const answer of answers) answer();
-        await expect(Promise.all([first, samePair, otherHost])).resolves.toEqual([undefined, undefined, undefined]);
-        expect(requests).toHaveLength(2);
-        const next = engine.verify('v', 'https://hooks.example.com/other', SECRET, 'sub_3');
+        answers[0]!();
+        await expect(Promise.all([first, samePair])).resolves.toEqual([undefined, undefined]);
         await until(3);
+        expect(requests[2]!.url).toBe('https://HOOKS.example.com/other');
+        answers[1]!();
         answers[2]!();
-        await expect(next).resolves.toBeUndefined();
+        await expect(Promise.all([otherPair, otherHost])).resolves.toEqual([undefined, undefined]);
+        expect(requests).toHaveLength(3);
+    });
+
+    it('refuses a verification at once when 10 already wait for the host', async () => {
+        const answers: Array<() => void> = [];
+        const { engine, requests, until } = setup(
+            request => new Promise(resolve => answers.push(() => resolve(echo(request) as WebhookSendOutcome)))
+        );
+        const outcome = (n: number) =>
+            engine.verify(`u${n}`, HOOK_URL, SECRET, `sub_${n}`).then(
+                () => 'verified',
+                (error: unknown) => error
+            );
+        const waiting = [outcome(0)];
+        await until(1);
+        for (let n = 1; n <= 10; n++) waiting.push(outcome(n));
+        await expect(engine.verify('u11', HOOK_URL, SECRET, 'sub_11')).rejects.toMatchObject({
+            code: -32_025,
+            data: { limit: 'verification', retryAfterMs: 5000 }
+        });
+
+        // They go one at a time; the window's limit refuses the 11th POST in 60 s when its turn comes.
+        for (let n = 1; n <= 10; n++) {
+            answers[n - 1]!();
+            await until(Math.min(n + 1, 10));
+            await settle();
+        }
+        answers[9]!();
+        const outcomes = await Promise.all(waiting);
+        expect(outcomes.slice(0, 10)).toEqual(Array.from({ length: 10 }, () => 'verified'));
+        expect(outcomes[10]).toMatchObject({ code: -32_025, data: { limit: 'verification', retryAfterMs: 60_000 } });
+        expect(requests).toHaveLength(10);
+    });
+
+    it('takes a queued verification whose subscribe is cancelled out of the queue at once, without a POST', async () => {
+        const answers: Array<() => void> = [];
+        const { engine, requests, until } = setup(
+            request => new Promise(resolve => answers.push(() => resolve(echo(request) as WebhookSendOutcome)))
+        );
+        const first = engine.verify('u0', HOOK_URL, SECRET, 'sub_0');
+        await until(1);
+        const cancel = new AbortController();
+        const cancelled = engine.verify('u1', HOOK_URL, SECRET, 'sub_1', cancel.signal).catch((error: unknown) => error);
+        // Another subscribe of a pair keeps that pair's handshake queued when one of its callers is cancelled.
+        const sharedCancel = new AbortController();
+        const sharedLeaving = engine.verify('u2', HOOK_URL, SECRET, 'sub_2', sharedCancel.signal).catch((error: unknown) => error);
+        const sharedStaying = engine.verify('u2', HOOK_URL, SECRET, 'sub_3');
+        const reason = new Error('request cancelled');
+        cancel.abort(reason);
+        sharedCancel.abort(reason);
+        expect(await cancelled).toBe(reason);
+        expect(await sharedLeaving).toBe(reason);
+
+        answers[0]!();
+        await first;
+        await until(2);
+        expect(requests[1]!.headers['X-MCP-Subscription-Id']).toBe('sub_2');
+        answers[1]!();
+        await expect(sharedStaying).resolves.toBeUndefined();
+        await settle();
+        expect(requests).toHaveLength(2);
+    });
+
+    it('rejects the verifications waiting for a host on clear()', async () => {
+        const { engine, until } = setup(() => new Promise<never>(() => {}));
+        void engine.verify('u', HOOK_URL, SECRET, ID).catch(() => {});
+        await until(1);
+        const waiting = engine.verify('v', HOOK_URL, SECRET, 'sub_2');
+        engine.clear();
+        await expect(waiting).rejects.toMatchObject({ code: -32_025, data: { limit: 'verification' } });
     });
 
     it('sends at most 10 verification POSTs to a host per rolling 60 s', async () => {
@@ -265,7 +339,8 @@ describe('event delivery', () => {
         for (const request of requests) {
             expect(request.headers).toMatchObject({ 'Content-Type': 'application/json', 'X-MCP-Subscription-Id': ID });
             expect(await verifies(request, SECRET)).toBe(true);
-            expect(bodyOf(request)).toEqual({ ...occurrence('evt_1'), cursor: 'p0' });
+            // Nothing before it is unsettled, so it carries its own position.
+            expect(bodyOf(request)).toEqual({ ...occurrence('evt_1'), cursor: 'p1' });
         }
     });
 
@@ -354,7 +429,7 @@ describe('event delivery', () => {
         expect(engine.watermark(ID)).toBe('p1');
     });
 
-    it('holds the watermark behind an unacknowledged event', async () => {
+    it('holds the watermark behind an unacknowledged event, and sends an event its own position once nothing before it is unsettled (SEP-3415)', async () => {
         let failFirst = true;
         const { engine, record, requests, until } = setup(request =>
             failFirst && bodyOf(request).eventId === 'evt_1' ? { status: 500, body: '' } : { status: 200, body: '' }
@@ -366,7 +441,8 @@ describe('event delivery', () => {
         await until(3);
         await settle();
         expect(engine.watermark(ID)).toBe('p0');
-        expect(requests.map(request => bodyOf(request).cursor)).toEqual(['p0', 'p0', 'p0']);
+        // The first carries its own position; the others, behind it while it is unsettled, the watermark.
+        expect(cursorsByEvent(requests)).toEqual({ evt_1: 'p1', evt_2: 'p0', evt_3: 'p0' });
 
         failFirst = false;
         await vi.advanceTimersByTimeAsync(5000);
@@ -374,9 +450,10 @@ describe('event delivery', () => {
         await settle();
         expect(engine.watermark(ID)).toBe('p3');
 
+        expect(bodyOf(requests[3]!).cursor).toBe('p1');
         engine.deliver(record, occurrence('evt_4'), 'p4', null);
         await until(5);
-        expect(bodyOf(requests[4]!).cursor).toBe('p3');
+        expect(bodyOf(requests[4]!).cursor).toBe('p4');
     });
 
     it('advance() moves an idle watermark, and is ignored while a message is pending', async () => {
@@ -399,7 +476,7 @@ describe('event delivery', () => {
         await until(2);
         await settle();
         expect(engine.watermark(ID)).toBe('p2');
-        expect(bodyOf(requests[1]!).cursor).toBe('p1');
+        expect(bodyOf(requests[1]!).cursor).toBe('p2');
         engine.advance(ID, 'p5');
         expect(engine.watermark(ID)).toBe('p5');
     });
@@ -412,7 +489,7 @@ describe('event delivery', () => {
         engine.deliver(record, occurrence('evt_2'), 'p2', 'p1');
         await until(2);
         await settle();
-        expect(requests.map(request => bodyOf(request).cursor)).toEqual(['p0', 'p0']);
+        expect(cursorsByEvent(requests)).toEqual({ evt_1: 'p1', evt_2: 'p0' });
         expect(engine.watermark(ID)).toBe('p2');
         expect(engine.status(ID)).toEqual({ active: true, lastDeliveryAt: new Date().toISOString(), lastError: null });
     });

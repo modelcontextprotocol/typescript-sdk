@@ -10,7 +10,7 @@ import { canonicalJson, generateWebhookSecret, parseWebhookSecret } from '@model
 import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal/public';
 
 import type { WebhookReceiver, WebhookSink } from './receiver';
-import { DriverLoop, jitteredDelay, MAX_TIMER_DELAY_MS, reportGap } from './recovery';
+import { DriverLoop, jitteredDelay, MAX_TIMER_DELAY_MS, reportGap, retryAfterOf } from './recovery';
 import type { EventsConnection, ParamMirror } from './request';
 import type { DeliveryQueue, Driver, DriverContext } from './subscription';
 
@@ -222,7 +222,7 @@ class WebhookDriver implements Driver {
                 const error = await this.#subscribeAndRefresh();
                 if (loop.ended) return;
                 await loop.recover(error);
-                await loop.sleep(jitteredDelay(this.#attempt++));
+                await loop.sleep(retryAfterOf(error) ?? jitteredDelay(this.#attempt++));
             }
         } catch (error) {
             // Left to lapse: an identical subscribe after this end opens a new driver on the same server subscription.

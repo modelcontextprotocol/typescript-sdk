@@ -42,14 +42,17 @@ export interface SubscribeOptions {
  *   After a schema change delivery resumes from the last cursor; when the
  *   server refuses that cursor too, it starts again from now and `onGap`
  *   reports it.
- * - Any other `EventsError` (`forbidden`, `invalidParams`, `resourceExhausted`,
- *   `callbackEndpointError`, any other `unsupported`): the loop ends with it,
- *   and `kind` says why.
+ * - Any other `EventsError` (`forbidden`, `invalidParams`, `resourceExhausted`
+ *   other than the webhook verification limit, `callbackEndpointError`, any
+ *   other `unsupported`): the loop ends with it, and `kind` says why.
  * - A `ProtocolError` `-32020` (the `Mcp-Param` headers do not match the
  *   arguments): the event types are listed again and the request is retried
  *   once with fresh headers; a second `-32020` ends the loop with it.
  * - Anything else (a network or transport failure, another JSON-RPC error, a
- *   push stream that ends or goes silent): retried after a backoff.
+ *   push stream that ends, goes silent or sends no valid `active`): retried
+ *   after a backoff. The server's webhook verification limit
+ *   (`resourceExhausted` with `data.limit: 'verification'`) is retried after
+ *   its `data.retryAfterMs`, or after a backoff without one.
  *
  * Closing the client, or connecting it again without resuming its session,
  * ends its subscriptions at once: the loop rejects with an `SdkError`

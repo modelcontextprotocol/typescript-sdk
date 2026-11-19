@@ -12,9 +12,25 @@ export const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const RETRY_BASE_MS = 1000;
 const RETRY_MAX_MS = 30_000;
 
-// An error of the first exchange that subscribe() rejects with (a -32020 only once its re-list is spent); any other (transport, non-Events JSON-RPC) is retried in the background.
+// An error of the first exchange that subscribe() rejects with (a -32020 only once its re-list is spent); any other (transport, non-Events JSON-RPC, a verification limit) is retried in the background.
 export function refusesSubscription(error: unknown): boolean {
-    return error instanceof EventsError || error instanceof SdkError || isHeaderMismatch(error);
+    return (error instanceof EventsError && !isVerificationLimit(error)) || error instanceof SdkError || isHeaderMismatch(error);
+}
+
+// The server's webhook verification limit per destination host: the one `resourceExhausted` that passes with time, so it is retried.
+export function isVerificationLimit(error: unknown): boolean {
+    return (
+        error instanceof EventsError &&
+        error.kind === 'resourceExhausted' &&
+        (error.data as { limit?: unknown } | undefined)?.limit === 'verification'
+    );
+}
+
+// How long a verification limit asks to wait before the next attempt: its `data.retryAfterMs`, when a non-negative number.
+export function retryAfterOf(error: unknown): number | undefined {
+    if (!isVerificationLimit(error)) return undefined;
+    const retryAfterMs = ((error as EventsError).data as { retryAfterMs?: unknown }).retryAfterMs;
+    return typeof retryAfterMs === 'number' && retryAfterMs >= 0 ? retryAfterMs : undefined;
 }
 
 // A -32020: the request's `Mcp-Param` headers do not match its arguments (D26).
@@ -44,10 +60,10 @@ export function isSchemaChange(error: unknown): boolean {
     );
 }
 
-// Every mode's recovery once subscribed (spec §6.3): `relist` and go on while still offered, `mismatch` (re-list and retry once, then end), `fail` (end with the error), or `retry` later.
+// Every mode's recovery once subscribed (spec §6.3): `relist` and go on while still offered, `mismatch` (re-list and retry once, then end), `fail` (end with the error), or `retry` later (anything but an Events kind, and a verification limit).
 export function recoveryFor(error: unknown): 'relist' | 'mismatch' | 'fail' | 'retry' {
     if (isHeaderMismatch(error)) return 'mismatch';
-    if (!(error instanceof EventsError)) return 'retry';
+    if (!(error instanceof EventsError) || isVerificationLimit(error)) return 'retry';
     return error.kind === 'notFound' || isSchemaChange(error) ? 'relist' : 'fail';
 }
 

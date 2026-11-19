@@ -668,6 +668,36 @@ describe('webhook delivery', () => {
         expect(await nextEventId(sub[Symbol.asyncIterator]())).toBe('e1');
     });
 
+    it("retries the server's verification limit after data.retryAfterMs, first and once subscribed; a subscriptions limit still rejects", async () => {
+        const limited = (retryAfterMs?: unknown) =>
+            new RpcError(-32_025, 'Too many webhook endpoint verifications for this host', {
+                limit: 'verification',
+                ...(retryAfterMs !== undefined && { retryAfterMs })
+            });
+        const { subscribes, subscribe } = await webhookWith(granting(limited(7000), { cursor: 'c1' }, limited(12_000), limited(), {}));
+        const sub = await subscribe({ cursor: 'c0' });
+        expect(subscribes()).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(6999);
+        expect(subscribes()).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(subscribes()).toHaveLength(2);
+        expect(sub.cursor).toBe('c1');
+
+        // The refresh at ¾ of the grant is limited too: it waits retryAfterMs, then the backoff when the hint is missing.
+        await vi.advanceTimersByTimeAsync(45_000);
+        expect(subscribes()).toHaveLength(3);
+        await vi.advanceTimersByTimeAsync(12_000);
+        expect(subscribes()).toHaveLength(4);
+        await vi.advanceTimersByTimeAsync(500);
+        expect(subscribes()).toHaveLength(5);
+        expect(subscribes().map(call => call.params['cursor'])).toEqual(['c0', 'c0', 'c1', 'c1', 'c1']);
+
+        const refused = await webhookWith(granting(new RpcError(-32_025, 'Too many subscriptions', { limit: 'subscriptions' })));
+        const error = await refused.events.subscribe({ name: 'tick' }).catch((error_: unknown) => error_);
+        expect(error).toBeInstanceOf(EventsError);
+        expect(error).toMatchObject({ kind: 'resourceExhausted', data: { limit: 'subscriptions' } });
+    });
+
     it('drops a stale cursor that the first events/subscribe refuses for a schema change, and starts from now', async () => {
         const onGap = vi.fn();
         const { events, lists, subscribes } = await webhookWith(

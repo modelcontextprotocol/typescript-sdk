@@ -580,8 +580,10 @@ verifies('events:push:delivery', async ({ transport }: TestArgs) => {
     const subscription = await clientEvents.subscribe<Note>({ name: NOTE, delivery: 'push' });
     const [id] = streamIds(tap);
 
-    await note.emit({ eventId: 'evt-1', data: { text: 'pushed' } });
-    expect(await take(subscription)).toEqual([{ text: 'pushed' }]);
+    await note.emit({ eventId: 'evt-1', data: { text: 'pushed' }, _meta: { 'vendor/k': 1 } });
+    const received = await subscription[Symbol.asyncIterator]().next();
+    expect(received.value).toMatchObject({ data: { text: 'pushed' } });
+    expect(received.value?._meta).toEqual({ 'vendor/k': 1 });
 
     const delivered = framesOf(tap, id).filter(frame => frame.method === 'notifications/events/event');
     expect(delivered).toEqual([
@@ -592,7 +594,7 @@ verifies('events:push:delivery', async ({ transport }: TestArgs) => {
                 timestamp: expect.any(String),
                 data: { text: 'pushed' },
                 cursor: expect.any(String),
-                _meta: { [SUBSCRIPTION_ID_META_KEY]: id }
+                _meta: { 'vendor/k': 1, [SUBSCRIPTION_ID_META_KEY]: id }
             }
         })
     ]);

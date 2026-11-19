@@ -1,3 +1,4 @@
+import { PollEventsResultSchema } from '@modelcontextprotocol/core/ext/events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
@@ -86,6 +87,32 @@ describe('events/poll for a check type', () => {
             _meta: { k: 1 }
         });
         expect(result).toMatchObject({ cursor: 'h2', truncated: false, hasMore: false, nextPollMs: 5000 });
+    });
+
+    it.each([
+        [5062.5, 5063],
+        [-1, 0],
+        [Number.NaN, 1000],
+        [Number.POSITIVE_INFINITY, 1000]
+    ])('sends a nextPollMs of %s from check as %i, which the wire schema accepts', async (given, sent) => {
+        const events = new EventsExtension({ defaultNextPollMs: 1000 });
+        events.registerEvent('t', { payloadSchema: P, check: () => ({ events: [], cursor: 'h1', nextPollMs: given }) });
+        const result = await poller(events).poll({ name: 't', cursor: 'h0' });
+        expect(result.nextPollMs).toBe(sent);
+        expect(PollEventsResultSchema.safeParse(result).success).toBe(true);
+    });
+
+    it('caps nextPollMs at half of pollSubscriptionTtlMs, so a client that follows it keeps its lease', async () => {
+        // The default nextPollMs (30 s) is over half of this TTL, so it is capped too.
+        const events = new EventsExtension({ pollSubscriptionTtlMs: 50_001 });
+        let nextPollMs: number | undefined = 600_000;
+        events.registerEvent('t', { payloadSchema: P, check: () => ({ events: [], cursor: 'h1', nextPollMs }) });
+        events.registerEvent('i', { emitOnly: true, payloadSchema: P });
+        const { poll } = poller(events);
+        expect((await poll({ name: 't', cursor: 'h0' })).nextPollMs).toBe(25_000);
+        nextPollMs = undefined;
+        expect((await poll({ name: 't', cursor: 'h0' })).nextPollMs).toBe(25_000);
+        expect((await poll({ name: 'i', cursor: null })).nextPollMs).toBe(25_000);
     });
 
     it('passes hasMore and truncated through from check', async () => {
@@ -499,6 +526,68 @@ describe('poll leases', () => {
         await as('u1').poll({ name: 't' });
         await as('u2').poll({ name: 't' });
         expect(onSubscribe.mock.calls.map(([ctx]) => (ctx as EventContext).principal)).toEqual(['u1', 'u2']);
+    });
+
+    it('serves callers that share a lease as one subscription of a type without replay, as documented', async () => {
+        const events = new EventsExtension();
+        // An upstream without replay: each check(null) returns what happened since the previous call for the subscription.
+        const happened: number[] = [];
+        const read = new Map<string, number>();
+        events.registerEvent('pulse', {
+            payloadSchema: P,
+            check: ctx => {
+                const fresh = happened.slice(read.get(ctx.subscriptionId) ?? happened.length);
+                read.set(ctx.subscriptionId, happened.length);
+                return { events: fresh.map(n => ({ eventId: `e${n}`, data: { n } })), cursor: null };
+            }
+        });
+        const ids = async (client: ReturnType<typeof poller>) => (await client.poll({ name: 'pulse' })).events.map(event => event.eventId);
+        const [first, second] = [poller(events), poller(events)];
+
+        expect(await ids(first)).toEqual([]);
+        happened.push(1);
+        // Without getPrincipal both share the lease: the second's first poll returns an event from before it subscribed.
+        expect(await ids(second)).toEqual(['e1']);
+        happened.push(2);
+        expect(await ids(first)).toEqual(['e2']);
+        expect(await ids(second)).toEqual([]);
+        expect(read.size).toBe(1);
+    });
+
+    it('holds each principal to a quarter of maxSubscriptions, the callers without one together, freed as leases end', async () => {
+        vi.useFakeTimers();
+        const events = new EventsExtension({
+            maxSubscriptions: 8,
+            pollSubscriptionTtlMs: 10_000,
+            defaultNextPollMs: 5000,
+            getPrincipal: ctx => (ctx.http?.authInfo?.extra?.sub as string | undefined) ?? null
+        });
+        const handle = events.registerEvent('t', { payloadSchema: P, check: tick });
+        const as = (sub: string | null) =>
+            poller(events, sub === null ? {} : { authInfo: { token: 'tok', clientId: 'client', scopes: [], extra: { sub } } });
+        const share = { code: -32_025, data: { limit: 'principalSubscriptions', max: 2 } };
+        const [alice, bob, anonymous, other] = [as('alice'), as('bob'), as(null), as(null)];
+
+        await alice.poll({ name: 't', arguments: { a: 1 } });
+        await alice.poll({ name: 't', arguments: { a: 2 } });
+        expect(await alice.fail({ name: 't', arguments: { a: 3 } })).toMatchObject(share);
+        // A lease alice already holds still renews, and bob still subscribes.
+        await alice.poll({ name: 't', arguments: { a: 1 } });
+        await bob.poll({ name: 't', arguments: { a: 1 } });
+
+        // Every caller without a principal shares one bucket.
+        await anonymous.poll({ name: 't', arguments: { a: 1 } });
+        await other.poll({ name: 't', arguments: { a: 2 } });
+        expect(await anonymous.fail({ name: 't', arguments: { a: 3 } })).toMatchObject(share);
+
+        // A terminated lease frees its place once its error is answered, and an expired one at its expiry.
+        await handle.terminate(new EventsError('forbidden', 'Forbidden'));
+        expect(await alice.fail({ name: 't', arguments: { a: 1 } })).toMatchObject({ code: -32_024 });
+        await alice.poll({ name: 't', arguments: { a: 3 } });
+        await vi.advanceTimersByTimeAsync(10_001);
+        expect(testHook(events).state().pollLeases).toBe(0);
+        await anonymous.poll({ name: 't', arguments: { a: 3 } });
+        await anonymous.poll({ name: 't', arguments: { a: 4 } });
     });
 
     it('runs onSubscribe once for concurrent first polls of one lease', async () => {

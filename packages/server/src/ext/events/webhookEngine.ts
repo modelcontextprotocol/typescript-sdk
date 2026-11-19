@@ -23,11 +23,11 @@ const SUSPENSION_MIN_ATTEMPTS = 100;
 const SUSPENSION_FAILURE_PERCENT = 95;
 // A failed verification of a (principal, url) is answered again for this long without a POST.
 const FAILED_VERIFICATION_MS = 60_000;
-// Verification POSTs to one destination host: one at a time, and at most 10 in any 60 s.
+// Verification POSTs to one destination host: one at a time, and at most 10 in any 60 s; at most 10 more wait their turn.
 const VERIFICATIONS_PER_WINDOW = 10;
 const VERIFICATION_WINDOW_MS = 60_000;
-// The retry hint while another verification to the host is in flight: nodeWebhookSender's 5 s timeout.
-const IN_FLIGHT_RETRY_MS = 5000;
+// The retry hint when the host's wait is full: nodeWebhookSender's 5 s timeout, by when the verification in flight has ended.
+const QUEUE_FULL_RETRY_MS = 5000;
 // The most failed pairs and destination hosts the verification limits remember.
 const MAX_REMEMBERED = 10_000;
 
@@ -87,9 +87,17 @@ interface Tracked {
     recentFailures: number;
 }
 
-// One destination host's verification POSTs: whether one is in flight, and the send times of the last window, oldest first.
+// One `principal\0url` handshake in flight: the subscribes waiting for it, and the abort that pulls it from the host's queue once all of them were cancelled.
+interface Handshake {
+    readonly done: Promise<void>;
+    readonly abandoned: AbortController;
+    callers: number;
+}
+
+// One destination host's verification POSTs: whether one holds the slot, the verifications waiting for it (oldest first), and the send times of the last window, oldest first.
 interface HostVerifications {
     inFlight: boolean;
+    readonly waiting: Array<{ resolve(): void; reject(error: unknown): void }>;
     readonly sent: number[];
 }
 
@@ -155,6 +163,17 @@ function verificationError(reason: DeliveryErrorCategory): EventsError {
     return new EventsError('callbackEndpointError', `Webhook endpoint verification failed: ${reason}`, { reason });
 }
 
+// Settles as `promise` does, or rejects with its reason once `signal` aborts.
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+    if (signal === undefined) return promise;
+    return new Promise<T>((resolve, reject) => {
+        const abort = (): void => reject(signal.reason);
+        if (signal.aborted) abort();
+        signal.addEventListener('abort', abort, { once: true });
+        promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+    });
+}
+
 function verificationLimit(retryAfterMs: number): EventsError {
     return new EventsError('resourceExhausted', 'Too many webhook endpoint verifications for this host', {
         limit: 'verification',
@@ -175,7 +194,7 @@ export class WebhookEngine {
     readonly #verified = new Map<string, Set<string>>();
     readonly #verifiedKeyOf = new Map<string, string>();
     // Each `principal\0url` handshake in flight, which another subscribe of the pair waits for.
-    readonly #handshakes = new Map<string, Promise<void>>();
+    readonly #handshakes = new Map<string, Handshake>();
     // Each `principal\0url` whose verification failed lately: the failure, and until when it is answered without a POST.
     readonly #failed = new Map<string, { readonly reason: DeliveryErrorCategory; readonly until: number }>();
     // By lower-cased destination hostname (SEP-3415: rate-limited per destination host).
@@ -196,10 +215,10 @@ export class WebhookEngine {
         return this.#tracked.size;
     }
 
-    // One attempt, which the subscribe call waits for; throws `callbackEndpointError` with the failure category as `data.reason`, or `resourceExhausted` at the host's limit.
-    async verify(principal: string, url: string, secret: string, subscriptionId: string): Promise<void> {
+    // One attempt, which the subscribe call waits for, after the host's verification in flight; throws `callbackEndpointError` with the failure category as `data.reason`, or `resourceExhausted` at the host's limit.
+    async verify(principal: string, url: string, secret: string, subscriptionId: string, signal?: AbortSignal): Promise<void> {
         const key = `${principal}\u0000${url}`;
-        if (!this.#verified.has(key)) await this.#verifyPair(key, url, secret, subscriptionId);
+        if (!this.#verified.has(key)) await this.#verifyPair(key, url, secret, subscriptionId, signal);
         let covered = this.#verified.get(key);
         if (covered === undefined) {
             covered = new Set();
@@ -294,29 +313,39 @@ export class WebhookEngine {
         this.#verifiedKeyOf.clear();
         this.#handshakes.clear();
         this.#failed.clear();
+        for (const host of this.#hosts.values())
+            for (const waiter of host.waiting.splice(0)) waiter.reject(verificationLimit(QUEUE_FULL_RETRY_MS));
         this.#hosts.clear();
         this.#lifetime?.abort();
         this.#lifetime = undefined;
     }
 
-    // The pair's handshake in flight, or a new one.
-    #verifyPair(key: string, url: string, secret: string, subscriptionId: string): Promise<void> {
-        const pending = this.#handshakes.get(key);
-        if (pending !== undefined) return pending;
-        const handshake = this.#handshake(key, url, secret, subscriptionId).finally(() => {
-            if (this.#handshakes.get(key) === handshake) this.#handshakes.delete(key);
-        });
-        this.#handshakes.set(key, handshake);
-        return handshake;
+    // The pair's handshake in flight, or a new one; `signal` (the subscribe request's) stops this caller waiting for it.
+    async #verifyPair(key: string, url: string, secret: string, subscriptionId: string, signal: AbortSignal | undefined): Promise<void> {
+        let handshake = this.#handshakes.get(key);
+        if (handshake === undefined) {
+            const abandoned = new AbortController();
+            const done = this.#handshake(key, url, secret, subscriptionId, abandoned.signal).finally(() => {
+                if (this.#handshakes.get(key)?.done === done) this.#handshakes.delete(key);
+            });
+            handshake = { done, abandoned, callers: 0 };
+            this.#handshakes.set(key, handshake);
+        }
+        handshake.callers += 1;
+        try {
+            await untilAborted(handshake.done, signal);
+        } finally {
+            handshake.callers -= 1;
+            if (handshake.callers === 0 && signal?.aborted === true) handshake.abandoned.abort(signal.reason);
+        }
     }
 
-    // One verification POST, unless a failure of the pair is still remembered or the host is at its limit.
-    async #handshake(key: string, url: string, secret: string, subscriptionId: string): Promise<void> {
-        const now = this.#now();
+    // One verification POST, unless a failure of the pair is still remembered, the host is at its limit, or every subscribe waiting for it was cancelled while it queued.
+    async #handshake(key: string, url: string, secret: string, subscriptionId: string, abandoned: AbortSignal): Promise<void> {
         const failed = this.#failed.get(key);
-        if (failed !== undefined && now < failed.until) throw verificationError(failed.reason);
+        if (failed !== undefined && this.#now() < failed.until) throw verificationError(failed.reason);
         this.#failed.delete(key);
-        const host = this.#claimHost(url, now);
+        const host = await this.#claimHost(url, abandoned);
         this.#lifetime ??= new AbortController();
         const { signal } = this.#lifetime;
         try {
@@ -334,26 +363,70 @@ export class WebhookEngine {
             }
             throw verificationError(reason);
         } finally {
-            host.inFlight = false;
+            this.#releaseHost(host);
         }
     }
 
-    // Takes the host's one verification slot and counts the POST, or throws `resourceExhausted` with a retry hint.
-    #claimHost(url: string, now: number): HostVerifications {
+    // Waits for the host's one verification slot, leaving the queue when `abandoned` aborts, then counts the POST; throws `resourceExhausted` with a retry hint when the wait or the window is full.
+    async #claimHost(url: string, abandoned: AbortSignal): Promise<HostVerifications> {
         const name = new URL(url).hostname.toLowerCase();
-        const start = now - VERIFICATION_WINDOW_MS;
         let host = this.#hosts.get(name);
         if (host === undefined) {
-            host = { inFlight: false, sent: [] };
+            host = { inFlight: false, waiting: [], sent: [] };
+            const start = this.#now() - VERIFICATION_WINDOW_MS;
             remember(this.#hosts, name, host, held => !held.inFlight && (held.sent.at(-1) ?? start) <= start);
         }
+        if (host.inFlight) {
+            if (host.waiting.length >= VERIFICATIONS_PER_WINDOW) throw verificationLimit(QUEUE_FULL_RETRY_MS);
+            await this.#waitTurn(host, abandoned);
+            // Handed the slot just as it was abandoned: pass it on without a POST.
+            if (abandoned.aborted) {
+                this.#releaseHost(host);
+                throw abandoned.reason;
+            }
+        } else {
+            host.inFlight = true;
+        }
+        const now = this.#now();
+        const start = now - VERIFICATION_WINDOW_MS;
         const { sent } = host;
         while (sent[0] !== undefined && sent[0] <= start) sent.shift();
-        if (host.inFlight) throw verificationLimit(IN_FLIGHT_RETRY_MS);
-        if (sent.length >= VERIFICATIONS_PER_WINDOW) throw verificationLimit(sent[0]! - start);
-        host.inFlight = true;
+        if (sent.length >= VERIFICATIONS_PER_WINDOW) {
+            this.#releaseHost(host);
+            throw verificationLimit(sent[0]! - start);
+        }
         sent.push(now);
         return host;
+    }
+
+    // Resolves holding the slot, which #releaseHost hands over; rejects at once, out of the queue, when `abandoned` aborts.
+    #waitTurn(host: HostVerifications, abandoned: AbortSignal): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+            const leave = (): void => {
+                const index = host.waiting.indexOf(waiter);
+                if (index !== -1) host.waiting.splice(index, 1);
+                reject(abandoned.reason);
+            };
+            const waiter = {
+                resolve: () => {
+                    abandoned.removeEventListener('abort', leave);
+                    resolve();
+                },
+                reject: (error: unknown) => {
+                    abandoned.removeEventListener('abort', leave);
+                    reject(error);
+                }
+            };
+            host.waiting.push(waiter);
+            abandoned.addEventListener('abort', leave, { once: true });
+        });
+    }
+
+    // Hands the host's slot to the verification that waited longest, or frees it.
+    #releaseHost(host: HostVerifications): void {
+        const next = host.waiting.shift();
+        if (next === undefined) host.inFlight = false;
+        else next.resolve();
     }
 
     #start(id: string, watermark: string | null): Tracked {
@@ -409,7 +482,9 @@ export class WebhookEngine {
             this.#park(tracked, message);
             return;
         }
-        const body = JSON.stringify({ ...message.occurrence, cursor: tracked.watermark });
+        // Its own position once every event before it is settled (SEP-3415: cursor_N rides on event N then), else the watermark.
+        const cursor = tracked.pending[0] === message ? message.position : tracked.watermark;
+        const body = JSON.stringify({ ...message.occurrence, cursor });
         if (byteLength(body) > MAX_BODY_BYTES) {
             this.#onerror(
                 new Error(

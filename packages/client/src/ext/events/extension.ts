@@ -142,10 +142,12 @@ export class EventsClientExtension implements ClientExtension {
      * `events/list` (fetched again when it is not there), and resolves once
      * the first exchange with the server succeeds (for poll, the first
      * `events/poll` response; for push, the first
-     * `notifications/events/active`; for webhook, the `events/subscribe`
-     * response). A transient failure of that exchange (a
-     * transport error, or a JSON-RPC error that is not an Events kind) does
-     * not reject: delivery is retried in the background. A `cursor` the
+     * `notifications/events/active`, within the request timeout; for webhook,
+     * the `events/subscribe` response). A transient failure of that exchange (a
+     * transport error, a JSON-RPC error that is not an Events kind, or the
+     * server's webhook verification limit, `resourceExhausted` with
+     * `data.limit: 'verification'`, retried after its `data.retryAfterMs`
+     * when given) does not reject: delivery is retried in the background. A `cursor` the
      * server refuses because the event type's schema changed is dropped: the
      * event types are listed again, the subscription starts from now, and
      * `onGap` reports the fresh cursor. A `-32020` lists the event types again
@@ -161,12 +163,14 @@ export class EventsClientExtension implements ClientExtension {
      * `events/unsubscribe` goes out when the last of them is cancelled.
      *
      * @throws {EventsError} when the server refuses the subscription: `notFound` for an event type it does not list or
-     *   no longer serves, `invalidParams` for arguments its `inputSchema` rejects, `forbidden`, or another kind.
+     *   no longer serves, `invalidParams` for arguments its `inputSchema` rejects, `forbidden`, or another kind
+     *   (`resourceExhausted` for any limit but the webhook verification limit).
      * @throws {NoCompatibleDeliveryModeError} when no delivery mode the event type offers is usable here, also when
      *   the schema change that refused `cursor` left the event type without the selected mode.
      * @throws {SdkError} `CapabilityNotSupported` when {@linkcode EventsClientExtension.supported} is `false`,
      *   `ConnectionClosed` when the client closes before the first exchange answers, or another code when that
-     *   exchange fails in the SDK (for example a request timeout).
+     *   exchange fails in the SDK (for example `RequestTimeout`, also when a push stream sends no valid
+     *   `notifications/events/active` in time, or `InvalidResult` for an `active` that fails its schema).
      * @throws {ProtocolError} `-32020` when the server rejects the `Mcp-Param` headers again after a re-list.
      * @throws {TypeError} when `webhook.secretProvider` returns something that is not a Standard Webhooks secret, or a
      *   secret another open server subscription signs with.

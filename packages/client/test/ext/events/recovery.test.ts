@@ -18,6 +18,18 @@ describe('the recovery rules every delivery mode shares', () => {
         ['forbidden', 'fail', true, new EventsError('forbidden', 'Forbidden')],
         ['invalidParams', 'fail', true, new EventsError('invalidParams', 'Invalid arguments')],
         ['resourceExhausted', 'fail', true, new EventsError('resourceExhausted', 'Too many', { limit: 'subscriptions' })],
+        [
+            'resourceExhausted, per principal',
+            'fail',
+            true,
+            new EventsError('resourceExhausted', 'Too many', { limit: 'principalSubscriptions', max: 256 })
+        ],
+        [
+            'resourceExhausted, verification',
+            'retry',
+            false,
+            new EventsError('resourceExhausted', 'Too many verifications', { limit: 'verification', retryAfterMs: 5000 })
+        ],
         ['callbackEndpointError', 'fail', true, new EventsError('callbackEndpointError', 'Unreachable', { reason: 'timeout' })],
         ['-32020', 'mismatch', true, new ProtocolError(-32_020, 'Mcp-Param-Region header mismatch')],
         ['another JSON-RPC error', 'retry', false, new ProtocolError(-32_603, 'Internal error')],

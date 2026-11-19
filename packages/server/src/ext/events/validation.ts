@@ -5,6 +5,9 @@ import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 import type { EventRegistry, RegisteredEvent } from './registry';
 import type { EventsOptions } from './types';
 
+// With `getPrincipal`, each principal, and the callers without one together, may hold this share of `maxSubscriptions`.
+const PRINCIPAL_SHARE_DIVISOR = 4;
+
 export interface ValidatorDeps {
     readonly registry: EventRegistry;
     readonly webhookEnabled: boolean;
@@ -12,6 +15,8 @@ export interface ValidatorDeps {
     readonly maxSubscriptions: number;
     // Subscriptions this process serves now: poll leases, push streams, and the webhook subscriptions whose subscribe or refresh it handled or is still creating.
     subscriptionCount(): number;
+    // Those of them held by `principal` (`null`: the callers without one).
+    principalSubscriptionCount(principal: string | null): number;
 }
 
 function notOffered(message: string, mode: DeliveryMode): EventsError {
@@ -58,11 +63,20 @@ export class SubscriptionValidator {
         return { entry, principal, args };
     }
 
-    // The `maxSubscriptions` quota; call it before a new subscription's `onSubscribe`.
-    assertCapacity(): void {
+    // The `maxSubscriptions` quota and, with `getPrincipal`, the principal's share of it; call it before a new subscription's `onSubscribe`.
+    assertCapacity(principal: string | null): void {
         const max = this.#deps.maxSubscriptions;
         if (this.#deps.subscriptionCount() >= max) {
             throw new EventsError('resourceExhausted', 'Subscription limit reached', { limit: 'subscriptions', max });
+        }
+        // Without getPrincipal every caller is in one bucket, so a share would only shrink the quota.
+        if (this.#deps.getPrincipal === undefined) return;
+        const share = Math.max(1, Math.floor(max / PRINCIPAL_SHARE_DIVISOR));
+        if (this.#deps.principalSubscriptionCount(principal) >= share) {
+            throw new EventsError('resourceExhausted', 'Subscription limit for this principal reached', {
+                limit: 'principalSubscriptions',
+                max: share
+            });
         }
     }
 }

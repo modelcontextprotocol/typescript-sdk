@@ -48,7 +48,9 @@ export type DefaultSchema = StandardSchemaWithJSON<Record<string, unknown>>;
 // The `events/*` requests that name an event type in `params.name`.
 const NAMED_EVENT_METHODS = [EVENTS_POLL_METHOD, EVENTS_STREAM_METHOD, EVENTS_SUBSCRIBE_METHOD, EVENTS_UNSUBSCRIBE_METHOD];
 
-const NUMERIC_OPTIONS = ['webhookTtlMs', 'pollSubscriptionTtlMs', 'heartbeatMs', 'checkIntervalMs', 'defaultNextPollMs'] as const;
+const DURATION_OPTIONS = ['pollSubscriptionTtlMs', 'checkIntervalMs'] as const;
+// Durations that reach clients, so whole milliseconds as the wire schemas require.
+const WIRE_DURATION_OPTIONS = ['webhookTtlMs', 'heartbeatMs', 'defaultNextPollMs'] as const;
 
 const DEFAULT_EMIT_BUFFER_MAX_AGE_MS = 600_000;
 const DEFAULT_EMIT_BUFFER_MAX_EVENTS = 10_000;
@@ -80,6 +82,15 @@ function assertOrigin(origin: string): void {
     }
     if (parsed !== origin) {
         throw new TypeError(`trustedOrigins entries must be exact origins such as "http://127.0.0.1:9000" (got ${JSON.stringify(origin)})`);
+    }
+}
+
+// A poll client that waits a `defaultNextPollMs` set explicitly must find its lease still there; a defaulted one is capped per result.
+function assertPollTiming(pollSubscriptionTtlMs: number, defaultNextPollMs: number | undefined): void {
+    if (defaultNextPollMs !== undefined && defaultNextPollMs > Math.floor(pollSubscriptionTtlMs / 2)) {
+        throw new TypeError(
+            `defaultNextPollMs (${defaultNextPollMs}) must be at most half of pollSubscriptionTtlMs (${pollSubscriptionTtlMs})`
+        );
     }
 }
 
@@ -140,10 +151,13 @@ export class EventsExtension implements ServerExtension {
     /** Throws `TypeError` for an invalid option, including webhook options set only in part. */
     constructor(options: EventsOptions = {}) {
         assertWebhookOptions(options);
-        for (const name of NUMERIC_OPTIONS) assertPositive(name, options[name]);
+        for (const name of DURATION_OPTIONS) assertPositive(name, options[name]);
+        for (const name of WIRE_DURATION_OPTIONS) assertCount(name, options[name]);
         assertCount('maxSubscriptions', options.maxSubscriptions);
         assertPositive('emitBuffer.maxAgeMs', options.emitBuffer?.maxAgeMs);
         assertCount('emitBuffer.maxEvents', options.emitBuffer?.maxEvents);
+        const pollSubscriptionTtlMs = options.pollSubscriptionTtlMs ?? DEFAULT_POLL_SUBSCRIPTION_TTL_MS;
+        assertPollTiming(pollSubscriptionTtlMs, options.defaultNextPollMs);
         for (const origin of options.trustedOrigins ?? []) assertOrigin(origin);
         this.#trustedOrigins = new Set(options.trustedOrigins);
         this.#webhookEnabled = options.webhookTtlMs !== undefined;
@@ -157,12 +171,14 @@ export class EventsExtension implements ServerExtension {
             webhookEnabled: this.#webhookEnabled,
             getPrincipal: options.getPrincipal,
             maxSubscriptions: options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS,
-            subscriptionCount: () => this.#poll.size + this.#push.size + (this.#webhooks?.size ?? 0)
+            subscriptionCount: () => this.#poll.size + this.#push.size + (this.#webhooks?.size ?? 0),
+            principalSubscriptionCount: principal =>
+                this.#poll.countOf(principal) + this.#push.countOf(principal) + (this.#webhooks?.countOf(principal) ?? 0)
         });
         this.#poll = new PollSource({
             validator: this.#validator,
             buffer: this.#buffer,
-            pollSubscriptionTtlMs: options.pollSubscriptionTtlMs ?? DEFAULT_POLL_SUBSCRIPTION_TTL_MS,
+            pollSubscriptionTtlMs,
             defaultNextPollMs: options.defaultNextPollMs ?? DEFAULT_NEXT_POLL_MS,
             report: error => this.#report(error)
         });

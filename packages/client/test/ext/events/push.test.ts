@@ -545,6 +545,67 @@ describe('push delivery', () => {
         expect(vi.getTimerCount()).toBe(0);
     });
 
+    it('rejects subscribe() when no valid active arrives within the request timeout, and reopens once subscribed', async () => {
+        const first = await pushWith();
+        let settled = false;
+        const subscribing = first.events
+            .subscribe({ name: 'tick', delivery: 'push' })
+            .catch((error_: unknown) => error_)
+            .finally(() => (settled = true));
+        await settle();
+        await first.last().frame('notifications/events/heartbeat', { cursor: 'c0' });
+        await vi.advanceTimersByTimeAsync(59_999);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        const error = await subscribing;
+        expect(error).toBeInstanceOf(SdkError);
+        expect(error).toMatchObject({ code: SdkErrorCode.RequestTimeout });
+        expect(first.notifications).toContainEqual({
+            method: 'notifications/cancelled',
+            params: expect.objectContaining({ requestId: first.streams()[0]!.call.id })
+        });
+        expect(vi.getTimerCount()).toBe(0);
+        expect(first.streams()).toHaveLength(1);
+
+        const later = await pushWith();
+        await later.subscribe();
+        await later.last().end();
+        await vi.advanceTimersByTimeAsync(500);
+        expect(later.streams()).toHaveLength(2);
+        await vi.advanceTimersByTimeAsync(60_000 + 1000);
+        expect(later.streams()).toHaveLength(3);
+    });
+
+    it('ends the stream on an active that fails its schema: subscribe() rejects, and once subscribed it reopens', async () => {
+        const first = await pushWith();
+        const errors: Error[] = [];
+        first.client.onerror = error => void errors.push(error);
+        const subscribing = first.events.subscribe({ name: 'tick', delivery: 'push' }).catch((error_: unknown) => error_);
+        await settle();
+        await first.last().active({ heartbeatMs: 0 });
+        const error = await subscribing;
+        expect(error).toBeInstanceOf(SdkError);
+        expect(error).toMatchObject({ code: SdkErrorCode.InvalidResult });
+        expect(errors).toEqual([
+            expect.objectContaining({ message: expect.stringContaining('Invalid notifications/events/active params') })
+        ]);
+        expect(vi.getTimerCount()).toBe(0);
+        expect(first.streams()).toHaveLength(1);
+
+        const later = await pushWith();
+        await later.subscribe({}, s => s.active({ cursor: 'c1' }));
+        await later.last().end();
+        await vi.advanceTimersByTimeAsync(500);
+        await later.last().active({ cursor: 'c2', heartbeatMs: 0 });
+        expect(later.notifications).toContainEqual({
+            method: 'notifications/cancelled',
+            params: expect.objectContaining({ requestId: later.streams()[1]!.call.id })
+        });
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(later.streams()).toHaveLength(3);
+        expect(later.last().call.params['cursor']).toBe('c1');
+    });
+
     it('ends the loop with ConnectionClosed when the client closes', async () => {
         const { client, streams, subscribe } = await pushWith();
         const sub = await subscribe({}, s => s.active({ heartbeatMs: 5000 }));

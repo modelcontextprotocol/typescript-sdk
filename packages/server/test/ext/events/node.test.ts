@@ -30,6 +30,7 @@ const REFUSED = { error: 'connection_refused' };
 const servers: net.Server[] = [];
 
 afterEach(async () => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.mocked(isSpecialPurposeAddress).mockReset();
     await Promise.all(
@@ -65,14 +66,42 @@ function sendRequest(url: string, trusted: boolean, signal = new AbortController
     return { url, headers: HEADERS, body: BODY, trusted, signal };
 }
 
-// Each call of dns.promises.lookup answers with the next list of addresses; a call past them fails with ENOTFOUND.
-function stubLookup(...answers: string[][]): MockInstance {
-    const lookup = vi.spyOn(dns.promises, 'lookup') as unknown as MockInstance<
-        (hostname: string, options: dns.LookupAllOptions) => Promise<dns.LookupAddress[]>
-    >;
-    lookup.mockRejectedValue(Object.assign(new Error('getaddrinfo ENOTFOUND'), { code: 'ENOTFOUND' }));
-    for (const answer of answers) lookup.mockResolvedValueOnce(answer.map(address => ({ address, family: net.isIP(address) })));
-    return lookup;
+type Resolve = MockInstance<(hostname: string) => Promise<string[]>>;
+
+function dnsError(code: string): Error {
+    return Object.assign(new Error(`query ${code}`), { code });
+}
+
+// Each send's resolve4 and resolve6 answer with the next list's addresses of their family, ENODATA without any; past the lists both fail with ENOTFOUND.
+function stubResolver(...answers: string[][]): { resolve4: Resolve; resolve6: Resolve } {
+    const stub = (method: 'resolve4' | 'resolve6', family: number): Resolve => {
+        const spy = vi.spyOn(dns.promises.Resolver.prototype, method) as unknown as Resolve;
+        spy.mockRejectedValue(dnsError('ENOTFOUND'));
+        for (const answer of answers) {
+            const addresses = answer.filter(address => net.isIP(address) === family);
+            if (addresses.length === 0) spy.mockRejectedValueOnce(dnsError('ENODATA'));
+            else spy.mockResolvedValueOnce(addresses);
+        }
+        return spy;
+    };
+    return { resolve4: stub('resolve4', 4), resolve6: stub('resolve6', 6) };
+}
+
+// Stands in for https.request: records the address its pinned lookup gives, and fails the connection.
+function captureConnection(): { pinned: () => Promise<{ address: string; family: number }> } {
+    let lookup: net.LookupFunction | undefined;
+    vi.spyOn(https, 'request').mockImplementation(((_url: URL, options: https.RequestOptions) => {
+        lookup = options.lookup as net.LookupFunction;
+        return failingRequest('ECONNREFUSED');
+    }) as unknown as typeof https.request);
+    return {
+        pinned: () =>
+            new Promise((resolve, reject) =>
+                lookup!('pinned.invalid', {}, (error, address, family) =>
+                    error ? reject(error) : resolve({ address: address as string, family: family! })
+                )
+            )
+    };
 }
 
 // Classifies `ip` as a public address, so a loopback server can stand in for a remote receiver.
@@ -128,27 +157,70 @@ describe('nodeWebhookSender', () => {
         expect(receiver.connections()).toBe(0);
     });
 
-    it('checks the address of an IPv6 literal host', async () => {
-        const lookup = vi.spyOn(dns.promises, 'lookup');
+    it('checks an IP literal host without resolving it', async () => {
+        const { resolve4, resolve6 } = stubResolver();
+        const connection = captureConnection();
 
         expect(await nodeWebhookSender()(sendRequest('https://[::1]:8443/x', false))).toEqual(REFUSED);
-        expect(lookup).toHaveBeenCalledWith('::1', { all: true });
+        expect(isSpecialPurposeAddress).toHaveBeenCalledWith('::1');
+        expect(https.request).not.toHaveBeenCalled();
+        expect(await nodeWebhookSender()(sendRequest('https://1.1.1.1:8443/x', false))).toEqual(REFUSED);
+        expect(await connection.pinned()).toEqual({ address: '1.1.1.1', family: 4 });
+        expect(resolve4).not.toHaveBeenCalled();
+        expect(resolve6).not.toHaveBeenCalled();
     });
 
     it('refuses http for an untrusted origin', async () => {
-        const lookup = stubLookup();
+        const { resolve4 } = stubResolver();
 
         expect(await nodeWebhookSender()(sendRequest('http://example.com/hooks', false))).toEqual(REFUSED);
-        expect(lookup).not.toHaveBeenCalled();
+        expect(resolve4).not.toHaveBeenCalled();
     });
 
-    it('refuses when any resolved address is special, without connecting', async () => {
+    it('refuses when any resolved address, of either family, is special, without connecting', async () => {
         const receiver = await countingServer();
         await treatAsPublic('127.0.0.1');
-        stubLookup(['127.0.0.1', '10.0.0.1']);
+        stubResolver(['127.0.0.1', '10.0.0.1'], ['127.0.0.1', 'fe80::1'], ['2606:4700:4700::1111']);
+        const send = nodeWebhookSender();
 
-        expect(await nodeWebhookSender()(sendRequest(`https://hooks.example.test:${receiver.port}/x`, false))).toEqual(REFUSED);
+        expect(await send(sendRequest(`https://hooks.example.test:${receiver.port}/x`, false))).toEqual(REFUSED);
+        expect(await send(sendRequest(`https://hooks.example.test:${receiver.port}/x`, false))).toEqual(REFUSED);
         expect(receiver.connections()).toBe(0);
+        const connection = captureConnection();
+        expect(await send(sendRequest('https://hooks.example.test/x', false))).toEqual(REFUSED);
+        expect(await connection.pinned()).toEqual({ address: '2606:4700:4700::1111', family: 6 });
+    });
+
+    it('uses an AAAA answer for a host without A records, and fails when neither family resolves', async () => {
+        const { resolve4, resolve6 } = stubResolver(['2606:4700:4700::1111']);
+        const connection = captureConnection();
+        const send = nodeWebhookSender();
+
+        expect(await send(sendRequest('https://v6only.example.test/x', false))).toEqual(REFUSED);
+        expect(await connection.pinned()).toEqual({ address: '2606:4700:4700::1111', family: 6 });
+        expect(resolve4).toHaveBeenCalledWith('v6only.example.test');
+        expect(resolve6).toHaveBeenCalledWith('v6only.example.test');
+        vi.mocked(https.request).mockClear();
+        expect(await send(sendRequest('https://nowhere.example.test/x', false))).toEqual(REFUSED);
+        expect(https.request).not.toHaveBeenCalled();
+    });
+
+    it('cancels resolution at the 5 s deadline and reports a timeout', async () => {
+        vi.useFakeTimers();
+        const pending: Array<(error: Error) => void> = [];
+        const hang = () => new Promise<string[]>((_resolve, reject) => pending.push(reject));
+        vi.spyOn(dns.promises.Resolver.prototype, 'resolve4').mockImplementation(hang);
+        vi.spyOn(dns.promises.Resolver.prototype, 'resolve6').mockImplementation(hang);
+        const cancel = vi.spyOn(dns.promises.Resolver.prototype, 'cancel').mockImplementation(() => {
+            for (const reject of pending.splice(0)) reject(dnsError('ECANCELLED'));
+        });
+
+        const outcome = nodeWebhookSender()(sendRequest('https://silent.example.test/x', false));
+        await vi.advanceTimersByTimeAsync(4999);
+        expect(cancel).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(await outcome).toEqual({ error: 'timeout' });
+        expect(cancel).toHaveBeenCalledOnce();
     });
 
     it('connects to the checked address and sends the URL host name as TLS SNI', async () => {
@@ -162,18 +234,18 @@ describe('nodeWebhookSender', () => {
             )
         );
         await treatAsPublic('127.0.0.1');
-        const lookup = stubLookup(['127.0.0.1']);
+        const { resolve4 } = stubResolver(['127.0.0.1']);
 
         // The receiver resets the connection after reading the ClientHello.
         expect(await nodeWebhookSender()(sendRequest(`https://hooks.example.test:${port}/x`, false))).toEqual(REFUSED);
-        expect(lookup).toHaveBeenCalledWith('hooks.example.test', { all: true });
+        expect(resolve4).toHaveBeenCalledWith('hooks.example.test');
         expect(clientHello?.includes('hooks.example.test')).toBe(true);
     });
 
     it('checks the resolved address at every send', async () => {
         const receiver = await countingServer();
         await treatAsPublic('127.0.0.1');
-        stubLookup(['127.0.0.1'], ['10.0.0.1']);
+        stubResolver(['127.0.0.1'], ['10.0.0.1']);
         const send = nodeWebhookSender();
 
         await send(sendRequest(`https://hooks.example.test:${receiver.port}/x`, false));

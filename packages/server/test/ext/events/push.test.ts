@@ -124,7 +124,7 @@ describe('events/stream: opening', () => {
         expect(await fail({ name: 'i', arguments: { deny: true } })).toMatchObject({ code: -32_024, data: { reason: 'denied' } });
         expect(testHook(events).state().pushStreams).toBe(0);
 
-        // maxSubscriptions counts poll leases and push streams together.
+        // maxSubscriptions counts poll leases and push streams together; without getPrincipal no per-principal share applies.
         resultOf(await served.rpc('events/poll', { name: 'i', arguments: { a: 1 } }));
         await next(await open(served, { name: 'i', arguments: { a: 2 } }));
         expect(await fail({ name: 'i', arguments: { a: 3 } })).toMatchObject({ code: -32_025, data: { limit: 'subscriptions', max: 2 } });
@@ -548,6 +548,38 @@ describe('events/stream: termination', () => {
         ]);
         await handle.emit({ eventId: 'still', data: { n: 1 } });
         expect(await next(first)).toMatchObject({ params: { eventId: 'still' } });
+    });
+
+    it("frees a stream's place in its principal's share when it ends, by termination, by the client or by a refused start", async () => {
+        let refuse = false;
+        const events = new EventsExtension({ maxSubscriptions: 4, getPrincipal: () => 'alice' });
+        const handle = events.registerEvent('i', {
+            emitOnly: true,
+            payloadSchema: P,
+            onSubscribe: () => {
+                if (refuse) throw new EventsError('forbidden', 'Forbidden');
+            }
+        });
+        const served = serve(events);
+        const share = { code: -32_025, data: { limit: 'principalSubscriptions', max: 1 } };
+        const refusal = async () => errorOf(await served.rpc('events/stream', { name: 'i', cursor: null }));
+
+        const first = await open(served, { name: 'i', cursor: null });
+        await next(first);
+        expect(await refusal()).toMatchObject(share);
+        await handle.terminate(new EventsError('forbidden', 'Forbidden'));
+        await rest(first);
+
+        const second = await open(served, { name: 'i', cursor: null });
+        await next(second);
+        expect(await refusal()).toMatchObject(share);
+        second.abort();
+        await vi.waitFor(() => expect(testHook(events).state().pushStreams).toBe(0));
+
+        refuse = true;
+        expect(await refusal()).toMatchObject({ code: -32_024 });
+        refuse = false;
+        await next(await open(served, { name: 'i', cursor: null }));
     });
 
     it('closes open streams on a simulated restart and fires onUnsubscribe', async () => {
