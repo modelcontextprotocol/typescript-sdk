@@ -1224,8 +1224,7 @@ verifies('typescript:events:store:restart', async ({ transport }: TestArgs) => {
         await subscription.cancel();
     }
     {
-        // A check type: the rebuilt server runs its check loop from the client's next refresh. Fake timers bring that refresh
-        // at ¾ of the 60 s grant, while the grant runs in real time, so a slow run cannot turn the refresh into a create.
+        // A check type: the rebuilt server runs its check loop from the client's next refresh.
         const realSetTimeout = globalThis.setTimeout;
         vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
         try {

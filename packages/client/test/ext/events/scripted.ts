@@ -4,6 +4,8 @@ import type { JSONRPCMessage, JSONRPCRequest, RequestId, ServerCapabilities, Tra
 import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
 import { generateWebhookId, parseWebhookSecret, signWebhook } from '@modelcontextprotocol/core-internal/ext/events';
 
+import { UnauthorizedError } from '../../../src/client/auth';
+import { markAuthSeamEscape } from '../../../src/client/authSeam';
 import type { ClientOptions } from '../../../src/client/client';
 import { Client } from '../../../src/client/client';
 import type { EventsClientOptions } from '../../../src/ext/events/index';
@@ -190,6 +192,25 @@ export function script(...answers: Array<Record<string, unknown> | RpcError>): H
 }
 
 export const callsTo = (calls: Call[], method: string): Call[] => calls.filter(call => call.method === method);
+
+/**
+ * Makes the client's transport reject its `attempt`th request to `method` (from 1) with `failure(attempt)`, as a
+ * transport whose send fails does, or send it on when that is `undefined`; returns how many requests it saw.
+ */
+export function failSends(client: Client, method: string, failure: (attempt: number) => unknown): () => number {
+    const transport = client.transport!;
+    const send = transport.send.bind(transport);
+    let attempts = 0;
+    transport.send = (message, options) => {
+        if (!('method' in message && 'id' in message && message.method === method)) return send(message, options);
+        const error = failure(++attempts);
+        return error === undefined ? send(message, options) : Promise.reject(error);
+    };
+    return () => attempts;
+}
+
+/** An `UnauthorizedError` as the HTTP transports throw it on a 401: stamped as escaping their auth seam. */
+export const authFailure = (): Error => markAuthSeamEscape(new UnauthorizedError());
 
 export const WEBHOOK_URL = 'https://hooks.example.com/mcp/client123';
 

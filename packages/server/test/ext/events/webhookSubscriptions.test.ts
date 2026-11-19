@@ -775,6 +775,38 @@ describe('events/subscribe: refreshing', () => {
         expect(elsewhere).not.toHaveProperty('deliveryStatus');
     });
 
+    it('answers the refresh after an abandoned event with truncated: true, once, and then sends no gap envelope for it', async () => {
+        let healthy = false;
+        const { events, post } = replica({ respond: echo(() => (healthy ? { status: 200, body: '' } : { status: 503, body: '' })) });
+        const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const alice = client(events);
+        subscribed(await alice.subscribe());
+        await handle.emit({ eventId: 'lost', data: { n: 1 } });
+        await post.until(2);
+        for (const [index, delay] of [5000, 30_000, 120_000, 300_000].entries()) {
+            await settle();
+            await vi.advanceTimersByTimeAsync(delay);
+            await post.until(index + 3);
+        }
+        await settle();
+
+        const refreshed = subscribed(await alice.subscribe());
+        expect(refreshed).toMatchObject({ truncated: true, cursor: expect.any(String) });
+        healthy = true;
+        await handle.emit({ eventId: 'kept', data: { n: 2 } });
+        await post.until(7);
+        await settle();
+        expect(post.deliveries().map(request => bodyOf(request).eventId ?? bodyOf(request).type)).toEqual([
+            'lost',
+            'lost',
+            'lost',
+            'lost',
+            'lost',
+            'kept'
+        ]);
+        expect(subscribed(await alice.subscribe())).toMatchObject({ truncated: false });
+    });
+
     it('reports a suspension on the refresh that ends it', async () => {
         const { events, post } = replica({ respond: echo(() => ({ status: 503, body: '' })) });
         const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
@@ -931,6 +963,84 @@ describe('several replicas sharing one store', () => {
         await vi.advanceTimersByTimeAsync(1_800_000);
         expect(a.hook.state().webhookExpiryTimers).toBe(0);
         expect(onA).not.toHaveBeenCalled();
+    });
+
+    it('drops what a replica that only delivers holds for a subscription at its expiry once it ended elsewhere', async () => {
+        const store = new InMemoryWebhookSubscriptionStore();
+        const a = replica({ webhookStore: store });
+        const b = replica({ webhookStore: store });
+        a.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const handle = b.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const alice = client(a.events);
+        const ids: string[] = [];
+        for (const k of [1, 2, 3, 4]) ids.push(subscribed(await alice.subscribe({ arguments: { k }, ttlMs: 60_000 })).id);
+        await handle.emit({ data: { n: 1 } });
+        await b.post.until(4);
+        await settle();
+        expect(b.hook.state()).toMatchObject({ webhookSubscriptions: 4, webhookExpiryTimers: 0 });
+
+        // k: 1 unsubscribed on A, k: 2 dropped by the store, k: 3 created again, k: 4 refreshed.
+        resultOf(await alice.unsubscribe({ arguments: { k: 1 } }));
+        await store.delete(ids[1]!);
+        await vi.advanceTimersByTimeAsync(1000);
+        resultOf(await alice.unsubscribe({ arguments: { k: 3 } }));
+        subscribed(await alice.subscribe({ arguments: { k: 3 }, ttlMs: 60_000 }));
+        await vi.advanceTimersByTimeAsync(29_000);
+        subscribed(await alice.subscribe({ arguments: { k: 4 }, ttlMs: 60_000 }));
+        expect(b.hook.state().webhookSubscriptions).toBe(4);
+
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(b.hook.state().webhookSubscriptions).toBe(1);
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(b.hook.state().webhookSubscriptions).toBe(0);
+        expect(b.post.deliveries()).toHaveLength(4);
+    });
+
+    it('starts what a replica that only delivers holds again for a subscription created again elsewhere, and keeps it past the old expiry', async () => {
+        const held: Array<() => void> = [];
+        let holding = false;
+        const store = new InMemoryWebhookSubscriptionStore();
+        const a = replica({ webhookStore: store });
+        const b = replica({
+            webhookStore: store,
+            respond: () =>
+                holding ? new Promise(resolve => held.push(() => resolve({ status: 200, body: '' }))) : { status: 200, body: '' }
+        });
+        a.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const handle = b.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const alice = client(a.events);
+        subscribed(await alice.subscribe({ ttlMs: 60_000 }));
+        await handle.emit({ eventId: 'evt_1', data: { n: 1 } });
+        await b.post.until(1);
+        await settle();
+
+        // Created again on A, with a longer grant; B delivers to the new record and the receiver holds the POST.
+        await vi.advanceTimersByTimeAsync(1000);
+        resultOf(await alice.unsubscribe());
+        subscribed(await alice.subscribe({ ttlMs: 120_000 }));
+        holding = true;
+        await handle.emit({ eventId: 'evt_2', data: { n: 2 } });
+        await b.post.until(2);
+        await settle();
+
+        // Past the old record's expiry, B still holds the delivery in flight, so the watermark stays behind it.
+        await vi.advanceTimersByTimeAsync(59_500);
+        expect(b.hook.state().webhookSubscriptions).toBe(1);
+        expect(b.post.requests[1]!.signal.aborted).toBe(false);
+        await handle.emit({ eventId: 'evt_3', data: { n: 3 } });
+        await b.post.until(3);
+        await settle();
+        const [first, , third] = b.post.requests.map(request => bodyOf(request));
+        expect(third).toMatchObject({ eventId: 'evt_3', cursor: first!.cursor });
+        for (const answer of held.splice(0)) answer();
+        await settle();
+        expect(b.hook.state().webhookSubscriptions).toBe(1);
+
+        // At the new record's expiry it goes.
+        await vi.advanceTimersByTimeAsync(60_499);
+        expect(b.hook.state().webhookSubscriptions).toBe(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(b.hook.state().webhookSubscriptions).toBe(0);
     });
 
     it('expires a record lazily where no timer watches it, running onUnsubscribe once (F3b)', async () => {
@@ -1180,6 +1290,60 @@ describe('check-kind webhook subscriptions', () => {
 
         const gapped = subscribed(await alice.subscribe({ name: 't', arguments: { k: 2 }, cursor: 'old' }));
         expect(gapped).toMatchObject({ cursor: 'c5', truncated: true });
+    });
+
+    it('sends the gap envelope of a truncated check at the watermark, behind an event still unacknowledged', async () => {
+        const respond: Respond = request => {
+            if (isVerification(request)) return echo()(request);
+            return bodyOf(request).eventId === 'a' ? new Promise<never>(() => {}) : { status: 200, body: '' };
+        };
+        const check = vi
+            .fn<Check>()
+            .mockReturnValueOnce({ events: [], cursor: 'c0' })
+            .mockReturnValueOnce({ events: [{ eventId: 'a', data: { n: 1 } }], cursor: 'c1' })
+            .mockReturnValueOnce({ events: [{ eventId: 'b', data: { n: 2 } }], cursor: 'c9', truncated: true })
+            .mockReturnValue({ events: [], cursor: 'c9' });
+        const { events, post } = replica({ respond });
+        events.registerEvent('t', { payloadSchema: P, check });
+        subscribed(await client(events).subscribe({ name: 't' }));
+        await vi.advanceTimersByTimeAsync(10_000);
+        await post.until(4);
+        await settle();
+
+        expect(post.deliveries().map(request => bodyOf(request))).toContainEqual({ type: 'gap', cursor: 'c0' });
+    });
+
+    it('keeps the watermark behind the unsettled events of a truncated batch', async () => {
+        let healthy = false;
+        const respond: Respond = request => {
+            if (isVerification(request)) return echo()(request);
+            return healthy || bodyOf(request).eventId === 'a' ? { status: 200, body: '' } : { status: 503, body: '' };
+        };
+        const check = vi.fn<Check>((_ctx, _args, cursor) => {
+            if (cursor !== 'old') return { events: [], cursor: 'c9' };
+            const page = ['a', 'b', 'c'].map((eventId, n) => ({ eventId, data: { n } }));
+            return { events: page, cursor: 'c9', truncated: true };
+        });
+        const { events, post } = replica({ checkIntervalMs: 100_000, respond });
+        events.registerEvent('t', { payloadSchema: P, check });
+        const alice = client(events);
+        expect(subscribed(await alice.subscribe({ name: 't', cursor: 'old' }))).toMatchObject({ cursor: 'old', truncated: true });
+        await post.until(4);
+        await settle();
+        const bodies = post.deliveries().map(request => bodyOf(request));
+        expect(bodies.map(body => [body.eventId, body.cursor]).sort()).toEqual([
+            ['a', 'old'],
+            ['b', 'old'],
+            ['c', 'old']
+        ]);
+
+        // `a` is acknowledged; `b` and `c` wait for their retry, so the watermark stays before them.
+        expect(subscribed(await alice.subscribe({ name: 't' })).cursor).toBe('old');
+        healthy = true;
+        await vi.advanceTimersByTimeAsync(5000);
+        await post.until(6);
+        await settle();
+        expect(subscribed(await alice.subscribe({ name: 't' })).cursor).toBe('c9');
     });
 
     it('answers truncated: false and sends no gap envelope for a cursor: null result (SEP-3415 §Cursor Lifecycle)', async () => {

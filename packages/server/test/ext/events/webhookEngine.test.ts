@@ -115,12 +115,13 @@ function bodyOf(request: WebhookSendRequest): Record<string, unknown> {
     return JSON.parse(request.body) as Record<string, unknown>;
 }
 
-// A responder that holds each event POST until the test answers it, counting the POSTs in flight at most; `fail` answers a POST with 503 at once.
+// A responder that holds each event POST until the test answers it, counting the POSTs in flight at most; `fail` answers a POST with 503 at once, and a control body gets 200 at once.
 function held(fail: (request: WebhookSendRequest) => boolean = () => false) {
     const answers: Array<() => void> = [];
     let inFlight = 0;
     let most = 0;
     const respond: Respond = request => {
+        if ('type' in bodyOf(request)) return { status: 200, body: '' };
         inFlight += 1;
         most = Math.max(most, inFlight);
         if (fail(request)) {
@@ -459,6 +460,86 @@ describe('event delivery', () => {
         expect(vi.getTimerCount()).toBe(0);
     });
 
+    it('tells the subscriber of an abandoned event with one gap envelope at the watermark, after the next acknowledged delivery', async () => {
+        let healthy = false;
+        const { engine, record, requests, until } = setup(() => (healthy ? { status: 200, body: '' } : { status: 503, body: '' }));
+        const gaps = () => requests.map(request => bodyOf(request)).filter(body => body.type === 'gap');
+        engine.track(ID, 'p0');
+        engine.deliver(record, occurrence('evt_1'), 'p1', null);
+        await until(1);
+        for (const [index, delay] of DELAYS.entries()) {
+            await settle();
+            await vi.advanceTimersByTimeAsync(delay);
+            await until(index + 2);
+        }
+        await settle();
+        expect(engine.watermark(ID)).toBe('p1');
+        expect(gaps()).toEqual([]);
+
+        healthy = true;
+        engine.deliver(record, occurrence('evt_2'), 'p2', null);
+        await until(7);
+        await settle();
+        expect(gaps()).toEqual([{ type: 'gap', cursor: 'p2' }]);
+        expect(requests[6]!.headers['webhook-id']).toMatch(/^msg_gap_[\w-]+$/);
+        engine.deliver(record, occurrence('evt_3'), 'p3', null);
+        await until(8);
+        await settle();
+        expect(gaps()).toHaveLength(1);
+    });
+
+    it.each([
+        ['a 413', 413, true],
+        ['a 410', 410, false]
+    ])('marks a gap for an event lost to %s answer, and for a body it does not send', async (_case, status, gap) => {
+        const answers: WebhookSendOutcome[] = [{ status, body: '' }];
+        const { engine, record, requests, until } = setup(() => answers.shift() ?? { status: 200, body: '' });
+        const gaps = () => requests.map(request => bodyOf(request)).filter(body => body.type === 'gap');
+        engine.track(ID, 'p0');
+        engine.deliver(record, occurrence('evt_1'), 'p1', null);
+        await until(1);
+        await settle();
+        engine.deliver(record, occurrence('evt_2'), 'p2', null);
+        await until(gap ? 3 : 2);
+        await settle();
+        expect(gaps()).toEqual(gap ? [{ type: 'gap', cursor: 'p2' }] : []);
+
+        engine.deliver(record, occurrence('evt_3', { blob: 'x'.repeat(262_144) }), 'p3', null);
+        await settle();
+        engine.deliver(record, occurrence('evt_4'), 'p4', null);
+        await until(gap ? 5 : 4);
+        await settle();
+        expect(gaps().at(-1)).toEqual({ type: 'gap', cursor: 'p4' });
+    });
+
+    it('answers a refresh with the mark instead, so no envelope follows; a type without replay gets neither', async () => {
+        const answers: WebhookSendOutcome[] = [{ status: 413, body: '' }];
+        const { engine, record, requests, until } = setup(() => answers.shift() ?? { status: 200, body: '' });
+        engine.track(ID, 'p0');
+        engine.deliver(record, occurrence('evt_1'), 'p1', null);
+        await until(1);
+        await settle();
+        expect(engine.takeGap(ID)).toBe(true);
+        expect(engine.takeGap(ID)).toBe(false);
+        engine.deliver(record, occurrence('evt_2'), 'p2', null);
+        await until(2);
+        await settle();
+        expect(requests.filter(request => bodyOf(request).type === 'gap')).toEqual([]);
+
+        engine.track(ID, null);
+        answers.push({ status: 413, body: '' });
+        engine.deliver(record, occurrence('evt_3'), null, null);
+        engine.deliver(record, occurrence('evt_4'), null, null);
+        await until(4);
+        await settle();
+        expect(requests.filter(request => bodyOf(request).type === 'gap')).toEqual([]);
+        answers.push({ status: 413, body: '' });
+        engine.deliver(record, occurrence('evt_5'), null, null);
+        await until(5);
+        await settle();
+        expect(engine.takeGap(ID)).toBe(false);
+    });
+
     it.each([410, 413])('treats %i as final for the message', async status => {
         const { engine, store, record, requests, until } = setup(() => ({ status, body: '' }));
         const put = vi.spyOn(store, 'put');
@@ -635,13 +716,18 @@ describe('event delivery', () => {
         ]);
 
         await until(10);
+        // The first answer also sends the subscriber a gap for the abandoned events.
         for (let n = 0; n < 10; n++) {
             hold.answers[n]!();
-            await until(11 + n);
+            await until(12 + n);
         }
         await settle();
         // The oldest message kept starts next, and the abandoned ones no longer hold the watermark back.
-        expect(requests.slice(10).map(request => bodyOf(request).eventId)).toEqual(Array.from({ length: 10 }, (_, n) => `evt_${17 + n}`));
+        const sent = requests.slice(10).map(request => bodyOf(request));
+        expect(sent.filter(body => 'eventId' in body).map(body => body.eventId)).toEqual(
+            Array.from({ length: 10 }, (_, n) => `evt_${17 + n}`)
+        );
+        expect(sent.filter(body => body.type === 'gap')).toHaveLength(1);
         expect(engine.watermark(ID)).toBe('p16');
         expect(hold.most()).toBe(10);
     });
@@ -867,9 +953,11 @@ describe('delivery status', () => {
 
         healthy = true;
         engine.resume(ID);
-        await until(100 + 10_000);
+        // And one gap envelope after the first acknowledged delivery.
+        await until(100 + 10_000 + 1);
         await settle();
-        expect(requests).toHaveLength(100 + 10_000);
+        expect(requests).toHaveLength(100 + 10_000 + 1);
+        expect(requests.filter(request => bodyOf(request).type === 'gap')).toHaveLength(1);
         expect(requests.some(request => bodyOf(request).eventId === 'evt_21')).toBe(false);
         expect(engine.watermark(ID)).toBe('p10021');
         await vi.advanceTimersByTimeAsync(60_000);
@@ -1108,6 +1196,32 @@ describe('forget and clear', () => {
         await engine.verify('u1', HOOK_URL, SECRET, 'sub_1');
         await engine.verify('u11', HOOK_URL, SECRET, 'sub_11');
         expect(requests).toHaveLength(12);
+    });
+
+    it('reads the record of an unwatched subscription again at its expiry, drops its state once it is gone, and clears that timer on every drop', async () => {
+        const { engine, store, record, until } = setup();
+        engine.deliver(record, occurrence('evt_1'), 'p1', 'p0');
+        await until(1);
+        await settle();
+        expect(vi.getTimerCount()).toBe(1);
+
+        await store.put({ ...record, expiresAt: record.expiresAt + 3_600_000 });
+        await vi.advanceTimersByTimeAsync(3_600_000);
+        expect(engine.size).toBe(1);
+        expect(vi.getTimerCount()).toBe(1);
+        store.records.delete(ID);
+        await vi.advanceTimersByTimeAsync(3_600_000);
+        expect(engine.size).toBe(0);
+        expect(vi.getTimerCount()).toBe(0);
+
+        for (const drop of ['forget', 'clear'] as const) {
+            engine.deliver(recordFor(), occurrence('evt_2'), 'p2', 'p1');
+            await settle();
+            expect(vi.getTimerCount()).toBe(1);
+            if (drop === 'forget') engine.forget(ID);
+            else engine.clear();
+            expect(vi.getTimerCount()).toBe(0);
+        }
     });
 
     it('track() starts the watermark again for a subscription it already tracks', async () => {

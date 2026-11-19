@@ -1,11 +1,12 @@
-import { ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
+import { ProtocolError, SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { UnauthorizedError } from '../../../src/client/auth';
 import type { Client } from '../../../src/client/client';
 import type { EventSubscription, SubscribeOptions } from '../../../src/ext/events/index';
 import { EventsError, NoCompatibleDeliveryModeError } from '../../../src/ext/events/index';
 import type { Call, Handler, Notification } from './scripted';
-import { callsTo, connectEvents, descriptor, listing, occurrence, RpcError, script } from './scripted';
+import { authFailure, callsTo, connectEvents, descriptor, failSends, listing, occurrence, RpcError, script } from './scripted';
 
 const subscriptions: EventSubscription[] = [];
 
@@ -331,7 +332,8 @@ describe('poll delivery', () => {
             expect(vi.getTimerCount()).toBe(0);
             await vi.advanceTimersByTimeAsync(120_000);
             expect(polls()).toHaveLength(1);
-            expect(callsTo(calls, 'events/list')).toHaveLength(1);
+            // A refused delivery mode lists the event types again, which still select it.
+            expect(callsTo(calls, 'events/list')).toHaveLength(refusal.data?.['feature'] === 'deliveryMode' ? 2 : 1);
         }
     });
 
@@ -355,6 +357,109 @@ describe('poll delivery', () => {
         await vi.advanceTimersByTimeAsync(1000);
         expect(polls()).toHaveLength(2);
         expect(await nextEventId(sub[Symbol.asyncIterator]())).toBe('e1');
+    });
+
+    it('reports a retried failure to onerror at once, then those of the next minute together, and keeps polling', async () => {
+        const { client, polls, subscribe } = await pollWith(() => {
+            throw new RpcError(-32_603, 'Internal error');
+        });
+        const errors: Error[] = [];
+        client.onerror = error => void errors.push(error);
+        await subscribe();
+
+        expect(errors).toEqual([
+            expect.objectContaining({
+                message: "poll subscription to 'tick' failed and is retried: Internal error",
+                cause: expect.objectContaining({ code: -32_603 })
+            })
+        ]);
+        // Retries at 1, 3, 7, 15 and 31 s fall in the minute after that report.
+        await vi.advanceTimersByTimeAsync(59_999);
+        expect(polls()).toHaveLength(6);
+        expect(errors).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(errors).toHaveLength(2);
+        expect(errors[1]).toMatchObject({
+            message: "poll subscription to 'tick': 5 more retried failures since the last report, the latest: Internal error",
+            cause: expect.objectContaining({ code: -32_603 })
+        });
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(polls()).toHaveLength(8);
+        expect(errors).toHaveLength(4);
+    });
+
+    it('ends the loop on -32601, and rejects subscribe() when the first poll gets it', async () => {
+        const { polls, subscribe } = await pollWith(
+            script({ events: [], cursor: 'c1', nextPollMs: 0 }, new RpcError(-32_601, 'Method not found'))
+        );
+        const sub = await subscribe();
+        const pending = sub[Symbol.asyncIterator]()
+            .next()
+            .catch((error_: unknown) => error_);
+        await vi.advanceTimersByTimeAsync(1000);
+
+        const error = await pending;
+        expect(error).toBeInstanceOf(ProtocolError);
+        expect(error).toMatchObject({ code: -32_601 });
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(polls()).toHaveLength(2);
+
+        const first = await pollWith(script(new RpcError(-32_601, 'Method not found')));
+        const refused = await first.subscribe().catch((error_: unknown) => error_);
+        expect(refused).toBeInstanceOf(ProtocolError);
+        expect(refused).toMatchObject({ code: -32_601 });
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(first.polls()).toHaveLength(1);
+    });
+
+    it('rejects subscribe() on an auth failure of the first poll, and ends the loop on one once subscribed, without retrying', async () => {
+        const first = await pollWith(script({ events: [], cursor: 'c1', nextPollMs: 60_000 }));
+        const refusedPolls = failSends(first.client, 'events/poll', authFailure);
+        const error = await first.subscribe().catch((error_: unknown) => error_);
+        expect(error).toBeInstanceOf(UnauthorizedError);
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(refusedPolls()).toBe(1);
+
+        const later = await pollWith(script({ events: [], cursor: 'c1', nextPollMs: 0 }));
+        const sub = await later.subscribe();
+        const laterPolls = failSends(later.client, 'events/poll', authFailure);
+        const pending = sub[Symbol.asyncIterator]()
+            .next()
+            .catch((error_: unknown) => error_);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(await pending).toBeInstanceOf(UnauthorizedError);
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(laterPolls()).toBe(1);
+        expect(later.polls()).toHaveLength(1);
+    });
+
+    it('resolves subscribe() after an HTTP 503 or 429 on the first poll and delivers after the retry; another status rejects', async () => {
+        const httpError = (status: number) =>
+            new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${status}`, { status });
+        for (const status of [503, 429]) {
+            const { client, polls, subscribe } = await pollWith(script({ events: [occurrence('e1')], cursor: 'c1', nextPollMs: 60_000 }));
+            failSends(client, 'events/poll', attempt => (attempt === 1 ? httpError(status) : undefined));
+            const sub = await subscribe();
+            expect(polls()).toHaveLength(0);
+
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(polls()).toHaveLength(1);
+            expect(await nextEventId(sub[Symbol.asyncIterator]())).toBe('e1');
+            await sub.cancel();
+        }
+
+        const { client, subscribe } = await pollWith(script({ events: [], cursor: 'c1', nextPollMs: 60_000 }));
+        const attempts = failSends(client, 'events/poll', () => httpError(404));
+        const error = await subscribe().catch((error_: unknown) => error_);
+        expect(error).toBeInstanceOf(SdkHttpError);
+        expect(error).toMatchObject({ status: 404 });
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(attempts()).toBe(1);
     });
 
     it('ends the loop with ConnectionClosed when the client closes during a poll', async () => {

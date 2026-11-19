@@ -19,6 +19,7 @@ import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 import type { ServerExtension, ServerExtensionContext } from '../../server/extension';
 import { markModernOnlyExtension } from '../../server/modernOnlyExtensions';
 import { registerParamHeaderSource } from '../../server/paramHeaderSources';
+import { perRequestBacklogOf } from '../../server/perRequestTransport';
 import type { Server } from '../../server/server';
 import { markStreamingMethod } from '../../server/streamingMethods';
 import type { BufferedEvent } from './emitBuffer';
@@ -260,7 +261,7 @@ export class EventsExtension implements ServerExtension {
             this.#modernOnly(server, () => this.#poll.handlePoll(params, requestCtx))
         );
         ctx.setRequestHandler(EVENTS_STREAM_METHOD, { params: StreamEventsRequestParamsSchema }, (params, requestCtx) =>
-            this.#modernOnly(server, () => this.#push.open(params, requestCtx))
+            this.#modernOnly(server, () => this.#push.open(params, requestCtx, perRequestBacklogOf(server.transport)))
         );
         ctx.setRequestHandler(EVENTS_SUBSCRIBE_METHOD, { params: SubscribeEventsRequestParamsSchema }, (params, requestCtx) =>
             this.#modernOnly(server, () =>

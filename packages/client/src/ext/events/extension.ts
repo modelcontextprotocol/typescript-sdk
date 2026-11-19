@@ -1,4 +1,4 @@
-import type { DeliveryMode, ListEventsResult } from '@modelcontextprotocol/core/ext/events';
+import type { DeliveryMode, EventDescriptor, ListEventsResult } from '@modelcontextprotocol/core/ext/events';
 import { EVENTS_EXTENSION_ID, EVENTS_LIST_METHOD, eventsCapabilityOf } from '@modelcontextprotocol/core/ext/events';
 import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal/public';
@@ -8,6 +8,7 @@ import { NoCompatibleDeliveryModeError } from './errors';
 import { PollDriver } from './poll';
 import { PushDriver, PushUnavailableError } from './push';
 import { WebhookReceiver } from './receiver';
+import { isModeRefusal } from './recovery';
 import { EventsConnection } from './request';
 import type { Driver, DriverContext, EventSubscription, SubscribeOptions } from './subscription';
 import { SubscriptionQueue } from './subscription';
@@ -144,18 +145,25 @@ export class EventsClientExtension implements ClientExtension {
      * `events/poll` response; for push, the first
      * `notifications/events/active`, within the request timeout; for webhook,
      * the `events/subscribe` response). A transient failure of that exchange (a
-     * transport error, a JSON-RPC error that is not an Events kind, or the
-     * server's webhook verification limit, `resourceExhausted` with
-     * `data.limit: 'verification'`, retried after its `data.retryAfterMs`
-     * when given) does not reject: delivery is retried in the background.
-     * Without `delivery`, a push subscription whose first stream fails before
-     * its first `active` with anything but an `EventsError` (no valid `active`
-     * within the request timeout, as behind a host that buffers whole
-     * responses, a transport error, or an `active` that fails its schema)
-     * reports that failure to the client's `onerror` and subscribes by poll
-     * instead, once, when the event type offers poll. A `cursor` the
-     * server refuses because the event type's schema changed is dropped: the
-     * event types are listed again, the subscription starts from now, and
+     * transport error, an HTTP `5xx` or `429`, a JSON-RPC error other than an
+     * Events kind and `-32601`, or the server's webhook verification limit,
+     * `resourceExhausted` with `data.limit: 'verification'`, retried after its
+     * `data.retryAfterMs` when given) does not reject: it is reported to the
+     * client's `onerror`, and delivery is retried in the background. Without
+     * `delivery`, a push subscription whose first stream fails before its
+     * first `active` with anything but an `EventsError`, an auth failure or a
+     * `-32601` (no valid `active` within the request timeout, as behind a host
+     * that buffers whole responses, a transport error, or an `active` that
+     * fails its schema) reports that failure to the client's `onerror` and
+     * subscribes by poll instead, once, when the event type offers poll. An
+     * auth failure of the transport (such as the `UnauthorizedError` of a
+     * `401` its `authProvider` could not resolve) rejects, and so does a
+     * `-32601`. When the server refuses the selected delivery mode
+     * (`unsupported` with `data.feature: 'deliveryMode'`), the event types are
+     * listed again once and the mode selected again from that listing; a
+     * `delivery` the server refuses is not changed to another mode. A `cursor`
+     * the server refuses because the event type's schema changed is dropped:
+     * the event types are listed again, the subscription starts from now, and
      * `onGap` reports the fresh cursor. A `-32020` lists the event types again
      * and retries once. Once subscribed, every mode recovers from errors as
      * {@linkcode EventSubscription} describes.
@@ -170,15 +178,20 @@ export class EventsClientExtension implements ClientExtension {
      *
      * @throws {EventsError} when the server refuses the subscription: `notFound` for an event type it does not list or
      *   no longer serves, `invalidParams` for arguments its `inputSchema` rejects, `forbidden`, or another kind
-     *   (`resourceExhausted` for any limit but the webhook verification limit).
+     *   (`resourceExhausted` for any limit but the webhook verification limit, `unsupported` for a delivery mode it
+     *   still refuses after the re-list).
      * @throws {NoCompatibleDeliveryModeError} when no delivery mode the event type offers is usable here, also when
-     *   the schema change that refused `cursor` left the event type without the selected mode.
+     *   the schema change that refused `cursor`, or the re-list after a refused delivery mode, left the event type
+     *   without a usable mode.
      * @throws {SdkError} `CapabilityNotSupported` when {@linkcode EventsClientExtension.supported} is `false`,
      *   `ConnectionClosed` when the client closes before the first exchange answers, or another code when that
      *   exchange fails in the SDK (for example `RequestTimeout`, also when a push stream that does not fall back to
-     *   poll sends no valid `notifications/events/active` in time, or `InvalidResult` for an `active` that fails its
-     *   schema).
-     * @throws {ProtocolError} `-32020` when the server rejects the `Mcp-Param` headers again after a re-list.
+     *   poll sends no valid `notifications/events/active` in time, `InvalidResult` for an `active` that fails its
+     *   schema, or an `SdkHttpError` for an HTTP error status other than `5xx` and `429`).
+     * @throws {ProtocolError} `-32020` when the server rejects the `Mcp-Param` headers again after a re-list, or
+     *   `-32601` when it does not serve the method.
+     * @throws {Error} the transport's auth failure (such as `UnauthorizedError`) when the first exchange is not
+     *   authorized.
      * @throws {TypeError} when `webhook.secretProvider` returns something that is not a Standard Webhooks secret, or a
      *   secret another open server subscription signs with.
      */
@@ -190,15 +203,23 @@ export class EventsClientExtension implements ClientExtension {
             descriptor = connection.descriptor(options.name);
         }
         if (descriptor === undefined) throw new EventsError('notFound', 'Event type not found', { kind: 'event' });
-        const mode = selectDeliveryMode(options.name, descriptor.delivery, options.delivery, this.#options.webhook !== undefined);
-        // Unless `delivery` forced push, a first push stream that cannot work hands the subscription to poll, once.
-        const fallback = options.delivery === undefined && mode === 'push' && descriptor.delivery.includes('poll');
+        const mode = this.#select(options, descriptor);
         try {
-            return await this.#start<T>(mode, options, connection, fallback);
+            return await this.#subscribeIn<T>(mode, descriptor, options, connection);
         } catch (error) {
-            if (!(error instanceof PushUnavailableError)) throw error;
-            connection.report(error);
-            return this.#start<T>('poll', options, connection, false);
+            if (!isModeRefusal(error)) throw error;
+            // The listing the mode came from may be stale: list again and select again, once.
+            let fresh: EventDescriptor | undefined;
+            try {
+                await connection.list();
+                fresh = connection.descriptor(options.name);
+            } catch {
+                throw error;
+            }
+            if (fresh === undefined) throw error;
+            const again = this.#select(options, fresh);
+            if (again === mode) throw error;
+            return this.#subscribeIn<T>(again, fresh, options, connection);
         }
     }
 
@@ -218,6 +239,27 @@ export class EventsClientExtension implements ClientExtension {
     createWebhookHandler(): (request: Request) => Promise<Response> {
         const receiver = this.#receiver;
         return request => receiver.handle(request);
+    }
+
+    #select(options: SubscribeOptions, descriptor: EventDescriptor): DeliveryMode {
+        return selectDeliveryMode(options.name, descriptor.delivery, options.delivery, this.#options.webhook !== undefined);
+    }
+
+    // Runs `mode`; unless `delivery` forced push, a first push stream that cannot work hands the subscription to poll, once.
+    async #subscribeIn<T>(
+        mode: DeliveryMode,
+        descriptor: EventDescriptor,
+        options: SubscribeOptions,
+        connection: EventsConnection
+    ): Promise<EventSubscription<T>> {
+        const fallback = options.delivery === undefined && mode === 'push' && descriptor.delivery.includes('poll');
+        try {
+            return await this.#start<T>(mode, options, connection, fallback);
+        } catch (error) {
+            if (!(error instanceof PushUnavailableError)) throw error;
+            connection.report(error);
+            return this.#start<T>('poll', options, connection, false);
+        }
     }
 
     // Runs a subscription in `mode`, resolving once its first exchange succeeds.

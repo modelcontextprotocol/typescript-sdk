@@ -3,10 +3,11 @@ import { ProtocolError, SdkError, SdkErrorCode, SUBSCRIPTION_ID_META_KEY } from 
 import type { MockInstance } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { UnauthorizedError } from '../../../src/client/auth';
 import type { EventSubscription, SubscribeOptions } from '../../../src/ext/events/index';
 import { EventsError, NoCompatibleDeliveryModeError } from '../../../src/ext/events/index';
 import type { Call, Handler } from './scripted';
-import { callsTo, connectEvents, descriptor, listing, occurrence, RpcError, script } from './scripted';
+import { authFailure, callsTo, connectEvents, descriptor, failSends, listing, occurrence, RpcError, script } from './scripted';
 
 const subscriptions: EventSubscription[] = [];
 
@@ -298,6 +299,23 @@ describe('push delivery', () => {
         expect(await nextEventId(sub[Symbol.asyncIterator]())).toBe('e1');
     });
 
+    it('ends the loop on an auth failure of a reopen, without reopening again', async () => {
+        const { client, last, streams, subscribe } = await pushWith();
+        const sub = await subscribe({}, s => s.active({ cursor: 'c1' }));
+        const reopens = failSends(client, 'events/stream', authFailure);
+        const pending = sub[Symbol.asyncIterator]()
+            .next()
+            .catch((error_: unknown) => error_);
+
+        await last().end();
+        await vi.advanceTimersByTimeAsync(500);
+        expect(await pending).toBeInstanceOf(UnauthorizedError);
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(reopens()).toBe(1);
+        expect(streams()).toHaveLength(1);
+    });
+
     it('fails the iterator on terminated forbidden', async () => {
         const { last, streams, subscribe } = await pushWith();
         const sub = await subscribe();
@@ -463,7 +481,8 @@ describe('push delivery', () => {
             expect(vi.getTimerCount()).toBe(0);
             await vi.advanceTimersByTimeAsync(120_000);
             expect(streams()).toHaveLength(1);
-            expect(lists()).toHaveLength(1);
+            // A refused delivery mode lists the event types again, which still select it.
+            expect(lists()).toHaveLength(refusal.data?.feature === 'deliveryMode' ? 2 : 1);
         }
     });
 
@@ -657,6 +676,22 @@ describe('push delivery', () => {
             expect(streams()).toHaveLength(1);
             expect(polls()).toHaveLength(0);
             expect(errors).toEqual([]);
+        });
+
+        it.each([
+            ['an auth failure', authFailure, UnauthorizedError],
+            ['-32601', () => new ProtocolError(-32_601, 'Method not found'), ProtocolError]
+        ])('rejects without falling back when the first stream fails with %s', async (_case, failure, type) => {
+            const { client, events, errors, polls } = await pushOrPoll(() => new Promise<never>(() => {}));
+            const attempts = failSends(client, 'events/stream', failure);
+            const error = await events.subscribe({ name: 'tick' }).catch((error_: unknown) => error_);
+
+            expect(error).toBeInstanceOf(type);
+            expect(polls()).toHaveLength(0);
+            expect(errors).toEqual([]);
+            expect(vi.getTimerCount()).toBe(0);
+            await vi.advanceTimersByTimeAsync(120_000);
+            expect(attempts()).toBe(1);
         });
 
         it('rejects as before when the first stream is refused with an EventsError', async () => {

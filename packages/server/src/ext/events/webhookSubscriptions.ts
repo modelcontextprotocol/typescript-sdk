@@ -145,7 +145,8 @@ export class WebhookSubscriptions implements SubscriptionSource {
             sender: deps.sender,
             store: deps.store,
             trustedOrigins: deps.trustedOrigins,
-            onerror: error => deps.report(error)
+            onerror: error => deps.report(error),
+            watches: id => this.#watched.has(id)
         });
     }
 
@@ -392,7 +393,8 @@ export class WebhookSubscriptions implements SubscriptionSource {
             id,
             refreshBefore: new Date(refreshed.expiresAt).toISOString(),
             cursor: this.#engine.watermark(id) ?? null,
-            truncated: false,
+            // Events this process abandoned since the subscriber was last told.
+            truncated: this.#engine.takeGap(id),
             ...(deliveryStatus === undefined ? {} : { deliveryStatus })
         };
     }
@@ -582,10 +584,12 @@ export class WebhookSubscriptions implements SubscriptionSource {
                 const result = await entry.definition.check!(watched.ctx, record.arguments, from);
                 const batch = await checkedBatch(entry, from, result, undefined, this.#deps.report);
                 if (this.#watched.get(id) !== watched) return;
-                if (batch.truncated) void this.#engine.sendControl(record, { type: 'gap', cursor: batch.cursor });
                 this.#send(record, batch, from);
                 // A quiet batch moves the watermark to the upstream cursor once nothing awaits an answer, so the refresh cursor advances.
                 if (batch.events.length === 0) this.#engine.advance(id, batch.position);
+                // The gap goes at the watermark, as for abandoned events, or at the batch cursor when there is no watermark.
+                const gapCursor = this.#engine.watermark(id) ?? batch.cursor;
+                if (batch.truncated) void this.#engine.sendControl(record, { type: 'gap', cursor: gapCursor });
                 watched.position = batch.position;
             }
         } catch (error) {

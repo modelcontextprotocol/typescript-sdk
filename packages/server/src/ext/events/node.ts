@@ -10,6 +10,7 @@ import http from 'node:http';
 import https from 'node:https';
 import type { LookupFunction } from 'node:net';
 import net from 'node:net';
+import os from 'node:os';
 
 import { isSpecialPurposeAddress } from './specialAddresses';
 import type { WebhookSender, WebhookSendOutcome, WebhookSendRequest } from './types';
@@ -22,6 +23,8 @@ const MAX_RESPONSE_BYTES = 65_536;
 const REFUSED: WebhookSendOutcome = { error: 'connection_refused' };
 // OpenSSL certificate and verification codes, Node's TLS and OpenSSL error codes, and EPROTO, which Node reports for a failed TLS handshake.
 const TLS_FAILURE_CODE = /CERT|UNABLE_TO_VERIFY|INVALID_CA|SELF_SIGNED|DEPTH_ZERO|^ERR_SSL_|^ERR_TLS_|^EPROTO$/;
+// IPv6 fe80::/10 and IPv4 169.254.0.0/16, which every interface can have without a route off its link.
+const LINK_LOCAL = /^fe[89ab][\da-f]:|^169\.254\./i;
 
 /**
  * The default {@linkcode WebhookSender} for Node.js, hardened against
@@ -30,10 +33,13 @@ const TLS_FAILURE_CODE = /CERT|UNABLE_TO_VERIFY|INVALID_CA|SELF_SIGNED|DEPTH_ZER
  * (with a DNS query, not `getaddrinfo`, so `/etc/hosts` does not apply),
  * refuses with `connection_refused` when any resolved address is in an IANA
  * special-purpose range (loopback, private, link-local and the like), and
- * connects only to the addresses it checked, which Node tries in turn, with
- * the URL's host name in the `Host` header and TLS SNI. It follows no
- * redirects (a 3xx answer is returned as it is), gives up after 5 seconds
- * with `{ error: 'timeout' }`, and reads at most 64 KiB of the response body.
+ * connects only to the addresses it checked, which Node tries in turn (only
+ * those of a family the host has an interface address of that is neither
+ * loopback nor link-local, unless that leaves none or the host's interfaces
+ * cannot be read), with the URL's host name
+ * in the `Host` header and TLS SNI. It follows no redirects (a 3xx answer is
+ * returned as it is), gives up after 5 seconds with `{ error: 'timeout' }`,
+ * and reads at most 64 KiB of the response body.
  *
  * Experimental: Events (SEP-3415) is new; this API may change in a minor release.
  *
@@ -133,11 +139,12 @@ function hostnameOf(url: URL): string {
     return url.hostname.startsWith('[') ? url.hostname.slice(1, -1) : url.hostname;
 }
 
-// A lookup that answers with checked addresses only, so the connection goes nowhere else: those of the family asked for, all of them when asked for all (Node then tries each), else the first.
+// A lookup that answers with checked addresses only, so the connection goes nowhere else: those of the family asked for (with ADDRCONFIG, of a family the host has a non-loopback, non-link-local address of), all of them when asked for all (Node then tries each), else the first.
 function pinnedTo(addresses: readonly LookupAddress[]): LookupFunction {
     return (hostname, options, callback) => {
         const family = options.family === 'IPv4' ? 4 : options.family === 'IPv6' ? 6 : options.family;
-        const answers = family === 4 || family === 6 ? addresses.filter(address => address.family === family) : addresses;
+        const asked = family === 4 || family === 6 ? addresses.filter(address => address.family === family) : addresses;
+        const answers = ((options.hints ?? 0) & dns.ADDRCONFIG) === 0 ? asked : configured(asked);
         const [first] = answers;
         if (first === undefined) {
             callback(Object.assign(new Error(`getaddrinfo ENOTFOUND ${hostname}`), { code: 'ENOTFOUND', hostname }), []);
@@ -147,6 +154,24 @@ function pinnedTo(addresses: readonly LookupAddress[]): LookupFunction {
             callback(null, first.address, first.family);
         }
     };
+}
+
+// As ADDRCONFIG: the addresses of a family the host has an interface address of, not internal or link-local; all of them when that leaves none or the interfaces cannot be read.
+function configured(addresses: readonly LookupAddress[]): readonly LookupAddress[] {
+    let interfaces: ReturnType<typeof os.networkInterfaces>;
+    try {
+        interfaces = os.networkInterfaces();
+    } catch {
+        return addresses;
+    }
+    const families = new Set<number>();
+    for (const entries of Object.values(interfaces)) {
+        for (const entry of entries ?? []) {
+            if (!entry.internal && !LINK_LOCAL.test(entry.address)) families.add(entry.family === 'IPv6' ? 6 : 4);
+        }
+    }
+    const kept = addresses.filter(address => families.has(address.family));
+    return kept.length === 0 ? addresses : kept;
 }
 
 // Certificate, verification and handshake failures are tls_error; every other failure (refused, reset, unreachable, unresolved) is connection_refused.

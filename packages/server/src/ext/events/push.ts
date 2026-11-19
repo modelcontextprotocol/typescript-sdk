@@ -26,6 +26,8 @@ import type { SubscriptionValidator } from './validation';
 
 // The shortest heartbeat granted, whatever the client suggests (D33).
 const HEARTBEAT_FLOOR_MS = 5000;
+// A stream whose client has left more than this unread ends before its next write.
+const MAX_STREAM_BACKLOG_BYTES = 1_048_576;
 
 // A check that throws one of these ends its subscription; any other error leaves the loop running.
 export const TERMINAL_KINDS: ReadonlySet<EventsErrorKind> = new Set(['forbidden', 'notFound', 'unsupported']);
@@ -46,6 +48,8 @@ interface PushStream {
     readonly requestId: RequestId;
     readonly grant: number;
     readonly notify: ServerContext['mcpReq']['notify'];
+    // The bytes written that the client has not read yet, where the transport tells.
+    readonly backlog?: () => number;
     // Aborts when the stream ends; the `signal` of every callback's ctx.
     readonly ended: AbortController;
     readonly ctx: CheckContext;
@@ -89,7 +93,7 @@ export function errorObject(error: unknown): EventsErrorObject {
     return { code: ProtocolErrorCode.InternalError, message: error instanceof Error ? error.message : String(error) };
 }
 
-// A batch's cursors stay at `from` until its last event, so none runs ahead of an unsent event; a truncated batch carries the fresh cursor throughout.
+// A batch's cursors, its start or gap cursor too, stay at `from` until its last event, truncated or not, so none runs ahead of an unsent event.
 export async function checkedBatch(
     entry: RegisteredEvent,
     from: string | null,
@@ -99,7 +103,7 @@ export async function checkedBatch(
 ): Promise<Batch> {
     const { events, truncated } = await checkedEvents(entry, result, maxAgeMs, report);
     const last = events.length - 1;
-    const cursorAt = (index: number) => (truncated || index === last ? result.cursor : from);
+    const cursorAt = (index: number) => (index === last ? result.cursor : from);
     return {
         cursor: cursorAt(-1),
         truncated,
@@ -173,10 +177,11 @@ export class StreamSet implements SubscriptionSource {
         return count;
     }
 
-    async open(params: StreamEventsRequestParams, ctx: ServerContext): Promise<StreamEventsResult> {
+    // `backlog` reads the bytes of the response stream the client has not read, on a transport that can tell.
+    async open(params: StreamEventsRequestParams, ctx: ServerContext, backlog?: () => number): Promise<StreamEventsResult> {
         const { entry, principal, args } = await this.#deps.validator.validate('push', params, ctx);
         this.#deps.validator.assertCapacity(principal);
-        const stream = this.#create(entry, principal, args, params, ctx);
+        const stream = this.#create(entry, principal, args, params, ctx, backlog);
         const result = { _meta: { [SUBSCRIPTION_ID_META_KEY]: ctx.mcpReq.id } };
         try {
             await entry.definition.onSubscribe?.(stream.ctx, args);
@@ -245,7 +250,8 @@ export class StreamSet implements SubscriptionSource {
         principal: string | null,
         args: Record<string, unknown>,
         params: StreamEventsRequestParams,
-        ctx: ServerContext
+        ctx: ServerContext,
+        backlog: (() => number) | undefined
     ): PushStream {
         let finish!: () => void;
         const done = new Promise<void>(resolve => (finish = resolve));
@@ -257,6 +263,7 @@ export class StreamSet implements SubscriptionSource {
             requestId: ctx.mcpReq.id,
             grant: Math.min(Math.max(params.heartbeatMs ?? max, HEARTBEAT_FLOOR_MS), max),
             notify: ctx.mcpReq.notify,
+            ...(backlog !== undefined && { backlog }),
             ended,
             ctx: makeContext({
                 name: entry.name,
@@ -321,6 +328,11 @@ export class StreamSet implements SubscriptionSource {
 
     // Params that resolve to `undefined` (a dropped event) send nothing; an event's own `_meta` keys stay beside the stream's id.
     #write(stream: PushStream, method: string, params: Record<string, unknown> | Promise<Record<string, unknown> | undefined>): void {
+        // A client that stopped reading is treated as gone, as after a failed write; it reconnects from its cursor.
+        if ((stream.backlog?.() ?? 0) > MAX_STREAM_BACKLOG_BYTES) {
+            void this.#end(stream);
+            return;
+        }
         // A failed write means the client is gone.
         stream.queue = stream.queue
             .then(async () => {

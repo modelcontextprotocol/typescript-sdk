@@ -194,7 +194,7 @@ describe('events/stream: a check type', () => {
         ]);
     });
 
-    it('replays from a cursor first, then reports a gap mid-stream with a fresh active', async () => {
+    it('replays from a cursor first, then reports a gap mid-stream with another active', async () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
         const check = vi
             .fn<Check>()
@@ -223,11 +223,41 @@ describe('events/stream: a check type', () => {
         expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'b', data: { n: 2 }, cursor: 'h3' } });
         const gap = next(stream);
         await vi.advanceTimersByTimeAsync(5000);
-        // A truncated batch carries the fresh cursor on its active and on every event, so the cursor never moves back.
-        expect(await gap).toEqual(notification(ACTIVE, stream.id, { cursor: 'h9', truncated: true, heartbeatMs: 30_000 }));
-        expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'c', cursor: 'h9' } });
+        // A truncated batch's cursors stay at its start too, on its active and its events until the last.
+        expect(await gap).toEqual(notification(ACTIVE, stream.id, { cursor: 'h3', truncated: true, heartbeatMs: 30_000 }));
+        expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'c', cursor: 'h3' } });
         expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'd', cursor: 'h9' } });
         expect(check.mock.calls.map(call => call[2])).toEqual(['h1', 'h3']);
+    });
+
+    it('resumes a truncated batch dropped after its first event from that event, and delivers the rest', async () => {
+        const batch = {
+            events: [
+                { eventId: 'a', data: { n: 1 } },
+                { eventId: 'b', data: { n: 2 } },
+                { eventId: 'c', data: { n: 3 } }
+            ],
+            cursor: 'h9',
+            truncated: true
+        };
+        const check = vi.fn<Check>((_ctx, _args, cursor) => (cursor === 'h1' ? batch : { events: [], cursor: 'h9' }));
+        const events = new EventsExtension();
+        events.registerEvent('tick', { payloadSchema: P, check });
+        const served = serve(events);
+        const first = await open(served, { name: 'tick', cursor: 'h1' });
+        expect(await next(first)).toMatchObject({ method: ACTIVE, params: { cursor: 'h1', truncated: true } });
+        const dropped = paramsOf(await next(first));
+        expect(dropped).toMatchObject({ eventId: 'a', cursor: 'h1' });
+        first.abort();
+
+        const resumed = await open(served, { name: 'tick', cursor: dropped['cursor'] });
+        expect(await next(resumed)).toMatchObject({ method: ACTIVE, params: { cursor: 'h1', truncated: true } });
+        const frames = [paramsOf(await next(resumed)), paramsOf(await next(resumed)), paramsOf(await next(resumed))];
+        expect(frames.map(params => [params['eventId'], params['cursor']])).toEqual([
+            ['a', 'h1'],
+            ['b', 'h1'],
+            ['c', 'h9']
+        ]);
     });
 
     it('confirms a cursor: null result with truncated: false, and sends no fresh active for its gaps (SEP-3415 §Cursor Lifecycle)', async () => {
@@ -257,8 +287,8 @@ describe('events/stream: a check type', () => {
         const events = new EventsExtension();
         events.registerEvent('tick', { payloadSchema: P, check });
         const stream = await open(serve(events), { name: 'tick', cursor: 'h1', maxAgeMs: 300_000 });
-        expect(await next(stream)).toMatchObject({ method: ACTIVE, params: { cursor: 'h2', truncated: true } });
-        expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'new', cursor: 'h2' } });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE, params: { cursor: 'h1', truncated: true } });
+        expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'new', cursor: 'h1' } });
         expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'newer', cursor: 'h2' } });
         expect(check.mock.calls[0]![0]).toMatchObject({ mode: 'push', maxAgeMs: 300_000 });
     });
@@ -617,6 +647,33 @@ describe('events/stream: termination', () => {
         expect(onUnsubscribe).toHaveBeenCalledOnce();
         expect(await rest(stream)).toEqual([finalResult(stream.id)]);
         expect(hook.state().pushStreams).toBe(0);
+    });
+});
+
+describe('events/stream: a client that stops reading', () => {
+    it('ends a stream whose client leaves more than 1 MiB unread, and keeps one whose client reads', async () => {
+        const events = new EventsExtension();
+        const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: z.object({ s: z.string() }) });
+        const served = serve(events);
+        const stalled = await open(served, { name: 'big', cursor: null });
+        const reading = await open(served, { name: 'big', cursor: null });
+        expect(await next(stalled)).toMatchObject({ method: ACTIVE });
+        expect(await next(reading)).toMatchObject({ method: ACTIVE });
+
+        // 20 events of 100 kB: the stalled client reads none of them.
+        const read: unknown[] = [];
+        for (let n = 0; n < 20; n++) {
+            await handle.emit({ eventId: `e${n}`, data: { s: 'x'.repeat(100_000) } });
+            read.push(paramsOf(await next(reading))['eventId']);
+        }
+        expect(read).toHaveLength(20);
+        expect(testHook(events).state().pushStreams).toBe(1);
+
+        const left = await rest(stalled);
+        expect(left.at(-1)).toEqual(finalResult(stalled.id));
+        const unread = left.filter(frame => 'method' in frame && frame.method === EVENT);
+        expect(unread.length).toBeGreaterThan(9);
+        expect(unread.length).toBeLessThan(15);
     });
 });
 

@@ -153,6 +153,42 @@ describe('EventsClientExtension.subscribe', () => {
         expect(() => selectDeliveryMode('tick', ['webhook', 'poll'], 'webhook', false)).toThrow(expect.objectContaining({ usable: [] }));
     });
 
+    it('lists again once when the server refuses the delivery mode of a stale listing, and subscribes in the mode selected again', async () => {
+        const stale = descriptor('tick', { delivery: ['push', 'poll'] });
+        const refusePush: Handler = () => {
+            throw new RpcError(-32_026, 'Unsupported', { feature: 'deliveryMode', value: 'push' });
+        };
+        const relisting = (fresh: ReturnType<typeof descriptor>) => {
+            const listings = [[stale], [fresh]];
+            return () => ({ events: listings.shift() ?? [fresh] });
+        };
+
+        const pollOnly = descriptor('tick', { delivery: ['poll'] });
+        const moved = await connectEvents({ 'events/list': relisting(pollOnly), 'events/stream': refusePush, 'events/poll': quietPoll });
+        await moved.events.list();
+        const sub = await track(moved.events.subscribe({ name: 'tick' }));
+        expect(sub.deliveryMode).toBe('poll');
+        expect(callsTo(moved.calls, 'events/list')).toHaveLength(2);
+        expect(callsTo(moved.calls, 'events/stream')).toHaveLength(1);
+
+        // A forced mode is not changed to another one.
+        const forced = await connectEvents({ 'events/list': relisting(pollOnly), 'events/stream': refusePush, 'events/poll': quietPoll });
+        await forced.events.list();
+        const error = await forced.events.subscribe({ name: 'tick', delivery: 'push' }).catch((error_: unknown) => error_);
+        expect(error).toBeInstanceOf(NoCompatibleDeliveryModeError);
+        expect(error).toMatchObject({ offered: ['poll'], usable: ['push'] });
+        expect(callsTo(forced.calls, 'events/poll')).toHaveLength(0);
+
+        // A fresh listing that still selects the refused mode rejects with the refusal.
+        const same = await connectEvents({ 'events/list': relisting(stale), 'events/stream': refusePush, 'events/poll': quietPoll });
+        await same.events.list();
+        const refused = await same.events.subscribe({ name: 'tick' }).catch((error_: unknown) => error_);
+        expect(refused).toBeInstanceOf(EventsError);
+        expect(refused).toMatchObject({ kind: 'unsupported', data: { feature: 'deliveryMode', value: 'push' } });
+        expect(callsTo(same.calls, 'events/list')).toHaveLength(2);
+        expect(callsTo(same.calls, 'events/stream')).toHaveLength(1);
+    });
+
     it('refetches events/list for an uncached name and refuses one the server does not list', async () => {
         const { events, calls } = await connectEvents({ 'events/list': listing(descriptor('tick')), 'events/poll': quietPoll });
         await track(events.subscribe({ name: 'tick' }));

@@ -18,7 +18,7 @@ import type * as z from 'zod/v4';
 
 import type { StreamEnd, StreamHandle } from '../../client/client';
 import { clientInternals } from '../../client/client';
-import { connectionClosed, DriverLoop, isHeaderMismatch, jitteredDelay, MAX_TIMER_DELAY_MS } from './recovery';
+import { connectionClosed, DriverLoop, endsSubscription, isHeaderMismatch, jitteredDelay, MAX_TIMER_DELAY_MS } from './recovery';
 import { asEventsError } from './request';
 import type { Driver, DriverContext } from './subscription';
 
@@ -107,9 +107,9 @@ export class PushDriver<T> implements Driver {
             return;
         }
         const { connection, subscription } = this.#context;
-        if (this.#fallback && this.#loop.first && !(error instanceof EventsError) && connectionClosed(connection, error) === undefined) {
-            throw new PushUnavailableError(subscription.name, error);
-        }
+        const unavailable =
+            !(error instanceof EventsError) && !endsSubscription(error) && connectionClosed(connection, error) === undefined;
+        if (this.#fallback && this.#loop.first && unavailable) throw new PushUnavailableError(subscription.name, error);
         await this.#loop.recover(error);
     }
 

@@ -1,9 +1,13 @@
-import { ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
+import { ProtocolError, SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
 import { EventsError } from '../../../src/ext/events/index';
 import { recoveryFor, refusesSubscription, reportGap } from '../../../src/ext/events/recovery';
 import type { EventsConnection } from '../../../src/ext/events/request';
+import { authFailure } from './scripted';
+
+const httpError = (status: number) =>
+    new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${status}`, { status });
 
 describe('the recovery rules every delivery mode shares', () => {
     it.each([
@@ -32,8 +36,13 @@ describe('the recovery rules every delivery mode shares', () => {
         ],
         ['callbackEndpointError', 'fail', true, new EventsError('callbackEndpointError', 'Unreachable', { reason: 'timeout' })],
         ['-32020', 'mismatch', true, new ProtocolError(-32_020, 'Mcp-Param-Region header mismatch')],
+        ['-32601', 'fail', true, new ProtocolError(-32_601, 'Method not found')],
         ['another JSON-RPC error', 'retry', false, new ProtocolError(-32_603, 'Internal error')],
+        ['an auth failure', 'fail', true, authFailure()],
         ['an SDK error', 'retry', true, new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out')],
+        ['an HTTP 503', 'retry', false, httpError(503)],
+        ['an HTTP 429', 'retry', false, httpError(429)],
+        ['an HTTP 404', 'retry', true, httpError(404)],
         ['a transport error', 'retry', false, new Error('fetch failed')]
     ] as const)('%s → %s once subscribed; refuses a first exchange: %s', (_name, recovery, refuses, error) => {
         expect(recoveryFor(error)).toBe(recovery);

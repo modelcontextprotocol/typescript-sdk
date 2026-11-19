@@ -292,6 +292,60 @@ describe('nodeWebhookSender', () => {
         expect(await connection.lookup({})).toEqual({ address: '1.1.1.1', family: 4 });
     });
 
+    describe('with ADDRCONFIG', () => {
+        const entry = (family: 'IPv4' | 'IPv6', address: string, internal = false) =>
+            ({ address, family, internal, netmask: '', mac: '', cidr: null }) as os.NetworkInterfaceInfo;
+        const loopback = { lo0: [entry('IPv4', '127.0.0.1', true), entry('IPv6', '::1', true)] };
+        const A = { address: '1.1.1.1', family: 4 };
+        const AAAA = { address: '2606:4700:4700::1111', family: 6 };
+
+        // The pinned lookup of a send to a host with one checked address of each family.
+        async function dualStackLookup() {
+            stubResolver(['1.1.1.1', '2606:4700:4700::1111']);
+            const connection = captureConnection();
+            await nodeWebhookSender()(sendRequest('https://dual.example.test/x', false));
+            return (options: dns.LookupOptions = {}) => connection.lookup({ all: true, hints: dns.ADDRCONFIG, ...options });
+        }
+
+        it('answers only the families the host has an address of that is neither internal nor link-local, or all when none is', async () => {
+            const interfaces = vi.spyOn(os, 'networkInterfaces');
+            const lookup = await dualStackLookup();
+
+            interfaces.mockReturnValue({ ...loopback, en0: [entry('IPv4', '192.168.1.2')] });
+            expect(await lookup()).toEqual([A]);
+            expect(await lookup({ hints: 0 })).toEqual([A, AAAA]);
+            // Linux gives every interface an fe80:: address, routed or not.
+            interfaces.mockReturnValue({ ...loopback, eth0: [entry('IPv4', '192.168.1.2'), entry('IPv6', 'fe80::1')] });
+            expect(await lookup()).toEqual([A]);
+            interfaces.mockReturnValue({ ...loopback, eth0: [entry('IPv4', '192.168.1.2'), entry('IPv6', '2001:db8::2')] });
+            expect(await lookup()).toEqual([A, AAAA]);
+            interfaces.mockReturnValue(loopback);
+            expect(await lookup()).toEqual([A, AAAA]);
+            interfaces.mockReturnValue({ ...loopback, eth0: [entry('IPv6', '2001:db8::2')] });
+            expect(await lookup({ family: 4 })).toEqual([A]);
+        });
+
+        it('does not count an IPv4 link-local address', async () => {
+            const interfaces = vi.spyOn(os, 'networkInterfaces');
+            const lookup = await dualStackLookup();
+
+            interfaces.mockReturnValue({ ...loopback, eth0: [entry('IPv4', '169.254.10.20'), entry('IPv6', '2001:db8::2')] });
+            expect(await lookup()).toEqual([AAAA]);
+            interfaces.mockReturnValue({ ...loopback, eth0: [entry('IPv4', '169.254.10.20'), entry('IPv6', 'fe80::1')] });
+            expect(await lookup()).toEqual([A, AAAA]);
+        });
+
+        it('answers every checked address when the interfaces cannot be read', async () => {
+            vi.spyOn(os, 'networkInterfaces').mockImplementation(() => {
+                throw Object.assign(new Error('uv_interface_addresses returned Unknown system error 1'), { code: 'ERR_SYSTEM_ERROR' });
+            });
+            const lookup = await dualStackLookup();
+
+            expect(await lookup()).toEqual([A, AAAA]);
+            expect(await lookup({ all: false, family: 6 })).toEqual(AAAA);
+        });
+    });
+
     it('fails the lookup for a family with no checked address', async () => {
         stubResolver(['1.1.1.1']);
         const connection = captureConnection();
@@ -302,6 +356,13 @@ describe('nodeWebhookSender', () => {
     });
 
     it.skipIf(!hasIpv6Loopback)('connects to the AAAA address when the A address does not answer', async () => {
+        // A dual-stack host, so ADDRCONFIG keeps both families.
+        vi.spyOn(os, 'networkInterfaces').mockReturnValue({
+            en0: [
+                { address: '192.168.1.2', family: 'IPv4', internal: false, netmask: '', mac: '', cidr: null },
+                { address: '2001:db8::2', family: 'IPv6', internal: false, netmask: '', mac: '', cidr: null, scopeid: 0 }
+            ]
+        });
         const receiver = await countingServer('::1');
         await treatAsPublic('192.0.2.1', '::1');
         stubResolver(['192.0.2.1', '::1']);

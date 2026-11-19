@@ -1,8 +1,9 @@
 import type { DeliveryMode } from '@modelcontextprotocol/core/ext/events';
-import { HEADER_MISMATCH_ERROR_CODE, ProtocolError } from '@modelcontextprotocol/core-internal';
+import { HEADER_MISMATCH_ERROR_CODE, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core-internal';
 import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal/public';
+import { SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal/public';
 
+import { isAuthSeamEscape } from '../../client/authSeam';
 import { NoCompatibleDeliveryModeError } from './errors';
 import type { EventsConnection } from './request';
 import type { DriverContext, SubscribeOptions } from './subscription';
@@ -11,9 +12,20 @@ import type { DriverContext, SubscribeOptions } from './subscription';
 export const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const RETRY_BASE_MS = 1000;
 const RETRY_MAX_MS = 30_000;
+// Retried failures are reported at once, then counted and reported together at most this often per subscription.
+const RETRY_REPORT_INTERVAL_MS = 60_000;
+// JSON-RPC codes that end a subscription: the server no longer serves the method, or rejects its params.
+const FINAL_CODES: ReadonlySet<number> = new Set([ProtocolErrorCode.MethodNotFound, ProtocolErrorCode.InvalidParams]);
 
-// An error of the first exchange that subscribe() rejects with (a -32020 only once its re-list is spent); any other (transport, non-Events JSON-RPC, a verification limit) is retried in the background.
+// An error that ends a subscription whenever it comes: an auth failure (a retry would run auth() again), a -32601 or a -32602.
+export function endsSubscription(error: unknown): boolean {
+    return isAuthSeamEscape(error) || (error instanceof ProtocolError && FINAL_CODES.has(error.code));
+}
+
+// An error of the first exchange that subscribe() rejects with (a -32020 only once its re-list is spent); any other (transport, an HTTP 5xx or 429, another non-Events JSON-RPC error, a verification limit) is retried in the background.
 export function refusesSubscription(error: unknown): boolean {
+    if (endsSubscription(error)) return true;
+    if (error instanceof SdkHttpError) return !(error.status >= 500 || error.status === 429);
     return (error instanceof EventsError && !isVerificationLimit(error)) || error instanceof SdkError || isHeaderMismatch(error);
 }
 
@@ -60,11 +72,25 @@ export function isSchemaChange(error: unknown): boolean {
     );
 }
 
-// Every mode's recovery once subscribed (spec §6.3): `relist` and go on while still offered, `mismatch` (re-list and retry once, then end), `fail` (end with the error), or `retry` later (anything but an Events kind, and a verification limit).
+// An `unsupported` error saying the server does not offer the delivery mode used.
+export function isModeRefusal(error: unknown): boolean {
+    return (
+        error instanceof EventsError &&
+        error.kind === 'unsupported' &&
+        (error.data as { feature?: unknown } | undefined)?.feature === 'deliveryMode'
+    );
+}
+
+// Every mode's recovery once subscribed (spec §6.3): `relist` and go on while still offered, `mismatch` (re-list and retry once, then end), `fail` (end with the error), or `retry` later (anything but an Events kind or an endsSubscription() error, and a verification limit).
 export function recoveryFor(error: unknown): 'relist' | 'mismatch' | 'fail' | 'retry' {
+    if (endsSubscription(error)) return 'fail';
     if (isHeaderMismatch(error)) return 'mismatch';
     if (!(error instanceof EventsError) || isVerificationLimit(error)) return 'retry';
     return error.kind === 'notFound' || isSchemaChange(error) ? 'relist' : 'fail';
+}
+
+function messageOf(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }
 
 // Reports a possible gap at `cursor` through onGap; a throwing onGap goes to the client's onerror, and delivery goes on.
@@ -88,7 +114,7 @@ export async function requireOffered(connection: EventsConnection, name: string,
     if (!descriptor.delivery.includes(mode)) throw new NoCompatibleDeliveryModeError(name, descriptor.delivery, [mode]);
 }
 
-// Re-lists, then whether `name` is still listed with `mode`; `undefined` when the list fails.
+// Re-lists, then whether `name` is still listed with `mode`; `undefined` when the list fails, unless with an endsSubscription() error, which it throws.
 export async function stillOffered(
     connection: EventsConnection,
     name: string,
@@ -97,7 +123,8 @@ export async function stillOffered(
 ): Promise<boolean | undefined> {
     try {
         await connection.list(undefined, { signal });
-    } catch {
+    } catch (error) {
+        if (endsSubscription(error)) throw error;
         return undefined;
     }
     return connection.descriptor(name)?.delivery.includes(mode) === true;
@@ -136,6 +163,11 @@ export class DriverLoop<T> {
     #hooks: LoopHooks = {};
     #wake: (() => void) | undefined;
     #running: Promise<void> = Promise.resolve();
+    // Retried failures since the last report and the latest of them, when that report went out, and the timer of the next.
+    #retried = 0;
+    #lastRetried: unknown;
+    #reportedAt: number | undefined;
+    #report: ReturnType<typeof setTimeout> | undefined;
 
     constructor(context: DriverContext<T>, mode: DeliveryMode) {
         this.#context = context;
@@ -190,6 +222,7 @@ export class DriverLoop<T> {
         this.#stopped = true;
         this.#abort.abort();
         this.#interrupt();
+        clearTimeout(this.#report);
         await cleanup?.();
         await this.#running;
     }
@@ -248,6 +281,7 @@ export class DriverLoop<T> {
                     // A transient re-list failure is retried in the background, from now, as a transient first exchange is.
                     this.#restartFromNow();
                     this.subscribed();
+                    this.#retrying(listError);
                     return 'retry';
                 }
                 this.#restartFromNow();
@@ -255,10 +289,14 @@ export class DriverLoop<T> {
             }
             if (refusesSubscription(error)) throw error;
             this.subscribed();
+            this.#retrying(error);
             return 'retry';
         }
         const recovery = recoveryFor(error);
-        if (recovery === 'retry') return 'retry';
+        if (recovery === 'retry') {
+            this.#retrying(error);
+            return 'retry';
+        }
         // A -32020 here is the second: the mode has already re-listed once and retried with fresh headers.
         if (recovery !== 'relist') throw error;
         const offered = await stillOffered(connection, subscription.name, this.#mode, this.#abort.signal);
@@ -278,12 +316,47 @@ export class DriverLoop<T> {
         this.#schemaChanged = true;
     }
 
+    // Reports a failure the loop retries to onerror at once, unless a report went out in the last RETRY_REPORT_INTERVAL_MS; then it counts towards the next.
+    #retrying(error: unknown): void {
+        if (this.ended) return;
+        const now = Date.now();
+        if (this.#report === undefined && (this.#reportedAt === undefined || now - this.#reportedAt >= RETRY_REPORT_INTERVAL_MS)) {
+            this.#reportedAt = now;
+            this.#context.connection.report(new Error(`${this.#subject()} failed and is retried: ${messageOf(error)}`, { cause: error }));
+            return;
+        }
+        this.#retried += 1;
+        this.#lastRetried = error;
+        this.#report ??= setTimeout(() => this.#reportRetried(), this.#reportedAt! + RETRY_REPORT_INTERVAL_MS - now);
+    }
+
+    // Reports how many failures were retried since the last report, and the latest.
+    #reportRetried(): void {
+        const retried = this.#retried;
+        const latest = this.#lastRetried;
+        this.#report = undefined;
+        this.#reportedAt = Date.now();
+        this.#retried = 0;
+        this.#lastRetried = undefined;
+        const failures = retried === 1 ? 'failure' : 'failures';
+        this.#context.connection.report(
+            new Error(`${this.#subject()}: ${retried} more retried ${failures} since the last report, the latest: ${messageOf(latest)}`, {
+                cause: latest
+            })
+        );
+    }
+
+    #subject(): string {
+        return `${this.#mode} subscription to '${this.#context.subscription.name}'`;
+    }
+
     #interrupt(): void {
         this.#wake?.();
         this.#hooks.interrupt?.();
     }
 
     #fail(error: unknown): void {
+        clearTimeout(this.#report);
         this.#settle.reject(error);
         this.#context.queue.fail(error);
     }

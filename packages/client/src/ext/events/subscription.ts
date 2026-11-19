@@ -48,11 +48,17 @@ export interface SubscribeOptions {
  * - A `ProtocolError` `-32020` (the `Mcp-Param` headers do not match the
  *   arguments): the event types are listed again and the request is retried
  *   once with fresh headers; a second `-32020` ends the loop with it.
- * - Anything else (a network or transport failure, another JSON-RPC error, a
- *   push stream that ends, goes silent or sends no valid `active`): retried
- *   after a backoff. The server's webhook verification limit
- *   (`resourceExhausted` with `data.limit: 'verification'`) is retried after
- *   its `data.retryAfterMs`, or after a backoff without one.
+ * - An auth failure of the transport (such as the `UnauthorizedError` of a
+ *   `401` its `authProvider` could not resolve), or a `ProtocolError`
+ *   `-32601` (the server no longer serves the method): the loop ends with it.
+ * - Anything else (a network or transport failure, an HTTP error status,
+ *   another JSON-RPC error, a push stream that ends, goes silent or sends no
+ *   valid `active`): retried after a backoff. The server's webhook
+ *   verification limit (`resourceExhausted` with `data.limit:
+ *   'verification'`) is retried after its `data.retryAfterMs`, or after a
+ *   backoff without one. Each of these failures but a push stream that ends
+ *   or goes silent is reported to the client's `onerror`: the first at once,
+ *   then at most one report a minute with how many were retried since.
  *
  * Closing the client, or connecting it again without resuming its session,
  * ends its subscriptions at once: the loop rejects with an `SdkError`

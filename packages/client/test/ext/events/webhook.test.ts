@@ -2,10 +2,22 @@ import { ProtocolError, SdkError, SdkErrorCode } from '@modelcontextprotocol/cor
 import { generateWebhookSecret, parseWebhookSecret } from '@modelcontextprotocol/core-internal/ext/events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { UnauthorizedError } from '../../../src/client/auth';
 import type { EventSubscription, SubscribeOptions } from '../../../src/ext/events/index';
 import { EventsError, NoCompatibleDeliveryModeError } from '../../../src/ext/events/index';
 import type { Call, Handler } from './scripted';
-import { callsTo, connectEvents, descriptor, listing, occurrence, RpcError, WEBHOOK_URL, webhookPost } from './scripted';
+import {
+    authFailure,
+    callsTo,
+    connectEvents,
+    descriptor,
+    failSends,
+    listing,
+    occurrence,
+    RpcError,
+    WEBHOOK_URL,
+    webhookPost
+} from './scripted';
 
 const subscriptions: EventSubscription[] = [];
 
@@ -352,6 +364,23 @@ describe('webhook delivery', () => {
         }
     });
 
+    it('fails the iterator on an auth failure of a refresh, without refreshing again', async () => {
+        const { client, post, subscribes, subscribe } = await webhookWith(granting({}, {}));
+        const sub = await subscribe();
+        const refreshes = failSends(client, 'events/subscribe', authFailure);
+        const pending = sub[Symbol.asyncIterator]()
+            .next()
+            .catch((error_: unknown) => error_);
+
+        await vi.advanceTimersByTimeAsync(45_000);
+        expect(await pending).toBeInstanceOf(UnauthorizedError);
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(refreshes()).toBe(1);
+        expect(subscribes()).toHaveLength(1);
+        expect(await post(occurrence('e1'))).toBe(503);
+    });
+
     it('retries a refresh that fails transiently after a jittered delay, with the last cursor', async () => {
         const internal = new RpcError(-32_603, 'Internal error');
         const { subscribes, subscribe } = await webhookWith(granting({ cursor: 'c1' }, internal, internal, { cursor: 'c2' }, internal, {}));
@@ -639,7 +668,8 @@ describe('webhook delivery', () => {
             expect(challenge.status).toBe(401);
             await vi.advanceTimersByTimeAsync(120_000);
             expect(subscribes()).toHaveLength(1);
-            expect(lists()).toHaveLength(1);
+            // A refused delivery mode lists the event types again, which still select it.
+            expect(lists()).toHaveLength(refusal.data?.['feature'] === 'deliveryMode' ? 2 : 1);
         }
     });
 

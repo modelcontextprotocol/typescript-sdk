@@ -34,6 +34,10 @@ const VERIFICATION_WINDOW_MS = 60_000;
 const QUEUE_FULL_RETRY_MS = 5000;
 // The most failed pairs and destination hosts the verification limits remember.
 const MAX_REMEMBERED = 10_000;
+// setTimeout fires at once for longer delays; a longer grant re-arms when the timer fires early.
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+// After a failed store read, the record of an unwatched subscription is read again this much later.
+const SWEEP_RETRY_MS = 60_000;
 
 const encoder = new TextEncoder();
 
@@ -43,6 +47,8 @@ export interface WebhookEngineOptions {
     // Read at every send, so origins added later count.
     readonly trustedOrigins: ReadonlySet<string>;
     onerror(error: Error): void;
+    // Whether this process watches the subscription (an expiry timer of its own); default none.
+    readonly watches?: (id: string) => boolean;
     readonly now?: () => number;
 }
 
@@ -102,6 +108,11 @@ interface Tracked {
     // The attempts of the last SUSPENSION_WINDOW_MS, oldest first, and how many of them failed.
     recent: Array<{ readonly at: number; readonly failed: boolean }>;
     recentFailures: number;
+    // For a subscription this process does not watch: the `createdAt` of the record it delivers to, and the next read of that record.
+    createdAt?: number;
+    sweep?: ReturnType<typeof setTimeout>;
+    // An event was abandoned since the subscriber was last told of a gap.
+    gap: boolean;
 }
 
 // One `principal\0url` handshake in flight: the subscribes waiting for it, and the abort that pulls it from the host's queue once all of them were cancelled.
@@ -204,6 +215,7 @@ export class WebhookEngine {
     readonly #store: WebhookSubscriptionStore;
     readonly #trustedOrigins: ReadonlySet<string>;
     readonly #onerror: (error: Error) => void;
+    readonly #watches: (id: string) => boolean;
     readonly #now: () => number;
     readonly #tracked = new Map<string, Tracked>();
     readonly #controls = new Set<Control>();
@@ -224,6 +236,7 @@ export class WebhookEngine {
         this.#store = options.store;
         this.#trustedOrigins = options.trustedOrigins;
         this.#onerror = options.onerror;
+        this.#watches = options.watches ?? (() => false);
         this.#now = options.now ?? (() => Date.now());
     }
 
@@ -253,7 +266,20 @@ export class WebhookEngine {
 
     // Queues one event POST and returns; calls for one subscription come in position order, and `seed` starts the watermark of an untracked id.
     deliver(record: WebhookSubscriptionRecord, occurrence: EventOccurrence, position: string | null, seed: string | null): void {
-        const tracked = this.#tracked.get(record.id) ?? this.#start(record.id, seed);
+        const watched = this.#watches(record.id);
+        let tracked = this.#tracked.get(record.id);
+        // A record created again since starts again, as track() does on a create.
+        if (!watched && tracked?.createdAt !== undefined && tracked.createdAt !== record.createdAt) {
+            this.#drop(record.id);
+            tracked = undefined;
+        }
+        if (tracked === undefined) {
+            tracked = this.#start(record.id, seed);
+            if (!watched) {
+                tracked.createdAt = record.createdAt;
+                this.#sweepAt(tracked, record);
+            }
+        }
         const message: Message = { webhookId: generateWebhookId(), occurrence, position, attempts: 0, place: 'waiting' };
         tracked.pending.push(message);
         this.#queue(tracked, message, record);
@@ -282,6 +308,15 @@ export class WebhookEngine {
 
     watermark(id: string): string | null | undefined {
         return this.#tracked.get(id)?.watermark;
+    }
+
+    // Whether an event was abandoned since the subscriber was last told, which a refresh answers as `truncated: true`; it clears the mark.
+    takeGap(id: string): boolean {
+        const tracked = this.#tracked.get(id);
+        if (tracked?.gap !== true) return false;
+        tracked.gap = false;
+        // A type without replay has no position to have skipped past (SEP-3415: `truncated` stays false).
+        return tracked.watermark !== null;
     }
 
     // Moves the watermark to `position` when no message is pending, so a quiet upstream still advances it; it never passes an unsettled message.
@@ -465,7 +500,8 @@ export class WebhookEngine {
             lastDeliveryAt: null,
             lastError: null,
             recent: [],
-            recentFailures: 0
+            recentFailures: 0,
+            gap: false
         };
         this.#tracked.set(id, tracked);
         return tracked;
@@ -478,6 +514,30 @@ export class WebhookEngine {
         tracked.ended.abort();
         for (const message of tracked.pending) clearTimeout(message.retry);
         clearTimeout(tracked.report);
+        clearTimeout(tracked.sweep);
+    }
+
+    // Reads the record of a subscription this process does not watch again at its expiry, so its state goes once the subscription ends elsewhere.
+    #sweepAt(tracked: Tracked, record: WebhookSubscriptionRecord): void {
+        const delay = Math.min(Math.max(record.expiresAt - this.#now(), 0), MAX_TIMER_DELAY_MS);
+        tracked.sweep = unref(setTimeout(() => void this.#sweep(tracked), delay));
+    }
+
+    // A record gone, expired or created again drops the state, unless it started again since; a later expiry re-arms; a watch begun since takes over.
+    async #sweep(tracked: Tracked): Promise<void> {
+        tracked.sweep = undefined;
+        let record: WebhookSubscriptionRecord | undefined;
+        try {
+            record = await this.#store.get(tracked.id);
+        } catch (error) {
+            if (!this.#isCurrent(tracked)) return;
+            this.#onerror(toError(error));
+            tracked.sweep = unref(setTimeout(() => void this.#sweep(tracked), SWEEP_RETRY_MS));
+            return;
+        }
+        if (!this.#isCurrent(tracked) || this.#watches(tracked.id)) return;
+        if (record === undefined || record.expiresAt <= this.#now() || record.createdAt !== tracked.createdAt) this.forget(tracked.id);
+        else this.#sweepAt(tracked, record);
     }
 
     #isCurrent(tracked: Tracked): boolean {
@@ -532,6 +592,7 @@ export class WebhookEngine {
     // Settles a message the engine gives up on, and reports it at once unless a report went out in the last ABANDON_REPORT_INTERVAL_MS; then it counts towards the next.
     #abandon(tracked: Tracked, message: Message, reason: string): void {
         this.#settle(tracked, message);
+        tracked.gap = true;
         const { eventId } = message.occurrence;
         const now = this.#now();
         if (tracked.report === undefined && (tracked.reportedAt === undefined || now - tracked.reportedAt >= ABANDON_REPORT_INTERVAL_MS)) {
@@ -593,14 +654,29 @@ export class WebhookEngine {
                 )
             );
             this.#settle(tracked, message);
+            tracked.gap = true;
             return;
         }
         const outcome = await this.#post(record.url, record.id, this.#secretsOf(record), message.webhookId, body, tracked.ended.signal);
         if (!this.#isCurrent(tracked)) return;
         const retry = this.#observe(tracked, outcome);
         if (!tracked.active) tracked.suspendedExpiresAt ??= record.expiresAt;
-        if (retry) this.#retry(tracked, message);
-        else this.#settle(tracked, message);
+        if (retry) {
+            this.#retry(tracked, message);
+            return;
+        }
+        this.#settle(tracked, message);
+        const status = 'status' in outcome ? outcome.status : undefined;
+        // A 413 loses the event to the subscriber; a 410 is the receiver's own choice.
+        if (status === 413) tracked.gap = true;
+        else if (status !== undefined && isSuccess(status) && tracked.gap) this.#signalGap(tracked, record);
+    }
+
+    // Tells the subscriber, after a delivery it acknowledged, that events were abandoned before the watermark.
+    #signalGap(tracked: Tracked, record: WebhookSubscriptionRecord): void {
+        tracked.gap = false;
+        // A type without replay has no position to have skipped past (SEP-3415: no gap for `cursor: null`).
+        if (tracked.watermark !== null) void this.sendControl(record, { type: 'gap', cursor: tracked.watermark });
     }
 
     // Waits out the retry delay out of its slot, then queues the next attempt; after the last it abandons the message.

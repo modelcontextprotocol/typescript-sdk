@@ -116,6 +116,7 @@ interface SseSink {
 }
 
 let readClassification: (transport: PerRequestHTTPServerTransport) => MessageClassification;
+let readBacklog: (transport: PerRequestHTTPServerTransport) => number;
 
 /**
  * The per-request micro-transport: a real, connected `Transport` whose whole
@@ -128,6 +129,11 @@ let readClassification: (transport: PerRequestHTTPServerTransport) => MessageCla
 export class PerRequestHTTPServerTransport implements Transport {
     static {
         readClassification = transport => transport._classification;
+        readBacklog = transport => {
+            const sse = transport._sse;
+            const desiredSize = sse === undefined || sse.closed ? null : sse.controller.desiredSize;
+            return desiredSize === null ? 0 : -desiredSize;
+        };
     }
 
     onclose?: () => void;
@@ -393,17 +399,21 @@ export class PerRequestHTTPServerTransport implements Transport {
 
     private upgradeToSse(): void {
         let controller!: ReadableStreamDefaultController<Uint8Array>;
-        const readable = new ReadableStream<Uint8Array>({
-            start: streamController => {
-                controller = streamController;
+        const readable = new ReadableStream<Uint8Array>(
+            {
+                start: streamController => {
+                    controller = streamController;
+                },
+                cancel: () => {
+                    // The client went away mid-stream: tear the exchange down,
+                    // which aborts the in-flight handler through the connected
+                    // server's close chain.
+                    void this.close();
+                }
             },
-            cancel: () => {
-                // The client went away mid-stream: tear the exchange down,
-                // which aborts the in-flight handler through the connected
-                // server's close chain.
-                void this.close();
-            }
-        });
+            // Sized in bytes from a high-water mark of 0, so `desiredSize` is minus the bytes the client has not read.
+            new ByteLengthQueuingStrategy({ highWaterMark: 0 })
+        );
         this._sse = { controller, encoder: new TextEncoder(), closed: false };
         this._sse.keepAliveTimer = armSseKeepAlive(this._keepAliveMs, () => this.writeCommentFrame('keepalive'));
 
@@ -456,4 +466,9 @@ export class PerRequestHTTPServerTransport implements Transport {
 /** Package-internal: the classification a per-request transport serves; `undefined` for any other transport. Not public API. */
 export function perRequestClassificationOf(transport: Transport): MessageClassification | undefined {
     return transport instanceof PerRequestHTTPServerTransport ? readClassification(transport) : undefined;
+}
+
+/** Package-internal: reads how many bytes of a per-request transport's response stream the client has not read (0 while it is not streaming); `undefined` for any other transport. Not public API. */
+export function perRequestBacklogOf(transport: Transport | undefined): (() => number) | undefined {
+    return transport instanceof PerRequestHTTPServerTransport ? () => readBacklog(transport) : undefined;
 }
