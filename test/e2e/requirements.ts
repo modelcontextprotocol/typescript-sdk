@@ -94,7 +94,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'typescript:tasks:legacy-era:not-served': {
         source: 'sdk',
         behavior:
-            'On a 2025-11-25 connection the Tasks extension is not served: tasks/get and tasks/update answer -32601, and a tool that answers with a task handle is refused with -32021.',
+            'On a 2025-11-25 connection the Tasks extension is not served: tasks/get and tasks/update answer -32601, and a tool that answers with a task handle fails with a tool error saying so.',
         transports: ['inMemory'],
         removedInSpecVersion: '2026-07-28',
         note: 'The extension needs the 2026-07-28 per-request envelope; one legacy transport is enough to show the refusal.'

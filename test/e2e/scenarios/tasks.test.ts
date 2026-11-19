@@ -231,5 +231,8 @@ verifies('typescript:tasks:legacy-era:not-served', async ({ transport }: TestArg
     await expect(client.request({ method: 'tasks/update', params: { taskId: 'x', inputResponses: {} } }, loose)).rejects.toMatchObject({
         code: -32_601
     });
-    await expect(client.callTool({ name: 'greet', arguments: { name: 'x' } })).rejects.toMatchObject({ code: -32_021 });
+    // The refusal is a tool error here: 2025-11-25 does not define -32021.
+    const refused = await client.callTool({ name: 'greet', arguments: { name: 'x' } });
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused.content)).toContain('it is not served on 2025-11-25');
 });
