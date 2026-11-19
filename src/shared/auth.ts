@@ -117,10 +117,13 @@ export const OpenIdProviderMetadataSchema = z.looseObject({
  * This schema represents the real-world scenario where OIDC providers
  * return a mix of OpenID Connect and OAuth 2.0 metadata fields
  */
-export const OpenIdProviderDiscoveryMetadataSchema = z.object({
+export const OpenIdProviderDiscoveryMetadataSchema = z.looseObject({
     ...OpenIdProviderMetadataSchema.shape,
     ...OAuthMetadataSchema.pick({
-        code_challenge_methods_supported: true
+        code_challenge_methods_supported: true,
+        revocation_endpoint: true,
+        revocation_endpoint_auth_methods_supported: true,
+        revocation_endpoint_auth_signing_alg_values_supported: true
     }).shape
 });
 

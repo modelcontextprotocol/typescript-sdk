@@ -2,6 +2,7 @@ import {
     SafeUrlSchema,
     OAuthMetadataSchema,
     OpenIdProviderMetadataSchema,
+    OpenIdProviderDiscoveryMetadataSchema,
     OAuthClientMetadataSchema,
     OptionalSafeUrlSchema
 } from '../../src/shared/auth.js';
@@ -118,5 +119,51 @@ describe('OAuthClientMetadataSchema', () => {
         };
 
         expect(() => OAuthClientMetadataSchema.parse(metadata)).toThrow('URL cannot use javascript:, data:, or vbscript: scheme');
+    });
+});
+
+describe('OpenIdProviderDiscoveryMetadataSchema', () => {
+    const discoveryDocument = {
+        issuer: 'https://issuer.example.com',
+        authorization_endpoint: 'https://issuer.example.com/oauth2/authorize',
+        token_endpoint: 'https://issuer.example.com/oauth2/token',
+        jwks_uri: 'https://issuer.example.com/oauth2/jwks',
+        response_types_supported: ['code'],
+        subject_types_supported: ['public'],
+        id_token_signing_alg_values_supported: ['RS256'],
+        code_challenge_methods_supported: ['S256'],
+        revocation_endpoint: 'https://issuer.example.com/oauth2/revoke',
+        revocation_endpoint_auth_methods_supported: ['client_secret_basic'],
+        revocation_endpoint_auth_signing_alg_values_supported: ['RS256']
+    };
+
+    it('keeps the OAuth revocation fields an OIDC discovery document publishes', () => {
+        const parsed = OpenIdProviderDiscoveryMetadataSchema.parse(discoveryDocument);
+
+        expect(parsed.revocation_endpoint).toBe('https://issuer.example.com/oauth2/revoke');
+        expect(parsed.revocation_endpoint_auth_methods_supported).toEqual(['client_secret_basic']);
+        expect(parsed.revocation_endpoint_auth_signing_alg_values_supported).toEqual(['RS256']);
+    });
+
+    it('rejects a revocation endpoint that is not a safe URL', () => {
+        expect(() =>
+            OpenIdProviderDiscoveryMetadataSchema.parse({ ...discoveryDocument, revocation_endpoint: 'javascript:alert(1)' })
+        ).toThrow('URL cannot use javascript:, data:, or vbscript: scheme');
+    });
+
+    it('keeps fields that neither the OIDC nor the OAuth schema declares', () => {
+        const parsed = OpenIdProviderDiscoveryMetadataSchema.parse({
+            ...discoveryDocument,
+            org_alias: 'example-tenant'
+        }) as Record<string, unknown>;
+
+        expect(parsed.org_alias).toBe('example-tenant');
+    });
+
+    it('still rejects a document missing a required OIDC field', () => {
+        const incomplete: Partial<typeof discoveryDocument> = { ...discoveryDocument };
+        delete incomplete.response_types_supported;
+
+        expect(() => OpenIdProviderDiscoveryMetadataSchema.parse(incomplete)).toThrow();
     });
 });
