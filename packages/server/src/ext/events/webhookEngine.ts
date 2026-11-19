@@ -15,10 +15,12 @@ const RETRY_DELAYS_MS = [5000, 30_000, 120_000, 300_000];
 // Non-2xx answers that end a message without a retry.
 const FINAL_STATUSES: ReadonlySet<number> = new Set([410, 413]);
 const MAX_BODY_BYTES = 262_144;
-// The most messages a suspended subscription holds: as many as the emit buffer holds by default.
-const MAX_PARKED_MESSAGES = 10_000;
-// The most event messages of one subscription in progress at once, each from its first attempt until it is settled or parked.
+// The most messages of one subscription waiting for a slot or parked, together: as many as the emit buffer holds by default.
+const MAX_HELD_MESSAGES = 10_000;
+// The most event POSTs of one subscription in flight at once.
 const MAX_IN_FLIGHT_PER_SUBSCRIPTION = 10;
+// Abandoned events are reported at once, then counted and reported together at most this often per subscription.
+const ABANDON_REPORT_INTERVAL_MS = 60_000;
 // Delivery is suspended once more than 95 % of at least 100 attempts in the last 60 minutes failed.
 const SUSPENSION_WINDOW_MS = 3_600_000;
 const SUSPENSION_MIN_ATTEMPTS = 100;
@@ -44,6 +46,9 @@ export interface WebhookEngineOptions {
     readonly now?: () => number;
 }
 
+// Where a message is: waiting for a slot, holding one while an attempt is in flight, waiting for its retry, parked while delivery is suspended, or acknowledged or abandoned.
+type Place = 'waiting' | 'running' | 'retrying' | 'parked' | 'done';
+
 // One event POST to one subscription, under one webhook-id until it is acknowledged or abandoned.
 interface Message {
     readonly webhookId: string;
@@ -51,9 +56,7 @@ interface Message {
     // The subscription's position after this event.
     readonly position: string | null;
     attempts: number;
-    done: boolean;
-    // Holds one of the subscription's MAX_IN_FLIGHT_PER_SUBSCRIPTION slots.
-    running: boolean;
+    place: Place;
     retry?: ReturnType<typeof setTimeout>;
 }
 
@@ -79,7 +82,7 @@ interface Tracked {
     watermark: string | null;
     // Messages not yet acknowledged or abandoned, in position order.
     readonly pending: Message[];
-    // How many messages hold a slot, and the messages waiting for one, in position order.
+    // How many messages hold a slot, and the messages waiting for one: first attempts in position order, each retry once it is due.
     running: number;
     waiting: Message[];
     // Messages that came due while delivery was suspended, oldest first.
@@ -87,6 +90,11 @@ interface Tracked {
     active: boolean;
     // The record's expiresAt when delivery was suspended; a later one means a refresh, on any replica, since.
     suspendedExpiresAt?: number;
+    // Events abandoned since the last report and the latest of them, when that report went out, and the timer of the next.
+    abandoned: number;
+    lastAbandoned?: string;
+    reportedAt?: number;
+    report?: ReturnType<typeof setTimeout>;
     lastDeliveryAt: string | null;
     lastError: DeliveryErrorCategory | null;
     // The first failure since the last acknowledgement.
@@ -246,11 +254,9 @@ export class WebhookEngine {
     // Queues one event POST and returns; calls for one subscription come in position order, and `seed` starts the watermark of an untracked id.
     deliver(record: WebhookSubscriptionRecord, occurrence: EventOccurrence, position: string | null, seed: string | null): void {
         const tracked = this.#tracked.get(record.id) ?? this.#start(record.id, seed);
-        const message: Message = { webhookId: generateWebhookId(), occurrence, position, attempts: 0, done: false, running: false };
+        const message: Message = { webhookId: generateWebhookId(), occurrence, position, attempts: 0, place: 'waiting' };
         tracked.pending.push(message);
-        // A message that waits for a slot reads the record when it starts, as a retry does.
-        if (tracked.running < MAX_IN_FLIGHT_PER_SUBSCRIPTION) this.#begin(tracked, message, record);
-        else tracked.waiting.push(message);
+        this.#queue(tracked, message, record);
     }
 
     // Queues a control body, retried like an event, and resolves with its last answer (`undefined` without one); request paths must not await it.
@@ -301,8 +307,10 @@ export class WebhookEngine {
         tracked.recentFailures = 0;
         const parked = new Set(tracked.parked);
         tracked.parked = [];
-        // Parked messages had started, so they come before every message still waiting.
-        tracked.waiting = [...tracked.pending.filter(message => parked.has(message)), ...tracked.waiting];
+        // Parked messages go first, in position order.
+        const resumed = tracked.pending.filter(message => parked.has(message));
+        for (const message of resumed) message.place = 'waiting';
+        tracked.waiting = [...resumed, ...tracked.waiting];
         this.#fill(tracked);
     }
 
@@ -453,6 +461,7 @@ export class WebhookEngine {
             waiting: [],
             parked: [],
             active: true,
+            abandoned: 0,
             lastDeliveryAt: null,
             lastError: null,
             recent: [],
@@ -468,20 +477,32 @@ export class WebhookEngine {
         this.#tracked.delete(id);
         tracked.ended.abort();
         for (const message of tracked.pending) clearTimeout(message.retry);
+        clearTimeout(tracked.report);
     }
 
     #isCurrent(tracked: Tracked): boolean {
         return this.#tracked.get(tracked.id) === tracked;
     }
 
-    // Gives `message` a slot and runs its first attempt.
+    // Runs the message's next attempt in a free slot, or queues it behind the messages waiting; a message that waits reads the record when it starts.
+    #queue(tracked: Tracked, message: Message, record?: WebhookSubscriptionRecord): void {
+        if (tracked.running < MAX_IN_FLIGHT_PER_SUBSCRIPTION) {
+            this.#begin(tracked, message, record);
+            return;
+        }
+        message.place = 'waiting';
+        tracked.waiting.push(message);
+        this.#cap(tracked);
+    }
+
+    // Gives `message` a slot for one attempt.
     #begin(tracked: Tracked, message: Message, record?: WebhookSubscriptionRecord): void {
-        message.running = true;
+        message.place = 'running';
         tracked.running += 1;
         this.#attempt(tracked, message, record);
     }
 
-    // Starts waiting messages, oldest first, while a slot is free.
+    // Starts the messages that waited longest while a slot is free.
     #fill(tracked: Tracked): void {
         while (tracked.running < MAX_IN_FLIGHT_PER_SUBSCRIPTION) {
             const next = tracked.waiting.shift();
@@ -490,12 +511,50 @@ export class WebhookEngine {
         }
     }
 
-    // Frees the message's slot, if it holds one, for the next message waiting.
-    #release(tracked: Tracked, message: Message): void {
-        if (!message.running) return;
-        message.running = false;
+    // Moves the message to `place`; one whose attempt ends hands its slot to the message that waited longest.
+    #release(tracked: Tracked, message: Message, place: 'retrying' | 'parked' | 'done'): void {
+        const held = message.place === 'running';
+        message.place = place;
+        if (!held) return;
         tracked.running -= 1;
         this.#fill(tracked);
+    }
+
+    // Past MAX_HELD_MESSAGES waiting or parked, abandons the oldest of them by position.
+    #cap(tracked: Tracked): void {
+        if (tracked.waiting.length + tracked.parked.length <= MAX_HELD_MESSAGES) return;
+        const oldest = tracked.pending.find(message => message.place === 'waiting' || message.place === 'parked')!;
+        const held = oldest.place === 'waiting' ? tracked.waiting : tracked.parked;
+        held.splice(held.indexOf(oldest), 1);
+        this.#abandon(tracked, oldest, `past the ${MAX_HELD_MESSAGES} messages it holds waiting or parked`);
+    }
+
+    // Settles a message the engine gives up on, and reports it at once unless a report went out in the last ABANDON_REPORT_INTERVAL_MS; then it counts towards the next.
+    #abandon(tracked: Tracked, message: Message, reason: string): void {
+        this.#settle(tracked, message);
+        const { eventId } = message.occurrence;
+        const now = this.#now();
+        if (tracked.report === undefined && (tracked.reportedAt === undefined || now - tracked.reportedAt >= ABANDON_REPORT_INTERVAL_MS)) {
+            tracked.reportedAt = now;
+            this.#onerror(new Error(`webhook subscription ${tracked.id}: abandoned event ${eventId} ${reason}`));
+            return;
+        }
+        tracked.abandoned += 1;
+        tracked.lastAbandoned = eventId;
+        tracked.report ??= unref(setTimeout(() => this.#reportAbandoned(tracked), tracked.reportedAt! + ABANDON_REPORT_INTERVAL_MS - now));
+    }
+
+    // Reports how many events were abandoned since the last report, and the latest.
+    #reportAbandoned(tracked: Tracked): void {
+        const { abandoned, lastAbandoned } = tracked;
+        tracked.report = undefined;
+        tracked.reportedAt = this.#now();
+        tracked.abandoned = 0;
+        this.#onerror(
+            new Error(
+                `webhook subscription ${tracked.id}: abandoned ${abandoned} more ${abandoned === 1 ? 'event' : 'events'} since the last report, the latest ${lastAbandoned}`
+            )
+        );
     }
 
     // Runs one attempt off the caller's path; an unexpected failure is reported and retried like a failed send.
@@ -544,33 +603,33 @@ export class WebhookEngine {
         else this.#settle(tracked, message);
     }
 
+    // Waits out the retry delay out of its slot, then queues the next attempt; after the last it abandons the message.
     #retry(tracked: Tracked, message: Message): void {
         const delay = RETRY_DELAYS_MS[message.attempts - 1];
         if (delay === undefined) {
-            this.#settle(tracked, message);
+            this.#abandon(tracked, message, `after ${message.attempts} failed attempts`);
             return;
         }
-        message.retry = unref(setTimeout(() => this.#attempt(tracked, message), delay));
+        this.#release(tracked, message, 'retrying');
+        message.retry = unref(setTimeout(() => this.#queue(tracked, message), delay));
     }
 
-    // Holds a message until resume(), out of its slot; past the cap the oldest one held is abandoned.
+    // Holds a message until resume(), out of its slot.
     #park(tracked: Tracked, message: Message): void {
+        this.#release(tracked, message, 'parked');
         tracked.parked.push(message);
-        this.#release(tracked, message);
-        const oldest = tracked.parked.length > MAX_PARKED_MESSAGES ? tracked.parked.shift() : undefined;
-        if (oldest !== undefined) this.#settle(tracked, oldest);
+        this.#cap(tracked);
     }
 
-    // Marks the message acknowledged or abandoned, moves the watermark past the finished messages at the front, and frees its slot.
+    // Marks the message acknowledged or abandoned, frees its slot, and moves the watermark past the finished messages at the front.
     #settle(tracked: Tracked, message: Message): void {
-        message.done = true;
+        this.#release(tracked, message, 'done');
         let head = tracked.pending[0];
-        while (head?.done === true) {
+        while (head?.place === 'done') {
             tracked.pending.shift();
             tracked.watermark = head.position;
             head = tracked.pending[0];
         }
-        this.#release(tracked, message);
     }
 
     // Records one outcome in the delivery status and returns whether to retry; 410 and 413 end the message, setting lastError only.

@@ -622,6 +622,29 @@ describe('push delivery', () => {
             expect(errors).toEqual([expect.objectContaining({ message: FALLBACK, cause: expect.objectContaining(cause) })]);
         });
 
+        it('subscribes by poll when the first active fails its schema, and reports both failures', async () => {
+            const { events, errors, send, streams, polls } = await pushOrPoll(() => new Promise<never>(() => {}));
+            const subscribing = events.subscribe({ name: 'tick' });
+            await settle();
+            const meta = { [SUBSCRIPTION_ID_META_KEY]: streams()[0]!.id };
+            await send({
+                jsonrpc: '2.0',
+                method: 'notifications/events/active',
+                params: { cursor: null, truncated: false, heartbeatMs: 0, _meta: meta }
+            });
+            const subscription = await subscribing;
+            subscriptions.push(subscription);
+
+            expect(subscription.deliveryMode).toBe('poll');
+            expect(await nextEventId(subscription[Symbol.asyncIterator]())).toBe('e1');
+            expect(streams()).toHaveLength(1);
+            expect(polls()).toHaveLength(1);
+            expect(errors).toEqual([
+                expect.objectContaining({ message: expect.stringContaining('Invalid notifications/events/active params') }),
+                expect.objectContaining({ message: FALLBACK, cause: expect.objectContaining({ code: SdkErrorCode.InvalidResult }) })
+            ]);
+        });
+
         it('rejects as before when delivery forces push', async () => {
             const { events, errors, streams, polls } = await pushOrPoll(() => new Promise<never>(() => {}));
             const subscribing = events.subscribe({ name: 'tick', delivery: 'push' }).catch((error_: unknown) => error_);

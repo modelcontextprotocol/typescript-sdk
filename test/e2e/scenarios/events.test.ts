@@ -1224,46 +1224,66 @@ verifies('typescript:events:store:restart', async ({ transport }: TestArgs) => {
         await subscription.cancel();
     }
     {
-        // A check type: the rebuilt server runs its check loop from the client's next refresh, which a short grant brings soon.
-        const posts: Post[] = [];
-        const { client, clientEvents } = eventsClient({ ...FAST, webhook: { url: HOOK_URL } });
-        const options = webhookOptions(senderTo(clientEvents.createWebhookHandler(), posts), {
-            webhookStore: new InMemoryWebhookSubscriptionStore(),
-            webhookTtlMs: 1000,
-            checkIntervalMs: 20
-        });
-        // The upstream outlives the process; a cursor counts its entries.
-        const upstream: string[] = [];
-        let current: EventsExtension | undefined;
-        const build = (): void => {
-            const events = new EventsExtension(options);
-            events.registerEvent('ticket', {
-                payloadSchema: NotePayload,
-                check: (_ctx, _args, cursor) => {
-                    // The process that was replaced reads nothing more.
-                    if (events !== current) return new Promise<never>(() => {});
-                    const from = cursor === null ? upstream.length : Number(cursor);
-                    const page = upstream.slice(from).map((text, index) => ({ eventId: `t${from + index}`, data: { text } }));
-                    return { events: page, cursor: String(upstream.length) };
-                }
+        // A check type: the rebuilt server runs its check loop from the client's next refresh. Fake timers bring that refresh
+        // at ¾ of the 60 s grant, while the grant runs in real time, so a slow run cannot turn the refresh into a create.
+        const realSetTimeout = globalThis.setTimeout;
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+            const posts: Post[] = [];
+            const { client, clientEvents } = eventsClient({ ...FAST, webhook: { url: HOOK_URL } });
+            const options = webhookOptions(senderTo(clientEvents.createWebhookHandler(), posts), {
+                webhookStore: new InMemoryWebhookSubscriptionStore(),
+                checkIntervalMs: 1000
             });
-            current = events;
-        };
-        build();
-        await using _ = await wire(transport, () => serving(current!)(), client, EVENTS_WIRE);
-        const tap = tapWire(client);
-        const subscription = await clientEvents.subscribe<Note>({ name: 'ticket' });
+            // The upstream outlives the process; a cursor counts its entries.
+            const upstream: string[] = [];
+            let current: EventsExtension | undefined;
+            const build = (): void => {
+                const events = new EventsExtension(options);
+                events.registerEvent('ticket', {
+                    payloadSchema: NotePayload,
+                    check: (_ctx, _args, cursor) => {
+                        // The process that was replaced reads nothing more.
+                        if (events !== current) return new Promise<never>(() => {});
+                        const from = cursor === null ? upstream.length : Number(cursor);
+                        const page = upstream.slice(from).map((text, index) => ({ eventId: `t${from + index}`, data: { text } }));
+                        return { events: page, cursor: String(upstream.length) };
+                    }
+                });
+                current = events;
+            };
+            build();
+            await using _ = await wire(transport, () => serving(current!)(), client, EVENTS_WIRE);
+            const tap = tapWire(client);
+            const subscribes = () => tap.sent.filter(message => 'method' in message && message.method === 'events/subscribe') as Frame[];
+            const subscription = await clientEvents.subscribe<Note>({ name: 'ticket' });
 
-        build();
-        upstream.push('during the restart');
+            build();
+            upstream.push('during the restart');
+            let taken: Note[] | undefined;
+            let failed: unknown;
+            void take(subscription).then(
+                data => (taken = data),
+                (error: unknown) => (failed = error)
+            );
+            // Until the refresh, the rebuilt server runs no check loop for the stored subscription.
+            await vi.advanceTimersByTimeAsync(44_000);
+            expect({ taken, subscribes: subscribes().length }).toEqual({ taken: undefined, subscribes: 1 });
+            // Then on in 100 ms steps, each with a moment of real time for the requests in between, up to 50 s of fake time.
+            for (let at = 44_000; taken === undefined && failed === undefined && at < 50_000; at += 100) {
+                await vi.advanceTimersByTimeAsync(100);
+                await new Promise(resolve => realSetTimeout(resolve, 5));
+            }
 
-        expect(await take(subscription)).toEqual([{ text: 'during the restart' }]);
-        const subscribes = tap.sent.filter(message => 'method' in message && message.method === 'events/subscribe') as Frame[];
-        // Delivered once the refresh, carrying the client's cursor, started the loop on the rebuilt server.
-        expect(subscribes.length).toBeGreaterThanOrEqual(2);
-        expect(subscribes.slice(0, 2).map(message => message.params['cursor'])).toEqual([null, '0']);
-        expect(posts.map(post => post.json.type ?? 'event')).toEqual(['verification', 'event']);
-        await subscription.cancel();
+            expect(failed).toBeUndefined();
+            expect(taken).toEqual([{ text: 'during the restart' }]);
+            // The refresh carried the client's cursor, and the loop it started delivered from there.
+            expect(subscribes().map(message => message.params['cursor'])).toEqual([null, '0']);
+            expect(posts.map(post => post.json.type ?? 'event')).toEqual(['verification', 'event']);
+            await subscription.cancel();
+        } finally {
+            vi.useRealTimers();
+        }
     }
 });
 

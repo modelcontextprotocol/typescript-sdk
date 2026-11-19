@@ -115,46 +115,25 @@ function bodyOf(request: WebhookSendRequest): Record<string, unknown> {
     return JSON.parse(request.body) as Record<string, unknown>;
 }
 
-// Delivers events `from` to `to` (at positions p{from} to p{to}) to a receiver that fails them, and moves the clock through all five
-// attempts of each, ten at a time, until the last is abandoned; `sent` counts the requests before, and the count after is returned.
-async function failThrough(
-    engine: WebhookEngine,
-    record: WebhookSubscriptionRecord,
-    until: (count: number) => Promise<void>,
-    sent: number,
-    from: number,
-    to: number
-): Promise<number> {
-    for (let n = from; n <= to; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
-    for (let left = to - from + 1; left > 0; left -= 10) {
-        const batch = Math.min(10, left);
-        sent += batch;
-        await until(sent);
-        for (const delay of DELAYS) {
-            await settle();
-            await vi.advanceTimersByTimeAsync(delay);
-            sent += batch;
-            await until(sent);
-        }
-        await settle();
-    }
-    return sent;
-}
-
-// A responder that holds each event POST until the test answers it, counting how many are in flight at most.
-function held() {
+// A responder that holds each event POST until the test answers it, counting the POSTs in flight at most; `fail` answers a POST with 503 at once.
+function held(fail: (request: WebhookSendRequest) => boolean = () => false) {
     const answers: Array<() => void> = [];
     let inFlight = 0;
     let most = 0;
-    const respond: Respond = () =>
-        new Promise(resolve => {
-            inFlight += 1;
-            most = Math.max(most, inFlight);
+    const respond: Respond = request => {
+        inFlight += 1;
+        most = Math.max(most, inFlight);
+        if (fail(request)) {
+            inFlight -= 1;
+            return { status: 503, body: '' };
+        }
+        return new Promise(resolve =>
             answers.push(() => {
                 inFlight -= 1;
                 resolve({ status: 200, body: '' });
-            });
-        });
+            })
+        );
+    };
     return { respond, answers, most: () => most };
 }
 
@@ -402,8 +381,8 @@ describe('event delivery', () => {
         }
     });
 
-    it('retries on the documented schedule then abandons', async () => {
-        const { engine, record, requests, until } = setup(() => ({ status: 503, body: '' }));
+    it('retries on the documented schedule then abandons, reporting the event once', async () => {
+        const { engine, record, requests, until, onerror } = setup(() => ({ status: 503, body: '' }));
         const start = Date.now();
         engine.track(ID, 'p0');
         engine.deliver(record, occurrence('evt_1'), 'p1', null);
@@ -422,6 +401,62 @@ describe('event delivery', () => {
         expect(vi.getTimerCount()).toBe(0);
         await vi.advanceTimersByTimeAsync(3_600_000);
         expect(requests).toHaveLength(5);
+        expect(onerror).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ message: `webhook subscription ${ID}: abandoned event evt_1 after 5 failed attempts` })
+        );
+    });
+
+    it('reports the events abandoned within a minute of a report together, with how many and the latest', async () => {
+        const { engine, record, requests, until, onerror } = setup(() => ({ status: 503, body: '' }));
+        const reports = () => onerror.mock.calls.map(([error]) => (error as Error).message);
+        engine.track(ID, 'p0');
+        // Three events a second apart, so each attempt of evt_2 and evt_3 comes one and two seconds after evt_1's.
+        for (let n = 1; n <= 3; n++) {
+            if (n > 1) await vi.advanceTimersByTimeAsync(1000);
+            engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+            await until(n);
+            await settle();
+        }
+        let sent = 3;
+        for (const delay of DELAYS) {
+            await vi.advanceTimersByTimeAsync(delay - 2000);
+            for (let n = 1; n <= 3; n++) {
+                if (n > 1) await vi.advanceTimersByTimeAsync(1000);
+                await until(++sent);
+                await settle();
+            }
+        }
+        expect(requests).toHaveLength(15);
+        // evt_1 gave up at 455 s and is reported at once; evt_2 and evt_3, a second and two later, wait for the minute to pass.
+        expect(reports()).toEqual([`webhook subscription ${ID}: abandoned event evt_1 after 5 failed attempts`]);
+        await vi.advanceTimersByTimeAsync(57_999);
+        expect(reports()).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(reports()).toEqual([
+            `webhook subscription ${ID}: abandoned event evt_1 after 5 failed attempts`,
+            `webhook subscription ${ID}: abandoned 2 more events since the last report, the latest evt_3`
+        ]);
+        expect(engine.watermark(ID)).toBe('p3');
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('drops the count of a forgotten subscription without reporting it', async () => {
+        const { engine, record, until, onerror } = setup(() => ({ status: 503, body: '' }));
+        engine.track(ID, 'p0');
+        engine.deliver(record, occurrence('evt_1'), 'p1', null);
+        engine.deliver(record, occurrence('evt_2'), 'p2', null);
+        await until(2);
+        for (const [index, delay] of DELAYS.entries()) {
+            await settle();
+            await vi.advanceTimersByTimeAsync(delay);
+            await until(2 * (index + 2));
+        }
+        await settle();
+        expect(onerror).toHaveBeenCalledOnce();
+        engine.forget(ID);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(onerror).toHaveBeenCalledOnce();
+        expect(vi.getTimerCount()).toBe(0);
     });
 
     it.each([410, 413])('treats %i as final for the message', async status => {
@@ -546,40 +581,69 @@ describe('event delivery', () => {
         expect(engine.watermark(ID)).toBeNull();
     });
 
-    it('has at most 10 messages of a subscription in flight, a retry wait included, and starts the rest in position order', async () => {
-        let failing = true;
-        const hold = held();
-        const { engine, record, requests, until } = setup(request =>
-            failing && bodyOf(request).eventId === 'evt_1' ? { status: 503, body: '' } : hold.respond(request)
-        );
+    it('has at most 10 POSTs of a subscription in flight, retries included, and starts first attempts in position order', async () => {
+        let fails = 1;
+        const hold = held(request => bodyOf(request).eventId === 'evt_1' && fails-- > 0);
+        const { engine, record, requests, until } = setup(hold.respond);
         engine.track(ID, 'p0');
-        for (let n = 1; n <= 25; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
-        await until(10);
+        for (let n = 1; n <= 15; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+        // evt_1 fails at once and waits for its retry out of its slot, which evt_11 takes.
+        await until(11);
         await settle();
-        expect(requests).toHaveLength(10);
-        // evt_1 keeps its slot while it waits for its retry; each other answer frees a slot for the next message.
-        for (let n = 0; n < 9; n++) {
+        const eventIds = () => requests.map(request => bodyOf(request).eventId);
+        expect(eventIds().sort()).toEqual(Array.from({ length: 11 }, (_, n) => `evt_${n + 1}`).sort());
+        // The retry is due while ten POSTs are in flight: it waits its turn behind evt_12 … evt_15.
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(requests).toHaveLength(11);
+        for (let n = 0; n < 5; n++) {
+            hold.answers[n]!();
+            await until(12 + n);
+        }
+        await settle();
+        expect(eventIds().slice(11)).toEqual(['evt_12', 'evt_13', 'evt_14', 'evt_15', 'evt_1']);
+        expect(engine.watermark(ID)).toBe('p0');
+
+        for (let n = 5; n < 15; n++) hold.answers[n]!();
+        await settle();
+        expect(hold.most()).toBe(10);
+        expect(engine.watermark(ID)).toBe('p15');
+    });
+
+    it('holds at most 10 000 messages waiting for a slow receiver, abandoning the oldest and reporting them at most once a minute', async () => {
+        const hold = held();
+        const { engine, record, requests, until, onerror } = setup(hold.respond);
+        const reports = () => onerror.mock.calls.map(([error]) => (error as Error).message);
+        engine.track(ID, 'p0');
+        // Ten in flight, 10 000 waiting, and five more: the five oldest waiting are abandoned, and the first is reported at once.
+        for (let n = 1; n <= 10_015; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+        expect(reports()).toEqual([
+            `webhook subscription ${ID}: abandoned event evt_11 past the 10000 messages it holds waiting or parked`
+        ]);
+        // A minute after that report the other four are reported together.
+        await vi.advanceTimersByTimeAsync(59_999);
+        expect(reports()).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(reports()[1]).toBe(`webhook subscription ${ID}: abandoned 4 more events since the last report, the latest evt_15`);
+        // One more abandoned within a minute of that report waits for the next.
+        engine.deliver(record, occurrence('evt_10016'), 'p10016', null);
+        expect(reports()).toHaveLength(2);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(reports()).toEqual([
+            `webhook subscription ${ID}: abandoned event evt_11 past the 10000 messages it holds waiting or parked`,
+            `webhook subscription ${ID}: abandoned 4 more events since the last report, the latest evt_15`,
+            `webhook subscription ${ID}: abandoned 1 more event since the last report, the latest evt_16`
+        ]);
+
+        await until(10);
+        for (let n = 0; n < 10; n++) {
             hold.answers[n]!();
             await until(11 + n);
         }
         await settle();
-        expect(requests).toHaveLength(19);
-        expect(requests.slice(10).map(request => bodyOf(request).eventId)).toEqual(Array.from({ length: 9 }, (_, n) => `evt_${11 + n}`));
-        expect(engine.watermark(ID)).toBe('p0');
-
-        failing = false;
-        await vi.advanceTimersByTimeAsync(5000);
-        await until(20);
-        // Each answer frees a slot for the next message, which starts before the next answer.
-        for (let n = 9; n < 25; n++) {
-            hold.answers[n]!();
-            await until(Math.min(n + 12, 26));
-        }
-        await settle();
-        expect(requests).toHaveLength(26);
-        expect(requests.slice(20).map(request => bodyOf(request).eventId)).toEqual(Array.from({ length: 6 }, (_, n) => `evt_${20 + n}`));
+        // The oldest message kept starts next, and the abandoned ones no longer hold the watermark back.
+        expect(requests.slice(10).map(request => bodyOf(request).eventId)).toEqual(Array.from({ length: 10 }, (_, n) => `evt_${17 + n}`));
+        expect(engine.watermark(ID)).toBe('p16');
         expect(hold.most()).toBe(10);
-        expect(engine.watermark(ID)).toBe('p25');
     });
 
     it('queues each delivery and returns without waiting for the receiver', async () => {
@@ -700,43 +764,56 @@ describe('delivery status', () => {
         });
     });
 
+    it('suspends a failing receiver on its first attempts, ten POSTs at a time, before any retry is due', async () => {
+        const hold = held(() => true);
+        const { engine, record, requests, until } = setup(hold.respond);
+        const start = Date.now();
+        engine.track(ID, 'p0');
+        for (let n = 1; n <= 150; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+        await until(100);
+        await settle();
+        expect(engine.status(ID)).toMatchObject({ active: false });
+        // Each a first attempt, at most nine of them past the 100th that suspended, with no clock time passed; the rest parked.
+        await settle();
+        expect(requests.length).toBeLessThanOrEqual(109);
+        expect(new Set(requests.map(request => bodyOf(request).eventId)).size).toBe(requests.length);
+        expect(Date.now()).toBe(start);
+    });
+
     it('suspends when more than 95 % of at least 100 attempts in the last hour failed, and resume() retries what waited', async () => {
         let healthy = false;
         const { engine, record, requests, until } = setup(request =>
             healthy || Number((bodyOf(request).eventId as string).slice(4)) <= 5 ? { status: 200, body: '' } : { status: 503, body: '' }
         );
-        const start = Date.now();
         engine.track(ID, 'p0');
-        for (let n = 1; n <= 5; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
-        await until(5);
+        for (let n = 1; n <= 100; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+        await until(100);
         await settle();
-        // 19 events abandoned after five failed attempts each: 95 of 100 attempts failed, not more than 95 %.
-        expect(await failThrough(engine, record, until, 5, 6, 24)).toBe(100);
+        // 95 of 100 attempts failed: not more than 95 %.
         expect(engine.status(ID)).toMatchObject({ active: true });
-        expect(engine.watermark(ID)).toBe('p24');
 
-        engine.deliver(record, occurrence('evt_25'), 'p25', null);
+        const failedAt = Date.now();
+        engine.deliver(record, occurrence('evt_101'), 'p101', null);
         await until(101);
         await settle();
         expect(engine.status(ID)).toEqual({
             active: false,
-            lastDeliveryAt: new Date(start).toISOString(),
+            lastDeliveryAt: new Date(failedAt).toISOString(),
             lastError: 'http_5xx',
-            failedSince: new Date(start).toISOString()
+            failedSince: new Date(failedAt).toISOString()
         });
 
-        // evt_25's retry and evt_26 wait for the resume.
-        engine.deliver(record, occurrence('evt_26'), 'p26', null);
+        engine.deliver(record, occurrence('evt_102'), 'p102', null);
         await vi.advanceTimersByTimeAsync(600_000);
         expect(requests).toHaveLength(101);
-        expect(engine.watermark(ID)).toBe('p24');
+        expect(engine.watermark(ID)).toBe('p5');
 
         healthy = true;
         engine.resume(ID);
-        await until(103);
+        await until(101 + 97);
         await settle();
         expect(engine.status(ID)).toEqual({ active: true, lastDeliveryAt: new Date().toISOString(), lastError: null });
-        expect(engine.watermark(ID)).toBe('p26');
+        expect(engine.watermark(ID)).toBe('p102');
     });
 
     it('counts only the attempts of the last 60 minutes', async () => {
@@ -745,34 +822,48 @@ describe('delivery status', () => {
         const record = recordFor({ expiresAt: Date.now() + 86_400_000 });
         await store.put(record);
         engine.track(ID, 'p0');
-        for (let n = 1; n <= 10; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
-        await until(10);
+        for (let n = 1; n <= 99; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+        await until(99);
         await settle();
         failing = false;
         await vi.advanceTimersByTimeAsync(5000);
-        await until(20);
+        await until(198);
         await settle();
-        expect(engine.watermark(ID)).toBe('p10');
+        expect(engine.watermark(ID)).toBe('p99');
 
-        // Counted with the hour before, these would be 110 failures in 120 attempts, not more than 95 %; alone they are 100 in 100.
+        // Counted with the hour before, these would be 199 failures in 298 attempts; alone they are 100 in 100.
         await vi.advanceTimersByTimeAsync(3_600_000);
         failing = true;
-        await failThrough(engine, record, until, 20, 11, 30);
+        for (let n = 100; n <= 199; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+        await until(298);
+        await settle();
         expect(engine.status(ID)).toMatchObject({ active: false });
     });
 
-    it('holds at most 10 000 messages while suspended, abandoning the oldest', async () => {
+    it('holds at most 10 000 messages while suspended, abandoning the oldest and reporting it', async () => {
         let healthy = false;
-        const { engine, record, requests, until } = setup(() => (healthy ? { status: 200, body: '' } : { status: 503, body: '' }));
+        const { engine, record, requests, until, onerror } = setup(() => (healthy ? { status: 200, body: '' } : { status: 503, body: '' }));
         engine.track(ID, 'p0');
         // 20 events, five failed attempts each: the 100th attempt suspends delivery as the last retries give up.
-        await failThrough(engine, record, until, 0, 1, 20);
+        for (let n = 1; n <= 20; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+        await until(20);
+        for (const [index, delay] of DELAYS.entries()) {
+            await settle();
+            await vi.advanceTimersByTimeAsync(delay);
+            await until(20 * (index + 2));
+        }
+        await settle();
         expect(engine.status(ID)).toMatchObject({ active: false });
         expect(engine.watermark(ID)).toBe('p20');
 
         for (let n = 21; n <= 10_021; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
         expect(engine.watermark(ID)).toBe('p21');
         expect(requests).toHaveLength(100);
+        // The first of the 20 abandoned after five attempts was reported at once; the rest, and evt_21 past the cap, wait for the minute.
+        const reports = () => onerror.mock.calls.map(([error]) => (error as Error).message);
+        expect(reports()).toEqual([
+            expect.stringMatching(new RegExp(`^webhook subscription ${ID}: abandoned event evt_\\d+ after 5 failed attempts$`))
+        ]);
 
         healthy = true;
         engine.resume(ID);
@@ -781,15 +872,15 @@ describe('delivery status', () => {
         expect(requests).toHaveLength(100 + 10_000);
         expect(requests.some(request => bodyOf(request).eventId === 'evt_21')).toBe(false);
         expect(engine.watermark(ID)).toBe('p10021');
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(reports()[1]).toBe(`webhook subscription ${ID}: abandoned 20 more events since the last report, the latest evt_21`);
     });
 
     it.each(['a due retry', 'a new delivery'])('releases a suspended subscription whose record expired, on %s', async path => {
         const { engine, store, record, requests, until } = setup(() => ({ status: 503, body: '' }));
         engine.track(ID, 'p0');
-        // 95 failed attempts, then five first attempts that fail: the 100th suspends delivery while their retries are due.
-        const sent = await failThrough(engine, record, until, 0, 1, 19);
-        for (let n = 20; n <= 24; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
-        await until(sent + 5);
+        for (let n = 1; n <= 100; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+        await until(100);
         await settle();
         expect(engine.status(ID)).toMatchObject({ active: false });
 
@@ -809,12 +900,15 @@ describe('delivery status', () => {
 
     it('resumes many parked messages at most 10 in flight, in position order', async () => {
         let healthy = false;
-        const hold = held();
-        const { engine, record, requests, until } = setup(request => (healthy ? hold.respond(request) : { status: 503, body: '' }));
+        const hold = held(() => !healthy);
+        const { engine, record, requests, until } = setup(hold.respond);
         engine.track(ID, 'p0');
-        await failThrough(engine, record, until, 0, 1, 20);
+        for (let n = 1; n <= 100; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+        await until(100);
+        await settle();
         expect(engine.status(ID)).toMatchObject({ active: false });
-        for (let n = 21; n <= 50; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+        for (let n = 101; n <= 130; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+        await settle();
         expect(requests).toHaveLength(100);
 
         healthy = true;
@@ -829,10 +923,9 @@ describe('delivery status', () => {
         }
         await settle();
         const resumed = requests.slice(100).map(request => bodyOf(request).eventId);
-        expect(resumed.slice(0, 10).sort()).toEqual(Array.from({ length: 10 }, (_, n) => `evt_${21 + n}`).sort());
-        expect(resumed.slice(10)).toEqual(Array.from({ length: 20 }, (_, n) => `evt_${31 + n}`));
+        expect(resumed.slice(0, 10).sort()).toEqual(Array.from({ length: 10 }, (_, n) => `evt_${101 + n}`).sort());
+        expect(resumed.slice(10)).toEqual(Array.from({ length: 20 }, (_, n) => `evt_${111 + n}`));
         expect(hold.most()).toBe(10);
-        expect(engine.watermark(ID)).toBe('p50');
     });
 
     it('resume() does nothing for an active or unknown subscription', async () => {

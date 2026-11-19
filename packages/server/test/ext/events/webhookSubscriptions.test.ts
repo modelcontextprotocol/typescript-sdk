@@ -6,7 +6,6 @@ import * as z from 'zod/v4';
 
 import type {
     CheckContext,
-    EmitOnlyEventHandle,
     EventContext,
     EventResult,
     EventsOptions,
@@ -26,7 +25,6 @@ const HOOK = 'https://hooks.example.com/mcp';
 const OTHER_HOOK = 'https://other.example.com/hook';
 const SECRET = generateWebhookSecret();
 const SUB_ID = /^sub_[\w-]{22}$/;
-const DELAYS = [5000, 30_000, 120_000, 300_000];
 const UNSUPPORTED = { code: -32_026, data: { feature: 'deliveryMode', value: 'webhook' } };
 
 type Respond = (request: WebhookSendRequest) => WebhookSendOutcome | Promise<WebhookSendOutcome>;
@@ -133,30 +131,6 @@ function verifies(request: WebhookSendRequest, secret: string): Promise<boolean>
 
 // Lets queued work act on answers already received, without moving the clock.
 const settle = (): Promise<unknown> => vi.advanceTimersByTimeAsync(0);
-
-// Emits `count` events that the receiver fails, and moves the clock through all five attempts of each, ten at a time, until the
-// last is abandoned; `sent` counts the requests before, and the count after is returned.
-async function emitFailing(
-    handle: EmitOnlyEventHandle<{ n: number }>,
-    until: (count: number) => Promise<void>,
-    sent: number,
-    count: number
-): Promise<number> {
-    for (let n = 1; n <= count; n++) await handle.emit({ data: { n } });
-    for (let left = count; left > 0; left -= 10) {
-        const batch = Math.min(10, left);
-        sent += batch;
-        await until(sent);
-        for (const delay of DELAYS) {
-            await settle();
-            await vi.advanceTimersByTimeAsync(delay);
-            sent += batch;
-            await until(sent);
-        }
-        await settle();
-    }
-    return sent;
-}
 
 const REVOKED = { code: -32_024, message: 'Forbidden', data: { reason: 'Access revoked' } };
 
@@ -806,8 +780,9 @@ describe('events/subscribe: refreshing', () => {
         const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
         const alice = client(events);
         subscribed(await alice.subscribe());
-        // 20 events, five failed attempts each: the 100th suspends delivery.
-        await emitFailing(handle, post.until, 1, 20);
+        for (let n = 1; n <= 100; n++) await handle.emit({ data: { n } });
+        await post.until(101);
+        await settle();
         expect(subscribed(await alice.subscribe()).deliveryStatus).toMatchObject({ active: false, lastError: 'http_5xx' });
         expect(subscribed(await alice.subscribe()).deliveryStatus).toMatchObject({ active: true, lastError: 'http_5xx' });
     });
@@ -904,17 +879,22 @@ describe('several replicas sharing one store', () => {
         const handle = a.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
         b.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
         const { id } = subscribed(await client(a.events).subscribe());
-        // 20 events, five failed attempts each: the 100th suspends delivery on A.
-        const sent = await emitFailing(handle, a.post.until, 1, 20);
-        await handle.emit({ eventId: 'parked', data: { n: 21 } });
+        // 100 failed attempts suspend delivery on A.
+        for (let n = 1; n <= 100; n++) await handle.emit({ data: { n } });
+        const sent = 101;
+        await a.post.until(sent);
+        await settle();
+        await handle.emit({ eventId: 'parked', data: { n: 101 } });
         await settle();
         expect(a.post.requests).toHaveLength(sent);
 
+        // A second later, before any retry is due, B serves the refresh.
         healthy = true;
+        await vi.advanceTimersByTimeAsync(1000);
         const before = (await store.get(id))!.expiresAt;
         subscribed(await client(b.events).subscribe());
         expect((await store.get(id))!.expiresAt).toBeGreaterThan(before);
-        await handle.emit({ eventId: 'after', data: { n: 22 } });
+        await handle.emit({ eventId: 'after', data: { n: 102 } });
         await a.post.until(sent + 2);
         await settle();
         expect(

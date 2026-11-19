@@ -301,12 +301,12 @@ describe('nodeWebhookSender', () => {
         await expect(connection.lookup({ family: 6 })).rejects.toMatchObject({ code: 'ENOTFOUND' });
     });
 
-    it.skipIf(!hasIpv6Loopback)('connects to the AAAA address when the A address refuses', async () => {
+    it.skipIf(!hasIpv6Loopback)('connects to the AAAA address when the A address does not answer', async () => {
         const receiver = await countingServer('::1');
-        await treatAsPublic('127.0.0.1', '::1');
-        stubResolver(['127.0.0.1', '::1']);
+        await treatAsPublic('192.0.2.1', '::1');
+        stubResolver(['192.0.2.1', '::1']);
 
-        // Nothing listens on 127.0.0.1 at the receiver's port; the receiver closes the connection it gets.
+        // 192.0.2.1 is TEST-NET-1, which nothing answers, so Node moves on to ::1; the receiver closes the connection it gets.
         expect(await nodeWebhookSender()(sendRequest(`https://dual.example.test:${receiver.port}/x`, false))).toEqual(REFUSED);
         expect(receiver.connections()).toBe(1);
     });
