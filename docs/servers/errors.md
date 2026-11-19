@@ -147,7 +147,7 @@ Pick by audience. The model drives `tools/call`, so a failure it can recover fro
 
 The handler decides which channel exists:
 
-- A tool handler produces only tool errors. The SDK converts every exception it throws — including a thrown `ProtocolError` — into an `isError: true` result. `UrlElicitationRequiredError` is the one exception; it propagates as a JSON-RPC error so the host can open the URL — see [Elicitation](./elicitation.md).
+- A tool handler produces only tool errors. The SDK converts every exception it throws — including a thrown `ProtocolError` — into an `isError: true` result. `UrlElicitationRequiredError` and `MissingRequiredClientCapabilityError` are the two exceptions. The first propagates as a JSON-RPC error so the host can open the URL — see [Elicitation](./elicitation.md); the second tells the client which capability to declare.
 - A resource, prompt, or completion callback produces only protocol errors. Throw a `ProtocolError`.
 
 ## Use the typed error subclasses
@@ -203,7 +203,7 @@ Match these by `code` and `data` shape when peers may run pre-brand SDK copies o
 
 - `isError: true` is a successful JSON-RPC result carrying a tool failure the model reads and acts on.
 - A tool handler that throws produces the same `isError: true` result; the exception's `message` becomes the `content` text.
-- A tool handler cannot produce a protocol error — only `UrlElicitationRequiredError` escapes.
+- A tool handler cannot produce a protocol error — only `UrlElicitationRequiredError` and `MissingRequiredClientCapabilityError` escape.
 - `ProtocolError` and its subclasses, thrown from resource, prompt, and completion callbacks, become JSON-RPC error responses the model never sees.
 - `ResourceNotFoundError` and the other subclasses pick the code and pack structured `data`; match them by `code` and `data` — or, on brand-aware releases, by `instanceof`.
 - The table above lists every `ProtocolErrorCode` member.
