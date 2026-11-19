@@ -52,6 +52,7 @@ import {
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
+    isNoHandlerResponse,
     LADDER_ERROR_HTTP_STATUS,
     ProtocolErrorCode,
     SdkError,
@@ -114,12 +115,21 @@ interface SseSink {
     keepAliveTimer?: ReturnType<typeof setInterval>;
 }
 
+let readClassification: (transport: PerRequestHTTPServerTransport) => MessageClassification;
+
 /**
  * The per-request micro-transport: a real, connected `Transport` whose whole
  * lifetime is one HTTP exchange. See the module documentation for the
  * response shapes it produces.
+ *
+ * Connecting a `Server` binds the instance to the classified modern revision
+ * when its `supportedProtocolVersions` lists it and the SDK implements it.
  */
 export class PerRequestHTTPServerTransport implements Transport {
+    static {
+        readClassification = transport => transport._classification;
+    }
+
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: <T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void;
@@ -287,7 +297,10 @@ export class PerRequestHTTPServerTransport implements Transport {
             // response mode.
             const errorCode = isJSONRPCErrorResponse(message) ? message.error.code : undefined;
             const ladderStatus =
-                errorCode !== undefined && (this._dispatchWindowOpen || errorCode === ProtocolErrorCode.MissingRequiredClientCapability)
+                errorCode !== undefined &&
+                (this._dispatchWindowOpen ||
+                    errorCode === ProtocolErrorCode.MissingRequiredClientCapability ||
+                    isNoHandlerResponse(message))
                     ? LADDER_ERROR_HTTP_STATUS[errorCode]
                     : undefined;
             if (ladderStatus !== undefined && this._sse === undefined) {
@@ -438,4 +451,9 @@ export class PerRequestHTTPServerTransport implements Transport {
             this.onerror?.(new Error(`Failed to write to the response stream: ${error}`));
         }
     }
+}
+
+/** Package-internal: the classification a per-request transport serves; `undefined` for any other transport. Not public API. */
+export function perRequestClassificationOf(transport: Transport): MessageClassification | undefined {
+    return transport instanceof PerRequestHTTPServerTransport ? readClassification(transport) : undefined;
 }

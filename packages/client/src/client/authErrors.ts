@@ -132,10 +132,12 @@ export class RegistrationRejectedError extends OAuthClientFlowError {
 
 /**
  * Thrown by the token-exchange and refresh paths when the resolved token
- * endpoint is not `https:` and is not a loopback host (SEP-2207). This is a
- * configuration error — re-authorizing cannot fix it — so it intentionally does
- * **not** extend `OAuthError` and `auth()`'s refresh branch rethrows it instead
- * of falling through to a fresh `/authorize` redirect.
+ * endpoint is not `https:` and is not a loopback host. The MCP authorization
+ * specification requires authorization server endpoints to use HTTPS; loopback
+ * hosts are exempt here for local development. This is a configuration error —
+ * re-authorizing cannot fix it — so it intentionally does **not** extend
+ * `OAuthError` and `auth()`'s refresh branch rethrows it instead of falling
+ * through to a fresh `/authorize` redirect.
  */
 export class InsecureTokenEndpointError extends OAuthClientFlowError {
     static {
@@ -175,14 +177,18 @@ export class InsecureTokenEndpointError extends OAuthClientFlowError {
  * `requiredScope`, which appears in the error message).
  */
 /**
- * Thrown by `auth()` on the authorization-code callback leg when the
- * authorization server resolved by discovery differs from the one recorded in
- * `discoveryState()` at redirect time. The `authorization_code` and PKCE
- * `code_verifier` are bound to the AS that minted the code (RFC 7636); sending
- * them to a different AS's token endpoint is a credential-exfiltration vector.
+ * Thrown by `auth()` and `fetchToken()` when the authorization server in use differs
+ * from the one a credential is bound to and the flow cannot simply start over:
  *
- * This is the only runtime check left in the SEP-2352 model — stored tokens and
- * client credentials are protected structurally by the `issuer` stamp instead.
+ * - on the authorization-code callback leg, when it differs from the one recorded
+ *   in `discoveryState()` at redirect time — the `authorization_code` and PKCE
+ *   `code_verifier` are bound to the AS that minted the code (RFC 7636);
+ * - for client information whose `issuer` stamp names a different authorization
+ *   server on a provider that cannot re-register (no `saveClientInformation()`,
+ *   e.g. the bundled static-credential providers); `fetchToken()` throws for any provider.
+ *
+ * Stored tokens and re-registrable client information are protected structurally
+ * by the `issuer` stamp instead (they read back as absent).
  */
 export class AuthorizationServerMismatchError extends OAuthClientFlowError {
     static {
@@ -190,15 +196,14 @@ export class AuthorizationServerMismatchError extends OAuthClientFlowError {
     }
 
     constructor(
-        /** The issuer recorded in `discoveryState()` when the authorization redirect was issued. */
+        /** The issuer the credential is bound to (recorded in `discoveryState()` at redirect time, or stamped on the client information). */
         public readonly recordedIssuer: string,
         /** The issuer resolved by discovery on this call. */
         public readonly currentIssuer: string
     ) {
         super(
-            `Authorization server changed between redirect and callback ` +
-                `(redirected to ${JSON.stringify(recordedIssuer)}, callback resolved ${JSON.stringify(currentIssuer)}); ` +
-                `refusing to send authorization_code/code_verifier to a different token endpoint`
+            `Authorization server mismatch: credentials are bound to ${JSON.stringify(recordedIssuer)} ` +
+                `but this call resolved ${JSON.stringify(currentIssuer)}; refusing to present them to a different authorization server`
         );
     }
 }

@@ -179,3 +179,15 @@ class PinnedResourceProvider extends MyOAuthProvider {
     }
 }
 //#endregion validateResourceURL_pin
+
+// ---------------------------------------------------------------------------
+// "Send scope on refresh"
+// ---------------------------------------------------------------------------
+
+//#region scopeForRefresh_granted
+class ScopeOnRefreshProvider extends MyOAuthProvider {
+    scopeForRefresh(tokens: OAuthTokens) {
+        return tokens.scope; // the scope saved with these tokens
+    }
+}
+//#endregion scopeForRefresh_granted

@@ -43,6 +43,8 @@ import type { Request, Response } from 'express';
 import express from 'express';
 import * as z from 'zod/v4';
 
+import { conformanceSkills } from './skills';
+
 // Server state
 const resourceSubscriptions = new Set<string>();
 const watchedResourceContent = 'Watched resource content';
@@ -167,6 +169,9 @@ function createMcpServer() {
         }
     );
 
+    // SEP-2640: skills/list, skills/get, resources/directory/read and the skill:// resource template.
+    conformanceSkills.attach(mcpServer);
+
     // Helper to send log messages using the underlying server
     function sendLog(
         level: 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency',
@@ -200,7 +205,10 @@ function createMcpServer() {
             inputSchema: fromJsonSchema<{ region?: string; level?: number }>({
                 type: 'object',
                 properties: {
-                    region: { type: 'string', description: 'mirrored into Mcp-Param-Region', 'x-mcp-header': 'Region' },
+                    region: { type: 'string', description: 'mirrored into Mcp-Param-Region', 'x-mcp-header': 'Region' } as Record<
+                        string,
+                        unknown
+                    >,
                     level: { type: 'integer', description: 'non-mirrored argument' }
                 }
             })
@@ -735,6 +743,30 @@ function createMcpServer() {
                 };
             }
         }
+    );
+
+    // Structured content fixtures; the handlers omit `content` so McpServer supplies the JSON text block.
+    mcpServer.registerTool(
+        'test_structured_content',
+        {
+            description: 'Tests structured content against an object outputSchema',
+            outputSchema: z.object({ temperature: z.number(), conditions: z.string() })
+        },
+        async () => ({ structuredContent: { temperature: 22.5, conditions: 'Partly cloudy' } })
+    );
+    // SEP-2106: array outputSchema and structuredContent.
+    mcpServer.registerTool(
+        'test_structured_content_array',
+        {
+            description: 'Tests array structured content (SEP-2106)',
+            outputSchema: z.array(z.object({ hour: z.string(), temp: z.number() }))
+        },
+        async () => ({
+            structuredContent: [
+                { hour: '09:00', temp: 68 },
+                { hour: '10:00', temp: 72 }
+            ]
+        })
     );
 
     // SEP-1613 / SEP-2106: JSON Schema 2020-12 conformance test tool.

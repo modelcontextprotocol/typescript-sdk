@@ -15,14 +15,18 @@
 import type { AuthInfo, OAuthTokenVerifier } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer, OAuthError, OAuthErrorCode, requireBearerAuth } from '@modelcontextprotocol/server';
 
-declare function verifyJwt(token: string): Promise<{ sub: string; scopes: string[]; exp: number }>;
+declare function verifyJwt(token: string): Promise<{ sub: string; scopes: string[]; exp: number; aud?: string | string[] }>;
+
+const mcpServerUrl = new URL('https://api.example.com/mcp');
 
 const verifier: OAuthTokenVerifier = {
     async verifyAccessToken(token): Promise<AuthInfo> {
         const payload = await verifyJwt(token).catch(() => {
             throw new OAuthError(OAuthErrorCode.InvalidToken, 'unknown token');
         });
-        return { token, clientId: payload.sub, scopes: payload.scopes, expiresAt: payload.exp };
+        const audience = [payload.aud ?? []].flat().find(aud => URL.canParse(aud) && new URL(aud).origin === mcpServerUrl.origin);
+        const resource = audience ? new URL(audience) : undefined;
+        return { token, clientId: payload.sub, scopes: payload.scopes, expiresAt: payload.exp, resource };
     }
 };
 
@@ -31,7 +35,7 @@ function buildServer(): McpServer {
 }
 
 //#region requireBearerAuth_webStandard
-const gate = requireBearerAuth({ verifier, requiredScopes: ['mcp'] });
+const gate = requireBearerAuth({ verifier, requiredScopes: ['mcp'], expectedResource: mcpServerUrl });
 const handler = createMcpHandler(buildServer);
 
 export default {

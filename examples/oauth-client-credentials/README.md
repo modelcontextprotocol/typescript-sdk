@@ -34,7 +34,8 @@ import { PrivateKeyJwtProvider } from '@modelcontextprotocol/client';
 const authProvider = new PrivateKeyJwtProvider({
     clientId: 'my-service',
     privateKey: pemEncodedKey,
-    algorithm: 'RS256'
+    algorithm: 'RS256',
+    expectedIssuer: 'https://auth.example.com'
 });
 ```
 

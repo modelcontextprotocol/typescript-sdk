@@ -233,6 +233,23 @@ describe('Proxy OAuth Server Provider', () => {
             );
             expect(tokens).toEqual(mockTokenResponse);
         });
+
+        it('does not forward an issuer from the upstream token response', async () => {
+            (global.fetch as Mock).mockImplementation(() =>
+                Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ ...mockTokenResponse, issuer: 'https://upstream.example.com' })
+                })
+            );
+
+            const exchanged = await provider.exchangeAuthorizationCode(validClient, 'test-code', 'test-verifier');
+            const refreshed = await provider.exchangeRefreshToken(validClient, 'test-refresh-token');
+
+            expect(exchanged).toEqual(mockTokenResponse);
+            expect(exchanged).not.toHaveProperty('issuer');
+            expect(refreshed).toEqual(mockTokenResponse);
+            expect(refreshed).not.toHaveProperty('issuer');
+        });
     });
 
     describe('client registration', () => {
@@ -262,6 +279,25 @@ describe('Proxy OAuth Server Provider', () => {
                 })
             );
             expect(result).toEqual(newClient);
+        });
+
+        it('does not forward an issuer from the upstream registration response', async () => {
+            const newClient: OAuthClientInformationFull = {
+                client_id: 'new-client',
+                redirect_uris: ['https://new-client.com/callback']
+            };
+
+            (global.fetch as Mock).mockImplementation(() =>
+                Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ ...newClient, issuer: 'https://upstream.example.com' })
+                })
+            );
+
+            const result = await provider.clientsStore.registerClient!(newClient);
+
+            expect(result).toEqual(newClient);
+            expect(result).not.toHaveProperty('issuer');
         });
 
         it('handles registration failure', async () => {

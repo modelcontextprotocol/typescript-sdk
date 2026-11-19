@@ -43,6 +43,7 @@ import type {
     RequestOptions,
     ResolvedInputRequiredDriverConfig,
     Result,
+    SdkLogger,
     ServerCapabilities,
     StandardSchemaV1,
     SubscribeRequest,
@@ -53,10 +54,13 @@ import type {
     XMcpHeaderScanResult
 } from '@modelcontextprotocol/core-internal';
 import {
+    assertExtensionCapabilitiesUnowned,
+    assertWrappable,
     buildMcpParamHeaders,
     codecForVersion,
     DEFAULT_REQUEST_TIMEOUT_MSEC,
     DiscoverResultSchema,
+    guardLogger,
     HEADER_MISMATCH_ERROR_CODE,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
@@ -76,10 +80,14 @@ import {
     SdkError,
     SdkErrorCode,
     SERVER_INFO_META_KEY,
+    setProtocolInstrumentation,
     SUBSCRIPTION_ID_META_KEY,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
+import type { ClientExtension } from './extension';
+import { installClientExtensions } from './extension';
+import { defaultInstrumentation } from './openTelemetry';
 import type { PriorDiscovery } from './probeClassifier';
 import type { CacheMode, CacheScope, ResponseCacheStore } from './responseCache';
 import { ClientResponseCache, InMemoryResponseCacheStore, MAX_CACHE_TTL_MS } from './responseCache';
@@ -182,9 +190,29 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
 
 export type ClientOptions = ProtocolOptions & {
     /**
+     * Extensions to set up at construction, in order. Each is advertised under
+     * `capabilities.extensions[id]` as `{}`, then its `setup` runs with a
+     * `ClientExtensionContext`. A duplicate id fails construction before any
+     * extension is set up.
+     *
+     * Experimental: may change in a minor release while the extensions SEPs settle.
+     *
+     * @experimental
+     */
+    extensions?: readonly ClientExtension[];
+
+    /**
      * Capabilities to advertise as being supported by this client.
      */
     capabilities?: ClientCapabilities;
+
+    /**
+     * Console-compatible sink for local SDK diagnostics. This does not affect MCP protocol
+     * logging (`notifications/message`). Omitted methods discard diagnostics at that level.
+     *
+     * @default console
+     */
+    logger?: SdkLogger;
 
     /**
      * JSON Schema validator for tool output validation.
@@ -435,6 +463,23 @@ const LIST_CHANGED_EVICTIONS: Readonly<Record<string, readonly string[]>> = {
 
 const DEFAULT_LIST_MAX_PAGES = 64;
 
+// Package-internal (not exported from the package): what the `ext/` clients share with Client. Set in Client's static block.
+export const clientInternals = {} as {
+    enforceStrictCapabilities(client: Client): boolean;
+    logger(client: Client): SdkLogger;
+    walkPages<R extends { nextCursor?: string }>(
+        client: Client,
+        method: string,
+        fetchPage: (cursor: string | undefined) => Promise<R>,
+        items: (page: R) => unknown[]
+    ): Promise<R>;
+    readResource(
+        client: Client,
+        params: ReadResourceRequest['params'],
+        options?: CacheableRequestOptions
+    ): Promise<{ result: ReadResourceResult; cached: boolean }>;
+};
+
 /**
  * A handle to an open `subscriptions/listen` stream (protocol revision
  * 2026-07-28). Change notifications delivered on the stream dispatch to the
@@ -533,6 +578,7 @@ export class Client extends Protocol<ClientContext> {
     private _capabilities: ClientCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
+    private readonly _logger: SdkLogger;
     /**
      * The response-cache substrate. Owns the backing store, the per-method
      * eviction-generation counter, the user-supplied/default flag, and the
@@ -571,6 +617,13 @@ export class Client extends Protocol<ClientContext> {
     private _autoOpenedSubscription?: McpSubscription;
     /** Backing store for {@linkcode getDiscoverResult}. Per-connection. */
     private _discoverResult?: DiscoverResult;
+
+    static {
+        clientInternals.enforceStrictCapabilities = client => client._enforceStrictCapabilities;
+        clientInternals.logger = client => client._logger;
+        clientInternals.walkPages = (client, method, fetchPage, items) => client._walkPages(method, fetchPage, items);
+        clientInternals.readResource = (client, params, options) => client._readResource(params, options);
+    }
 
     /**
      * Clears every per-connection field in one place. Called at the start of
@@ -634,6 +687,8 @@ export class Client extends Protocol<ClientContext> {
         options?: ClientOptions
     ) {
         super(options);
+        this._logger = guardLogger(options?.logger);
+        if (options?.openTelemetry !== false) setProtocolInstrumentation(this, defaultInstrumentation());
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
@@ -658,6 +713,8 @@ export class Client extends Protocol<ClientContext> {
         if (options?.listChanged) {
             this._listChangedConfig = options.listChanged;
         }
+
+        installClientExtensions(this, options?.extensions ?? [], options?.capabilities);
     }
 
     protected override buildContext(ctx: BaseContext, _transportInfo?: MessageExtraInfo): ClientContext {
@@ -790,6 +847,7 @@ export class Client extends Protocol<ClientContext> {
         if (this.transport) {
             throw new Error('Cannot register capabilities after connecting to transport');
         }
+        assertExtensionCapabilitiesUnowned(this, capabilities);
 
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
     }
@@ -1499,6 +1557,10 @@ export class Client extends Protocol<ClientContext> {
         }
     }
 
+    protected override assertMiddlewareMethod(method: string): void {
+        assertWrappable('client', method);
+    }
+
     protected assertRequestHandlerCapability(method: string): void {
         switch (method) {
             // Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
@@ -1606,7 +1668,7 @@ export class Client extends Protocol<ClientContext> {
     async listPrompts(params?: ListPromptsRequest['params'], options?: CacheableRequestOptions): Promise<ListPromptsResult> {
         if (!this._serverCapabilities?.prompts && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support prompts
-            console.debug('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
+            this._logger.debug?.('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
             return { prompts: [] };
         }
         if (params?.cursor !== undefined) {
@@ -1614,7 +1676,7 @@ export class Client extends Protocol<ClientContext> {
         }
         const hit = await this._serveFromCache<ListPromptsResult>('prompts/list', undefined, options);
         if (hit !== undefined) return hit;
-        return this._listAllPages<ListPromptsResult>('prompts/list', params, options, (acc, page) => acc.prompts.push(...page.prompts));
+        return this._listAllPages<ListPromptsResult>('prompts/list', params, options, r => r.prompts);
     }
 
     /**
@@ -1646,7 +1708,7 @@ export class Client extends Protocol<ClientContext> {
     async listResources(params?: ListResourcesRequest['params'], options?: CacheableRequestOptions): Promise<ListResourcesResult> {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
-            console.debug('Client.listResources() called but server does not advertise resources capability - returning empty list');
+            this._logger.debug?.('Client.listResources() called but server does not advertise resources capability - returning empty list');
             return { resources: [] };
         }
         if (params?.cursor !== undefined) {
@@ -1654,9 +1716,7 @@ export class Client extends Protocol<ClientContext> {
         }
         const hit = await this._serveFromCache<ListResourcesResult>('resources/list', undefined, options);
         if (hit !== undefined) return hit;
-        return this._listAllPages<ListResourcesResult>('resources/list', params, options, (acc, page) =>
-            acc.resources.push(...page.resources)
-        );
+        return this._listAllPages<ListResourcesResult>('resources/list', params, options, r => r.resources);
     }
 
     /**
@@ -1677,7 +1737,7 @@ export class Client extends Protocol<ClientContext> {
     ): Promise<ListResourceTemplatesResult> {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
-            console.debug(
+            this._logger.debug?.(
                 'Client.listResourceTemplates() called but server does not advertise resources capability - returning empty list'
             );
             return { resourceTemplates: [] };
@@ -1687,9 +1747,7 @@ export class Client extends Protocol<ClientContext> {
         }
         const hit = await this._serveFromCache<ListResourceTemplatesResult>('resources/templates/list', undefined, options);
         if (hit !== undefined) return hit;
-        return this._listAllPages<ListResourceTemplatesResult>('resources/templates/list', params, options, (acc, page) =>
-            acc.resourceTemplates.push(...page.resourceTemplates)
-        );
+        return this._listAllPages<ListResourceTemplatesResult>('resources/templates/list', params, options, r => r.resourceTemplates);
     }
 
     /**
@@ -1698,8 +1756,7 @@ export class Client extends Protocol<ClientContext> {
      * methods' no-`cursor` auto-aggregate path. Page 1's result object is
      * mutated in place (its items array is extended; `nextCursor` is
      * cleared); page-1 metadata (`ttlMs`, `cacheScope`, `_meta`) is preserved.
-     * A `nextCursor` that repeats stops the walk (defence against a
-     * non-converging server, mcp.d's `drainList` guard);
+     * A page with the same items and `nextCursor` as the previous page ends the walk;
      * {@linkcode ClientOptions.listMaxPages} is a hard cap — hitting it
      * throws, so a partial aggregate is never cached. The
      * captured-generation guard skips the write when a `list_changed` landed
@@ -1718,7 +1775,7 @@ export class Client extends Protocol<ClientContext> {
         method: RequestMethod,
         baseParams: { readonly [key: string]: unknown } | undefined,
         options: CacheableRequestOptions | undefined,
-        append: (acc: R, page: R) => void,
+        items: (result: R) => unknown[],
         finalize?: (acc: R) => void
     ): Promise<R> {
         // `'bypass'` is the no-touch path: the cache is neither read nor
@@ -1730,24 +1787,11 @@ export class Client extends Protocol<ClientContext> {
         // when it observes the bump (the result still returns to the caller —
         // it just is not cached).
         const generation = this._cache.captureGeneration(method);
-        const acc = (await this.request({ method, ...(baseParams && { params: { ...baseParams } }) }, options)) as R;
-        let cursor = acc.nextCursor;
-        const seen = new Set<string>();
-        let pages = 1;
-        while (cursor !== undefined && !seen.has(cursor)) {
-            if (this._listMaxPages !== 0 && pages >= this._listMaxPages) {
-                throw new SdkError(
-                    SdkErrorCode.ListPaginationExceeded,
-                    `${method}: exceeded listMaxPages (${this._listMaxPages}); server pagination did not terminate`,
-                    { method, listMaxPages: this._listMaxPages }
-                );
-            }
-            seen.add(cursor);
-            const page = (await this.request({ method, params: { ...baseParams, cursor } }, options)) as R;
-            append(acc, page);
-            cursor = page.nextCursor;
-            pages++;
-        }
+        const fetchPage = (cursor: string | undefined): Promise<R> => {
+            const params = cursor === undefined ? baseParams && { ...baseParams } : { ...baseParams, cursor };
+            return this.request({ method, ...(params && { params }) }, options) as Promise<R>;
+        };
+        const acc = await this._walkPages(method, fetchPage, items);
         // delete, not `= undefined`: the cache's JSON codec drops
         // explicit-undefined properties, so only absence keeps
         // `'nextCursor' in result` identical between wire and cache hit.
@@ -1761,6 +1805,35 @@ export class Client extends Protocol<ClientContext> {
         // Page-1 carries the result-level `ttlMs`/`cacheScope` (`acc` IS the
         // mutated page-1 object).
         await this._cache.write(method, acc, generation, this._freshness(acc));
+        return acc;
+    }
+
+    // Every page's items appended to page 1's: `listMaxPages` caps the walk, a page repeating the one before ends it.
+    private async _walkPages<R extends { nextCursor?: string }>(
+        method: string,
+        fetchPage: (cursor: string | undefined) => Promise<R>,
+        items: (result: R) => unknown[]
+    ): Promise<R> {
+        const acc = await fetchPage(undefined);
+        let cursor = acc.nextCursor;
+        let previous = acc;
+        let pages = 1;
+        while (cursor !== undefined) {
+            if (this._listMaxPages !== 0 && pages >= this._listMaxPages) {
+                throw new SdkError(
+                    SdkErrorCode.ListPaginationExceeded,
+                    `${method}: exceeded listMaxPages (${this._listMaxPages}); server pagination did not terminate`,
+                    { method, listMaxPages: this._listMaxPages }
+                );
+            }
+            const page = await fetchPage(cursor);
+            // Same items and same cursor as the page before: the server made no progress.
+            if (page.nextCursor === cursor && JSON.stringify(items(page)) === JSON.stringify(items(previous))) break;
+            items(acc).push(...items(page));
+            previous = page;
+            cursor = page.nextCursor;
+            pages++;
+        }
         return acc;
     }
 
@@ -1885,8 +1958,17 @@ export class Client extends Protocol<ClientContext> {
      * unbounded).
      */
     async readResource(params: ReadResourceRequest['params'], options?: CacheableRequestOptions): Promise<ReadResourceResult> {
+        const { result } = await this._readResource(params, options);
+        return result;
+    }
+
+    // `readResource`, and whether the result came from the response cache.
+    private async _readResource(
+        params: ReadResourceRequest['params'],
+        options: CacheableRequestOptions | undefined
+    ): Promise<{ result: ReadResourceResult; cached: boolean }> {
         const hit = await this._serveFromCache<ReadResourceResult>('resources/read', params.uri, options);
-        if (hit !== undefined) return hit;
+        if (hit !== undefined) return { result: hit, cached: true };
         // Capture the per-URI eviction generation BEFORE the request: a
         // `notifications/resources/updated` for this URI arriving while the
         // read is in flight bumps it (via `evictKey`), and the terminal
@@ -1911,7 +1993,7 @@ export class Client extends Protocol<ClientContext> {
                 await this._cache.evictKey('resources/read', params.uri);
             }
         }
-        return result;
+        return { result, cached: false };
     }
 
     /** Subscribes to change notifications for a resource. The server must support resource subscriptions. */
@@ -2106,18 +2188,31 @@ export class Client extends Protocol<ClientContext> {
             method: 'subscriptions/listen',
             params: { _meta: { ...this._outboundMetaEnvelope() }, notifications: filter }
         };
-        try {
-            await this.transport.send(jsonrpcRequest, {
-                requestSignal: requestAbort.signal,
-                onRequestStreamEnd: () => settle({ cause: 'remote', error: new Error('subscriptions/listen: stream ended') })
-            });
-        } catch (error) {
-            // Synchronous OR awaited send failure (including a per-request
-            // abort fired before response headers — `streamableHttp._send`
-            // rethrows with onerror suppressed). `settle()` is idempotent so
-            // a locally-aborted send hitting this path after `close()` is a
-            // no-op.
+        // The send is NOT serially awaited: `opening` must be the promise
+        // listen() suspends on so that a settle() firing while the send is
+        // still in flight (ack timeout, transport close, server cancel, a
+        // stdio send parked on 'drain') rejects a promise whose handler is
+        // already attached — otherwise the rejection escapes as a
+        // process-level unhandledRejection the caller cannot prevent, and a
+        // send that never settles leaves listen() suspended forever even
+        // though the ack timer already fired.
+        const routeSendFailure = (error: unknown): void => {
+            // Send failure (including a per-request abort fired before
+            // response headers — `streamableHttp._send` rethrows with onerror
+            // suppressed). `settle()` is idempotent so a locally-aborted send
+            // hitting this path after `close()` is a no-op.
             settle({ cause: 'remote', error: error instanceof Error ? error : new Error(String(error)) });
+        };
+        try {
+            this.transport
+                .send(jsonrpcRequest, {
+                    requestSignal: requestAbort.signal,
+                    onRequestStreamEnd: () => settle({ cause: 'remote', error: new Error('subscriptions/listen: stream ended') })
+                })
+                .catch(routeSendFailure);
+        } catch (error) {
+            // A synchronous throw from send() (before it returns a promise).
+            routeSendFailure(error);
         }
 
         const honored = await opening;
@@ -2501,7 +2596,7 @@ export class Client extends Protocol<ClientContext> {
     async listTools(params?: ListToolsRequest['params'], options?: CacheableRequestOptions): Promise<ListToolsResult> {
         if (!this._serverCapabilities?.tools && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support tools
-            console.debug('Client.listTools() called but server does not advertise tools capability - returning empty list');
+            this._logger.debug?.('Client.listTools() called but server does not advertise tools capability - returning empty list');
             return { tools: [] };
         }
         if (params?.cursor !== undefined) {
@@ -2523,7 +2618,7 @@ export class Client extends Protocol<ClientContext> {
             'tools/list',
             params,
             options,
-            (acc, page) => acc.tools.push(...page.tools),
+            r => r.tools,
             acc => this._excludeInvalidXMcpHeaderTools(acc)
         );
     }
@@ -2548,7 +2643,9 @@ export class Client extends Protocol<ClientContext> {
         const filtered = result.tools.filter(tool => {
             const scan = scanXMcpHeaderDeclarations(tool.inputSchema);
             if (!scan.valid) {
-                console.warn(`[mcp-sdk] excluding tool '${tool.name}' from tools/list: invalid x-mcp-header declaration — ${scan.reason}`);
+                this._logger.warn?.(
+                    `[mcp-sdk] excluding tool '${tool.name}' from tools/list: invalid x-mcp-header declaration — ${scan.reason}`
+                );
                 return false;
             }
             return true;
