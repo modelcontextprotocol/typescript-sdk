@@ -182,7 +182,6 @@
         "@opentelemetry/api": "catalog:otel",
         "@cfworker/json-schema": "catalog:runtimeShared",
         "@eslint/js": "catalog:devTools",
-        "@modelcontextprotocol/client": "workspace:^",
         "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/test-helpers": "workspace:^",

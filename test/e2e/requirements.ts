@@ -12,11 +12,93 @@ import type { Requirement } from './types';
 /** Transports with a persistent server instance / standalone notification stream. */
 const STATEFUL_TRANSPORTS = ['inMemory', 'stdio', 'streamableHttp', 'sse'] as const;
 
+/** The Tasks extension specification (SEP-2663). */
+const TASKS_SPEC = 'https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/draft/tasks.md';
+
 /** The stable Skills extension page (SEP-2640) at the commit the SDK implements; entries append `L<line>`. */
 const SKILLS_SPEC =
     'https://github.com/modelcontextprotocol/ext-skills/blob/c1aa87e4c381c82b99aa37471d0eae4ab50f9985/specification/stable/skills.mdx?plain=1#';
 
 export const REQUIREMENTS: Record<string, Requirement> = {
+    // Tasks extension (io.modelcontextprotocol/tasks)
+    'tasks:create:handle-then-completed': {
+        source: TASKS_SPEC,
+        behavior:
+            'A server with the Tasks extension advertises it; a tool answers tools/call with a task handle (resultType "task", status working, ttlMs, pollIntervalMs), and tasks/get then reports the status message and, once completed, the result inline.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'The extension is served on 2026-07-28 requests only; entryModern is the modern-era arm.'
+    },
+    'tasks:input-required:update-resumes': {
+        source: TASKS_SPEC,
+        behavior:
+            'A task that needs input reports input_required with its inputRequests on tasks/get; tasks/update with the answers resumes it. An answer that is not a valid result for the request it answers is refused with -32602 and changes nothing.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'The extension is served on 2026-07-28 requests only; entryModern is the modern-era arm.'
+    },
+    'tasks:failed:error-inlined': {
+        source: TASKS_SPEC,
+        behavior: 'A failed task reports status failed with its error inline on tasks/get.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'The extension is served on 2026-07-28 requests only; entryModern is the modern-era arm.'
+    },
+    'tasks:cancel:cooperative': {
+        source: TASKS_SPEC,
+        behavior:
+            'tasks/cancel is acknowledged, the task reports cancelled and stays cancelled when the work settles afterwards; cancelling again is acknowledged.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'The extension is served on 2026-07-28 requests only; entryModern is the modern-era arm.'
+    },
+    'tasks:errors:unknown-task': {
+        source: TASKS_SPEC,
+        behavior: 'tasks/get, tasks/update and tasks/cancel answer -32602 for a task id the server does not know.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'The extension is served on 2026-07-28 requests only; entryModern is the modern-era arm.'
+    },
+    'tasks:capability:undeclared-refused': {
+        source: TASKS_SPEC,
+        behavior:
+            'A request that did not declare the Tasks extension is refused with -32021: on tasks/get, and on tools/call for a tool that answers with a task handle, whose task is cancelled.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'The extension is served on 2026-07-28 requests only; entryModern is the modern-era arm.'
+    },
+    'typescript:tasks:input-request:needs-declared-capability': {
+        source: 'sdk',
+        behavior:
+            'InMemoryTaskStore refuses an input request that needs a client capability the creating request did not declare: requireInput rejects, as the in-band input_required gate does with -32021.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'The extension is served on 2026-07-28 requests only; entryModern is the modern-era arm.'
+    },
+    'typescript:tasks:tool-with-output-schema': {
+        source: 'sdk',
+        behavior:
+            'A tool that declares an outputSchema can answer with a task handle: the handle is not validated as the tool output, and the completed task carries the structured result.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'The extension is served on 2026-07-28 requests only; entryModern is the modern-era arm.'
+    },
+    'typescript:tasks:with-skills': {
+        source: 'sdk',
+        behavior:
+            'The Skills and Tasks extensions serve side by side on one server and one client: both capabilities are advertised, skills list, and a tool answers with a task that completes.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'The extension is served on 2026-07-28 requests only; entryModern is the modern-era arm.'
+    },
+    'typescript:tasks:legacy-era:not-served': {
+        source: 'sdk',
+        behavior:
+            'On a 2025-11-25 connection the Tasks extension is not served: tasks/get and tasks/update answer -32601, and a tool that answers with a task handle is refused with -32021.',
+        transports: ['inMemory'],
+        removedInSpecVersion: '2026-07-28',
+        note: 'The extension needs the 2026-07-28 per-request envelope; one legacy transport is enough to show the refusal.'
+    },
     // Extensions (SEP-3371 SDK extension points)
     'extensions:registration:duplicate-id': {
         source: 'https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3371',

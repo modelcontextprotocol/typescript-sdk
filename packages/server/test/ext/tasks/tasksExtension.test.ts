@@ -2,7 +2,6 @@
  * `TasksExtension` binding and era rules: which principal a task is bound to,
  * and that the extension's methods and task handles are 2026-07-28 only.
  */
-import { Client } from '@modelcontextprotocol/client';
 import type { AuthInfo, JSONRPCRequest, MessageClassification } from '@modelcontextprotocol/core-internal';
 import {
     CLIENT_CAPABILITIES_META_KEY,
@@ -93,30 +92,6 @@ describe('tasks/update', () => {
         const wrapped = { q: { method: 'elicitation/create', result: { action: 'accept' } } };
         expect((await call(tasks, 'tasks/update', { taskId, inputResponses: wrapped })).error).toMatchObject({ code: -32_602 });
         expect((await call(tasks, 'tasks/update', { taskId, inputResponses: {} })).result).toMatchObject({ resultType: 'complete' });
-        store.close();
-    });
-});
-
-describe('TasksExtension on 2025-11-25', () => {
-    it('answers the tasks methods with -32601 and refuses task handles with -32021', async () => {
-        const store = new InMemoryTaskStore();
-        const mcp = serve(new TasksExtension(store));
-        const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
-        await mcp.connect(serverTx);
-        const client = new Client({ name: 'c', version: '1' }, { capabilities: { extensions: { [TASKS_EXTENSION_ID]: {} } } });
-        await client.connect(clientTx);
-
-        await expect(client.request({ method: 'tasks/get', params: { taskId: 'x' } }, z.looseObject({}))).rejects.toMatchObject({
-            code: -32_601
-        });
-        await expect(
-            client.request({ method: 'tasks/update', params: { taskId: 'x', inputResponses: {} } }, z.looseObject({}))
-        ).rejects.toMatchObject({
-            code: -32_601
-        });
-        await expect(client.callTool({ name: 'job', arguments: {} })).rejects.toMatchObject({ code: -32_021 });
-
-        await client.close();
         store.close();
     });
 });
