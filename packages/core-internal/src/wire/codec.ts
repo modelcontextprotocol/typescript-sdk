@@ -62,7 +62,9 @@ import type {
     ResultTypeMap
 } from '../types/types';
 import { rev2025Codec } from './rev2025-11-25/codec';
+import { ClientRequestSchema as ClientRequestSchema2025, ServerRequestSchema as ServerRequestSchema2025 } from './rev2025-11-25/schemas';
 import { rev2026Codec } from './rev2026-07-28/codec';
+import { rev2026RequestMethods } from './rev2026-07-28/registry';
 
 /** Wire eras with distinct vocabulary. */
 export type WireEra = '2025-11-25' | '2026-07-28';
@@ -334,6 +336,19 @@ export function isSpecRequestMethod(method: string): boolean {
 
 export function isSpecNotificationMethod(method: string): boolean {
     return ALL_CODECS.some(codec => codec.hasNotificationMethod(method));
+}
+
+const methodsOf = (union: { options: readonly { shape: { method: { value: unknown } } }[] }): string[] =>
+    union.options.map(option => String(option.shape.method.value));
+let coreRequestsReceived: { server: ReadonlySet<string>; client: ReadonlySet<string> } | undefined;
+
+/** Whether `side` is ever sent the core request `method`, in any protocol version. */
+export function isCoreRequestReceivedBy(side: 'server' | 'client', method: string): boolean {
+    coreRequestsReceived ??= {
+        server: new Set([...methodsOf(ClientRequestSchema2025), ...rev2026RequestMethods]),
+        client: new Set(methodsOf(ServerRequestSchema2025))
+    };
+    return coreRequestsReceived[side].has(method);
 }
 
 /** The names SEP-2663 re-defines for the Tasks extension on the era that removed them from core. */
