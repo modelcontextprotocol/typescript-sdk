@@ -35,6 +35,7 @@ import {
     attachCacheHintFallback,
     guardLogger,
     isInputRequiredResult,
+    isModernProtocolVersion,
     normalizeRawShapeSchema,
     promptArgumentsFromStandardSchema,
     ProtocolError,
@@ -354,6 +355,16 @@ export class McpServer {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult
                 }
+                // -32021 is defined from 2026-07-28; earlier revisions keep the tool error.
+                const version = this.server.getNegotiatedProtocolVersion();
+                if (
+                    error instanceof ProtocolError &&
+                    error.code === ProtocolErrorCode.MissingRequiredClientCapability &&
+                    version !== undefined &&
+                    isModernProtocolVersion(version)
+                ) {
+                    throw error;
+                }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
         });
@@ -426,6 +437,12 @@ export class McpServer {
         // An input-required result is not the tool's final output: structured
         // content is only required (and validated) on the completing result.
         if (isInputRequiredResult(result)) {
+            return;
+        }
+
+        // Nor is a result of another kind, such as an extension's task handle.
+        const resultType: unknown = (result as { resultType?: unknown }).resultType;
+        if (resultType !== undefined && resultType !== 'complete') {
             return;
         }
 
