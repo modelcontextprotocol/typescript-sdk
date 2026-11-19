@@ -54,7 +54,7 @@ async function sendReport(handle: TaskHandle, to: string) {
 }
 ```
 
-On the wire the tool answers a flat `CreateTaskResult` (`resultType: "task"`). `requireInput` moves the task to `input_required` and resolves once `tasks/update` has answered every key; it rejects if the task is cancelled or purged meanwhile, which is why the work's promise needs a `catch`. `tasks/cancel` aborts `handle.signal`; a later `complete` or `fail` is ignored.
+On the wire the tool answers a flat `CreateTaskResult` (`resultType: "task"`), plus the empty `content` array the server gives every tool result that has none. `requireInput` moves the task to `input_required` and resolves once `tasks/update` has answered every key; it rejects if the task is cancelled or purged meanwhile, which is why the work's promise needs a `catch`. `tasks/cancel` aborts `handle.signal`; a later `complete` or `fail` is ignored.
 
 ## Bind tasks to the caller
 

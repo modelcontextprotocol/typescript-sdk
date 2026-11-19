@@ -83,7 +83,8 @@ export type CreateTaskOptions = Partial<Omit<CreateTaskParams, 'principal' | 'cl
 /**
  * The task handle a tool handler returns in place of a `CallToolResult`.
  * The 2026-07-28 result encoder forwards `resultType: "task"` for `tools/call`
- * verbatim, so the flat handle is the wire result.
+ * verbatim, so the flat handle is the wire result, plus the empty `content`
+ * array the server gives every tool result that has none.
  *
  * Experimental: may change in a minor release while the extensions SEPs settle.
  *
