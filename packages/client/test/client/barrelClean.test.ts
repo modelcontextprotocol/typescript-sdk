@@ -130,3 +130,21 @@ describe('@modelcontextprotocol/client root leaves the skills extension out', ()
         expect(graph.some(content => SKILLS_CODE.test(content))).toBe(true);
     });
 });
+
+describe('@modelcontextprotocol/client root leaves the events extension out', () => {
+    beforeAll(async () => {
+        await ensureBuilt(pkgDir);
+    }, 180_000);
+
+    test('the root entry does not export the events extension', () => {
+        expect(rootExportBlockOf(readFileSync(join(distDir, 'index.mjs'), 'utf8'))).not.toMatch(
+            /\b(?:EventsClientExtension|NoCompatibleDeliveryModeError)\b/
+        );
+    });
+
+    test('ext/events exports the events extension (guards the pattern)', () => {
+        const exports = rootExportBlockOf(readFileSync(join(distDir, 'ext/events/index.mjs'), 'utf8'));
+        expect(exports).toMatch(/\bEventsClientExtension\b/);
+        expect(exports).toMatch(/\bNoCompatibleDeliveryModeError\b/);
+    });
+});

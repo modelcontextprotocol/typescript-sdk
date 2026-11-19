@@ -106,7 +106,7 @@ The handler answers a request with a single JSON body and upgrades to an SSE str
 const jsonOnly = createMcpHandler(factory, { responseMode: 'json' });
 ```
 
-`'json'` never streams: the SDK drops mid-call notifications and delivers only the terminal result. `'sse'` always streams. `subscriptions/listen` streams stay on SSE whichever you pick.
+`'json'` never streams: the SDK drops mid-call notifications and delivers only the terminal result. `'sse'` always streams. `subscriptions/listen` streams and the Events extension's `events/stream` streams stay on SSE whichever you pick.
 
 ::: info
 The handler serves 2025-era clients statelessly from the same factory by default. The `legacy` option — and where the SSE transport went — is on [Support legacy clients](./legacy-clients.md).

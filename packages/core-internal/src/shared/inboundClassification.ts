@@ -478,9 +478,11 @@ export type McpNameSourceField = 'name' | 'uri' | 'taskId';
  * Streamable HTTP binding ("the client MUST set the `Mcp-Name` header to the
  * value of `params.taskId`" for `tasks/get` / `tasks/update` /
  * `tasks/cancel`, so intermediaries can route every request for a task to the
- * instance holding its state). Shared by the client transport (header
- * emission) and the server ladder (validation) so both sides derive from one
- * table.
+ * instance holding its state); the `events/*` rows come from SEP-3415's
+ * Streamable HTTP routing headers (`params.name`, the event name, for
+ * `events/poll` / `events/stream` / `events/subscribe` / `events/unsubscribe`).
+ * Shared by the client transport (header emission) and the server ladder
+ * (validation) so both sides derive from one table.
  */
 export const MCP_NAME_HEADER_SOURCE: Readonly<Record<string, McpNameSourceField>> = {
     'tools/call': 'name',
@@ -488,7 +490,11 @@ export const MCP_NAME_HEADER_SOURCE: Readonly<Record<string, McpNameSourceField>
     'resources/read': 'uri',
     'tasks/get': 'taskId',
     'tasks/update': 'taskId',
-    'tasks/cancel': 'taskId'
+    'tasks/cancel': 'taskId',
+    'events/poll': 'name',
+    'events/stream': 'name',
+    'events/subscribe': 'name',
+    'events/unsubscribe': 'name'
 };
 
 /**

@@ -463,8 +463,25 @@ const LIST_CHANGED_EVICTIONS: Readonly<Record<string, readonly string[]>> = {
 
 const DEFAULT_LIST_MAX_PAGES = 64;
 
+// How an `openStream` request ended: `local` on close(), `graceful` on a result, else `remote` (`error` on an error response or failed send).
+export type StreamEnd = { cause: 'local' } | { cause: 'graceful'; result: Record<string, unknown> } | { cause: 'remote'; error?: Error };
+
+// A long-lived request opened by `clientInternals.openStream`; `id` is its JSON-RPC id and the subscription id its frames carry.
+export interface StreamHandle {
+    readonly id: string;
+    close(): Promise<void>;
+}
+
 // Package-internal (not exported from the package): what the `ext/` clients share with Client. Set in Client's static block.
 export const clientInternals = {} as {
+    openStream(
+        client: Client,
+        request: { method: string; params: Record<string, unknown> },
+        handlers: { onNotification(notification: JSONRPCNotification): void; onEnd(end: StreamEnd): void },
+        options?: { headers?: Readonly<Record<string, string>> }
+    ): StreamHandle;
+    // Runs `listener` whenever the client's connection closes or a fresh connect replaces it, until the returned function removes it.
+    onClose(client: Client, listener: () => void): () => void;
     enforceStrictCapabilities(client: Client): boolean;
     logger(client: Client): SdkLogger;
     walkPages<R extends { nextCursor?: string }>(
@@ -613,12 +630,22 @@ export class Client extends Protocol<ClientContext> {
      */
     private _listenState = new Map<string, ListenStateEntry>();
     private _nextListenId = 0;
+    // Live `openStream` requests keyed by their `stream:N` id; an entry is removed when its stream ends.
+    private _streamState = new Map<string, { onNotification(notification: JSONRPCNotification): void; end(end: StreamEnd): void }>();
+    private _nextStreamId = 0;
+    // Run by `_onclose` and `_resetConnectionState` after the request streams end; added through `clientInternals.onClose`.
+    private _closeListeners = new Set<() => void>();
     /** The auto-opened subscription backing ClientOptions.listChanged on a modern connection. */
     private _autoOpenedSubscription?: McpSubscription;
     /** Backing store for {@linkcode getDiscoverResult}. Per-connection. */
     private _discoverResult?: DiscoverResult;
 
     static {
+        clientInternals.openStream = (client, request, handlers, options) => client._openStream(request, handlers, options);
+        clientInternals.onClose = (client, listener) => {
+            client._closeListeners.add(listener);
+            return () => void client._closeListeners.delete(listener);
+        };
         clientInternals.enforceStrictCapabilities = client => client._enforceStrictCapabilities;
         clientInternals.logger = client => client._logger;
         clientInternals.walkPages = (client, method, fetchPage, items) => client._walkPages(method, fetchPage, items);
@@ -653,6 +680,8 @@ export class Client extends Protocol<ClientContext> {
             }
         }
         this._listenState.clear();
+        this._endStreams();
+        this._runCloseListeners();
         // Debounce timers are connection-scoped: a callback armed on a
         // connection that is now gone must not fire onto whatever connection
         // (if any) replaces it.
@@ -2219,6 +2248,87 @@ export class Client extends Protocol<ClientContext> {
         return { honoredFilter: honored, close, closed };
     }
 
+    // `clientInternals.openStream`: a request that stays open with no timer, sent directly on the transport as listen() is.
+    private _openStream(
+        request: { method: string; params: Record<string, unknown> },
+        handlers: { onNotification(notification: JSONRPCNotification): void; onEnd(end: StreamEnd): void },
+        options?: { headers?: Readonly<Record<string, string>> }
+    ): StreamHandle {
+        const transport = this.transport;
+        if (transport === undefined) {
+            throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
+        }
+        // A string id from a Client-owned counter, like `listen:N`, so it cannot collide with Protocol's numeric ids.
+        const id = `stream:${this._nextStreamId++}`;
+        const requestAbort = new AbortController();
+        // Unregisters the stream and aborts its request; false when it has already ended.
+        const detach = (): boolean => {
+            if (!this._streamState.delete(id)) return false;
+            requestAbort.abort();
+            return true;
+        };
+        const end = (outcome: StreamEnd): void => {
+            if (detach()) handlers.onEnd(outcome);
+        };
+        // Registered before the send so a synchronously delivered frame or response finds it.
+        this._streamState.set(id, { onNotification: handlers.onNotification, end });
+
+        const callerMeta = request.params['_meta'] as Record<string, unknown> | undefined;
+        const message: JSONRPCRequest = {
+            jsonrpc: '2.0',
+            id,
+            method: request.method,
+            params: { ...request.params, _meta: { ...this._outboundMetaEnvelope(), ...callerMeta } }
+        };
+        const onSendFailure = (error: unknown): void =>
+            end({ cause: 'remote', error: error instanceof Error ? error : new Error(String(error)) });
+        try {
+            transport
+                .send(message, {
+                    requestSignal: requestAbort.signal,
+                    onRequestStreamEnd: () => end({ cause: 'remote' }),
+                    headers: options?.headers
+                })
+                .catch(onSendFailure);
+        } catch (error) {
+            onSendFailure(error);
+        }
+
+        return {
+            id,
+            close: async () => {
+                if (!detach()) return;
+                await this.notification({ method: 'notifications/cancelled', params: { requestId: id } }).catch(() => {});
+                handlers.onEnd({ cause: 'local' });
+            }
+        };
+    }
+
+    // Runs the `clientInternals.onClose` listeners from a snapshot; a throwing one goes to `onerror` and the rest still run.
+    private _runCloseListeners(): void {
+        const listeners = [...this._closeListeners];
+        for (const listener of listeners) {
+            try {
+                listener();
+            } catch (error) {
+                this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+            }
+        }
+    }
+
+    // Ends every live `openStream` request as `remote`: the connection it was sent on is gone.
+    private _endStreams(): void {
+        // A snapshot, so a stream that an `onEnd` reopens is not ended (and reopened again) by this same loop.
+        const live = [...this._streamState.values()];
+        for (const stream of live) {
+            try {
+                stream.end({ cause: 'remote' });
+            } catch (error) {
+                this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+            }
+        }
+    }
+
     /**
      * The subscription auto-opened by `ClientOptions.listChanged` on a modern
      * connection — the listen filter is the intersection of the configured
@@ -2244,6 +2354,13 @@ export class Client extends Protocol<ClientContext> {
      * being silently swallowed.
      */
     protected override _onnotification(raw: JSONRPCNotification, extra?: MessageExtraInfo): void {
+        // A frame of a live `openStream` request goes to that stream only, never to the global handlers.
+        const streamId = (raw.params as { _meta?: Record<string, unknown> } | undefined)?._meta?.[SUBSCRIPTION_ID_META_KEY];
+        const stream = typeof streamId === 'string' ? this._streamState.get(streamId) : undefined;
+        if (stream !== undefined) {
+            stream.onNotification(raw);
+            return;
+        }
         // Response-cache invalidation: a `list_changed` notification means the
         // matching cached list result is stale. Evict (do NOT refetch) before
         // dispatch so a handler that reaches the cache observes the cleared
@@ -2318,6 +2435,16 @@ export class Client extends Protocol<ClientContext> {
      */
     protected override _onresponse(response: JSONRPCResponse): void {
         const id = response.id;
+        // A response to a live `openStream` request ends it: a result gracefully, an error response remotely.
+        const stream = typeof id === 'string' ? this._streamState.get(id) : undefined;
+        if (stream !== undefined) {
+            stream.end(
+                isJSONRPCErrorResponse(response)
+                    ? { cause: 'remote', error: ProtocolError.fromError(response.error.code, response.error.message, response.error.data) }
+                    : { cause: 'graceful', result: response.result }
+            );
+            return;
+        }
         const entry = typeof id === 'string' ? this._listenState.get(id) : undefined;
         if (entry !== undefined) {
             if (isJSONRPCErrorResponse(response)) {
@@ -2358,14 +2485,20 @@ export class Client extends Protocol<ClientContext> {
      * hanging.
      */
     protected override _onclose(): void {
-        if (this._listenState.size > 0) {
-            const reason = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
-            for (const entry of this._listenState.values()) {
-                entry.settle({ cause: 'remote', error: reason });
+        try {
+            if (this._listenState.size > 0) {
+                const reason = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
+                for (const entry of this._listenState.values()) {
+                    entry.settle({ cause: 'remote', error: reason });
+                }
+                this._listenState.clear();
             }
-            this._listenState.clear();
+            this._endStreams();
+            this._runCloseListeners();
+        } finally {
+            // Base teardown runs even if a callback above throws, so pending requests and timers are always settled.
+            super._onclose();
         }
-        super._onclose();
     }
 
     /**

@@ -38,14 +38,27 @@ const PUBLIC_PACKAGES: Record<string, { name: string; exportKeys: string[]; bin?
     client: {
         name: '@modelcontextprotocol/client',
         // './ext/skills' is the client side of the Skills extension (SEP-2640) — public API,
-        // kept off the root barrel so the extension surface stays opt-in and separately versioned.
-        exportKeys: ['.', './stdio', './ext/skills', './validators/ajv', './validators/cf-worker', './_shims']
+        // kept off the root barrel so the extension surface stays opt-in and separately versioned;
+        // './ext/events' is the client side of the Events extension (SEP-3415), kept off it likewise.
+        exportKeys: ['.', './stdio', './ext/skills', './ext/events', './validators/ajv', './validators/cf-worker', './_shims']
     },
     server: {
         name: '@modelcontextprotocol/server',
         // './ext/skills' — the server side of the same extension; './ext/skills/node'
-        // — its Node-only folder adapter (kept off './ext/skills' so that stays runtime-neutral).
-        exportKeys: ['.', './stdio', './ext/skills', './ext/skills/node', './validators/ajv', './validators/cf-worker', './_shims']
+        // — its Node-only folder adapter (kept off './ext/skills' so that stays runtime-neutral);
+        // './ext/events' — the server side of the Events extension (SEP-3415); './ext/events/node'
+        // — its Node-only webhook sender (kept off './ext/events' so that stays runtime-neutral).
+        exportKeys: [
+            '.',
+            './stdio',
+            './ext/skills',
+            './ext/skills/node',
+            './ext/events',
+            './ext/events/node',
+            './validators/ajv',
+            './validators/cf-worker',
+            './_shims'
+        ]
     },
     'server-legacy': {
         name: '@modelcontextprotocol/server-legacy',
@@ -60,10 +73,10 @@ const PUBLIC_PACKAGES: Record<string, { name: string; exportKeys: string[]; bin?
         // './internal' is the wholesale internal seam the sibling SDK packages resolve at
         // runtime (their bundles keep `@modelcontextprotocol/core/internal` imports external);
         // it is not public API — the curated public surface stays the root entry.
-        // './ext/skills' is the shared (schemas + types + constants) half of the Skills
-        // extension (SEP-2640): public API, runtime-neutral, and deliberately NOT on the root
-        // entry, which stays the curated spec + OAuth `*Schema` surface.
-        exportKeys: ['.', './internal', './ext/skills']
+        // './ext/skills' and './ext/events' are the shared (schemas + types + constants) halves
+        // of the Skills (SEP-2640) and Events (SEP-3415) extensions: public API, runtime-neutral,
+        // and deliberately NOT on the root entry, which stays the curated spec + OAuth `*Schema` surface.
+        exportKeys: ['.', './internal', './ext/skills', './ext/events']
     },
     codemod: {
         name: '@modelcontextprotocol/codemod',

@@ -11,7 +11,9 @@ export default defineConfig({
         'src/validators/ajv.ts',
         'src/validators/cfWorker.ts',
         'src/ext/skills/index.ts',
-        'src/ext/skills/node.ts'
+        'src/ext/skills/node.ts',
+        'src/ext/events/index.ts',
+        'src/ext/events/node.ts'
     ],
     format: ['esm', 'cjs'],
     fixedExtension: true,
@@ -29,9 +31,11 @@ export default defineConfig({
             paths: {
                 'fast-uri': ['../core-internal/src/validators/fastUriShim.d.ts'],
                 '@modelcontextprotocol/core/ext/skills': ['../core/src/ext/skills/index.ts'],
+                '@modelcontextprotocol/core/ext/events': ['../core/src/ext/events/index.ts'],
                 '@modelcontextprotocol/core-internal': ['../core-internal/src/index.ts'],
                 '@modelcontextprotocol/core-internal/public': ['../core-internal/src/exports/public/index.ts'],
                 '@modelcontextprotocol/core-internal/ext/skills': ['../core-internal/src/ext/skills/index.ts'],
+                '@modelcontextprotocol/core-internal/ext/events': ['../core-internal/src/ext/events/index.ts'],
                 '@modelcontextprotocol/core-internal/validators/ajv': ['../core-internal/src/validators/ajvProvider.ts'],
                 '@modelcontextprotocol/core-internal/validators/cfWorker': ['../core-internal/src/validators/cfWorkerProvider.ts']
             }
@@ -41,5 +45,10 @@ export default defineConfig({
     // The schema modules live in @modelcontextprotocol/core (a real runtime dependency); the
     // bundled core-internal shims import them via the './internal' subpath, which must stay an
     // external import (explicit entry — the tsconfig paths alias would otherwise inline it).
-    external: ['@modelcontextprotocol/server/_shims', '@modelcontextprotocol/core/internal', '@modelcontextprotocol/core/ext/skills']
+    external: [
+        '@modelcontextprotocol/server/_shims',
+        '@modelcontextprotocol/core/internal',
+        '@modelcontextprotocol/core/ext/skills',
+        '@modelcontextprotocol/core/ext/events'
+    ]
 });

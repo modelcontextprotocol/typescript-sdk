@@ -16,6 +16,17 @@ const STATEFUL_TRANSPORTS = ['inMemory', 'stdio', 'streamableHttp', 'sse'] as co
 const SKILLS_SPEC =
     'https://github.com/modelcontextprotocol/ext-skills/blob/c1aa87e4c381c82b99aa37471d0eae4ab50f9985/specification/stable/skills.mdx?plain=1#';
 
+/** The Events extension (SEP-3415) at the commit the SDK implements; entries append `#<section-anchor>`. */
+const EVENTS_SPEC =
+    'https://github.com/modelcontextprotocol/modelcontextprotocol/blob/60b15c16f2e7265ea34ac51099dc5be62f734692/seps/3415-events-extension.md';
+
+/** The cells every Events requirement runs on. */
+const EVENTS_CELLS = {
+    addedInSpecVersion: '2026-07-28',
+    transports: ['entryModern'],
+    note: "Events is served only on 2026-07-28, and entryModern is the arm whose client the harness pins to that revision; the other arms' 2026-07-28 cells connect a client that negotiates 2025-11-25 by default"
+} as const;
+
 export const REQUIREMENTS: Record<string, Requirement> = {
     // Extensions (SEP-3371 SDK extension points)
     'extensions:registration:duplicate-id': {
@@ -3665,6 +3676,231 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['entryModern'],
         supersedes: ['typescript:skills:catalog:reload-notifies'],
         note: 'Hosted by the test body via createMcpHandler so it can publish via handler.notify, as resources:listen:list-changed is.'
+    },
+
+    // Events extension (SEP-3415): served only on 2026-07-28.
+
+    'events:capability:declared': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#capability-negotiation`,
+        behavior:
+            "A server that offers Events declares extensions['io.modelcontextprotocol/events'] with a settings object; an absent or false listChanged means no list-change notifications."
+    },
+    'typescript:events:capability:empty': {
+        ...EVENTS_CELLS,
+        source: 'sdk',
+        behavior: "This SDK's server declares the Events capability as {}."
+    },
+    'events:fallback:method-not-found': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#capability-negotiation`,
+        behavior: 'A server without the extension answers events/* with -32601.'
+    },
+    'events:list:descriptors': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#listing-available-events`,
+        behavior: 'events/list returns name, description, delivery, inputSchema, payloadSchema and _meta per event type.'
+    },
+    'events:list:delivery': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#delivery-modes`,
+        behavior: 'delivery is a non-empty subset of poll, push, webhook.'
+    },
+    'typescript:events:delivery:inferred': {
+        ...EVENTS_CELLS,
+        source: 'sdk',
+        behavior:
+            'delivery is computed from the configuration: poll and push unless the definition turns them off, webhook only when webhook delivery is configured and the definition does not turn it off; a definition that turns off every mode the server offers throws TypeError.'
+    },
+    'events:poll:bootstrap': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#poll-based-delivery`,
+        behavior: 'A poll with cursor: null returns no events and a fresh cursor.'
+    },
+    'events:poll:replay': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#poll-based-delivery`,
+        behavior: 'A poll with a cursor returns the events after it with hasMore and nextPollMs.'
+    },
+    'events:poll:has-more': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#poll-based-delivery`,
+        behavior: 'maxEvents caps a batch, sets hasMore and an intermediate cursor.'
+    },
+    'events:poll:truncated': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#cursor-lifecycle`,
+        behavior: 'A cursor past retention yields truncated: true and a fresh cursor, never an error.'
+    },
+    'events:poll:errors': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#error-handling`,
+        behavior: 'Unknown name -32023, bad arguments -32602, mode not offered -32026.'
+    },
+    'events:cursor:absent-is-null': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#cursor-lifecycle`,
+        behavior: 'An absent cursor is treated like null in requests and results.'
+    },
+    'events:cursor:max-age': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#cursor-lifecycle`,
+        behavior:
+            'With maxAgeMs, replay starts at the later of the cursor and now − maxAgeMs, with truncated: true when that floor passes the cursor; with cursor: null it is ignored.'
+    },
+    'events:push:active-first': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#event-delivery`,
+        behavior: 'notifications/events/active is the first message on a stream, with the request id in _meta.'
+    },
+    'events:push:heartbeat-grant': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#lifecycle`,
+        behavior: 'The server grants heartbeatMs on every active and heartbeats within it.'
+    },
+    'events:push:delivery': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#event-delivery`,
+        behavior: 'Events arrive as notifications/events/event with a cursor.'
+    },
+    'events:push:terminated': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#subscription-termination`,
+        behavior: 'A server-ended stream sends notifications/events/terminated with the nested error.'
+    },
+    'events:push:cancel': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#lifecycle`,
+        behavior: 'Aborting the stream stops delivery and releases the subscription.'
+    },
+    'events:webhook:auth-required': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#subscription-identity`,
+        behavior: 'events/subscribe without a principal answers -32024.'
+    },
+    'events:webhook:https-required': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#webhook-security`,
+        behavior: 'A non-https callback answers -32602.'
+    },
+    'events:webhook:secret-format': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#subscribing-eventssubscribe`,
+        behavior: 'A secret that is not whsec_ + 24–64 bytes answers -32602.'
+    },
+    'events:webhook:identity': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#subscription-identity`,
+        behavior: 'The id is stable for (principal, url, name, arguments) across refreshes.'
+    },
+    'events:webhook:ttl': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#subscription-ttl`,
+        behavior:
+            "refreshBefore is at most the suggestion, except when clamped up to the server's floor, and at most the server cap; a server that does not grant no-expiry answers ttlMs: null with a finite refreshBefore."
+    },
+    'typescript:events:webhook:no-expiry-refused': {
+        ...EVENTS_CELLS,
+        source: 'sdk',
+        behavior: "This SDK's server never grants no-expiry: a ttlMs: null subscribe gets a finite refreshBefore within the cap."
+    },
+    'events:webhook:refresh': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#subscription-identity`,
+        behavior: 'A refresh resets the TTL and rotates the secret with dual signing.'
+    },
+    'events:webhook:unsubscribe': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#unsubscribing-eventsunsubscribe`,
+        behavior: 'Unsubscribe removes the subscription; an unknown key answers -32023.'
+    },
+    'events:webhook:verification': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#webhook-security`,
+        behavior: 'Delivery starts only after the endpoint echoes the challenge.'
+    },
+    'events:webhook:signature': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#webhook-security`,
+        behavior: 'Deliveries carry Standard Webhooks headers and X-MCP-Subscription-Id, signed over the raw body.'
+    },
+    'events:webhook:webhook-id': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#webhook-security`,
+        behavior: 'webhook-id is per message, reused on retries, and not the eventId.'
+    },
+    'events:webhook:final-statuses': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#webhook-event-delivery`,
+        behavior: '410 and 413 are not retried.'
+    },
+    'events:webhook:terminated': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#subscription-termination`,
+        behavior: 'A server-ended webhook subscription receives a signed terminated body.'
+    },
+    'events:mcp-name': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#streamable-http-routing-headers`,
+        behavior: 'events/* requests that name an event carry Mcp-Name set to the event name; events/list carries none.'
+    },
+    'events:mcp-param': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#custom-headers-from-subscription-arguments`,
+        behavior: 'Annotated arguments are mirrored into Mcp-Param-*; a mismatch answers 400 / -32020.'
+    },
+    'events:client:gating': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#capability-negotiation`,
+        behavior: 'The client refuses events/* when the server did not declare the extension.'
+    },
+    'events:client:mode-selection': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#delivery-mode-selection`,
+        behavior: 'The client prefers webhook, then push, then poll among the modes it can use.'
+    },
+    'events:client:dedupe': {
+        ...EVENTS_CELLS,
+        source: `${EVENTS_SPEC}#event-occurrences`,
+        behavior: 'The client delivers each eventId once per subscription.'
+    },
+    'typescript:events:extensions:rules': {
+        ...EVENTS_CELLS,
+        source: 'sdk',
+        behavior:
+            "Two Events extensions in one server's extensions fail its construction; one EventsExtension serves every server constructed with it; an EventsClientExtension serves one client, and a second client constructed with it fails."
+    },
+    'typescript:events:definition:kinds': {
+        ...EVENTS_CELLS,
+        source: 'sdk',
+        behavior: 'registerEvent takes check or emitOnly: true, never both.'
+    },
+    'typescript:events:errors': {
+        ...EVENTS_CELLS,
+        source: 'sdk',
+        behavior: 'Events errors surface as EventsError with kind; no compatible mode is NoCompatibleDeliveryModeError.'
+    },
+    'typescript:events:store:replicas': {
+        ...EVENTS_CELLS,
+        source: 'sdk',
+        behavior: 'Two servers sharing a WebhookSubscriptionStore serve one subscription.'
+    },
+    'typescript:events:store:restart': {
+        ...EVENTS_CELLS,
+        source: 'sdk',
+        behavior:
+            "A server rebuilt over the same WebhookSubscriptionStore keeps delivering an emit-only type to a stored subscription, without a resubscribe or a new verification; a check type resumes at the subscription's next refresh, from the cursor the client supplies."
+    },
+    'typescript:events:trusted-origins': {
+        ...EVENTS_CELLS,
+        source: 'sdk',
+        behavior: 'trustedOrigins admits http: only for exact listed origins.'
+    },
+    'typescript:events:experimental:subpaths': {
+        ...EVENTS_CELLS,
+        source: 'sdk',
+        behavior:
+            'The experimental Events API is exported only from the ext/events subpaths (and server/ext/events/node); the @modelcontextprotocol/server and @modelcontextprotocol/client roots export none of it.'
     }
 } satisfies Record<string, Requirement>;
 

@@ -57,6 +57,6 @@ done
 echo "Server is ready. Running conformance tests..."
 
 # Run conformance tests - pass through all arguments
-npx @modelcontextprotocol/conformance server --url "${SERVER_URL}" "$@"
+${CONFORMANCE_CLI:-npx @modelcontextprotocol/conformance} server --url "${SERVER_URL}" "$@"
 
 echo "Conformance tests completed."

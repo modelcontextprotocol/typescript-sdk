@@ -276,14 +276,18 @@ describe('SEP-2243 standard-header validation (Mcp-Name presence and cross-check
         expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
     });
 
-    test('the Mcp-Name source map covers exactly the spec table (SEP-2243 core + SEP-2663 tasks)', () => {
+    test('the Mcp-Name source map covers exactly the spec table (SEP-2243 core + SEP-2663 tasks + SEP-3415 events)', () => {
         expect(MCP_NAME_HEADER_SOURCE).toEqual({
             'tools/call': 'name',
             'prompts/get': 'name',
             'resources/read': 'uri',
             'tasks/get': 'taskId',
             'tasks/update': 'taskId',
-            'tasks/cancel': 'taskId'
+            'tasks/cancel': 'taskId',
+            'events/poll': 'name',
+            'events/stream': 'name',
+            'events/subscribe': 'name',
+            'events/unsubscribe': 'name'
         });
     });
 
