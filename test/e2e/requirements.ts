@@ -799,13 +799,15 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'On 2026-07-28, a tool that throws MissingRequiredClientCapabilityError answers tools/call with JSON-RPC error -32021 and its requiredCapabilities, not an isError tool result.',
         transports: ['entryModern'],
         addedInSpecVersion: '2026-07-28',
+        supersedes: ['typescript:mcpserver:tool:missing-client-capability-error:legacy'],
         note: 'entryModern is the arm that serves 2026-07-28 requests.'
     },
     'typescript:mcpserver:tool:missing-client-capability-error:legacy': {
         source: 'sdk',
         behavior:
             'On 2025-11-25, which does not define -32021, a tool that throws MissingRequiredClientCapabilityError answers with an isError tool result carrying the message, like any other throw.',
-        removedInSpecVersion: '2026-07-28'
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'mcpserver:tool:missing-client-capability-error'
     },
     'mcpserver:tool:url-elicitation-error': {
         source: 'sdk',
