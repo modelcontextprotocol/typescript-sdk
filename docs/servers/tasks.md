@@ -68,26 +68,30 @@ const tasks = new TasksExtension(store, {
 
 Without authentication the principal is `undefined` and the task is unbound: anyone holding its id can reach it.
 
+Task access is decided by the principal alone. A tool's `scopeChallenge` runs on `tools/call`, not on `tasks/get`, `tasks/update` or `tasks/cancel`, so a token of the same principal without that tool's scope can still read, answer and cancel the task if it knows the id. Where that matters, put the scope in the principal, or check it in your store.
+
 ## Bring your own store
 
 `TaskStore` is four methods over JSON:
 
-| Method                                    | Contract                                                                                                                      |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `create(params)`                          | Durably create; MUST NOT resolve before a following `get` would succeed. `params.context` is yours (tool name, workflow id…). |
-| `get(taskId, access?)`                    | The `DetailedTask` snapshot, or `undefined` for unknown, expired, or foreign-principal tasks.                                 |
-| `update(taskId, inputResponses, access?)` | Deliver answers; `false` when the task is not found. Unknown keys are ignored, partial answers accepted.                      |
-| `cancel(taskId, access?)`                 | Cooperative; resolves on acknowledgement. Idempotent on terminal tasks.                                                       |
+| Method                                    | Contract                                                                                                                                                                                                                                  |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create(params)`                          | Durably create; MUST NOT resolve before a following `get` would succeed. `params.context` is yours (tool name, workflow id…). `params.clientCapabilities` is what the creating request declared: only ask the client for input it covers. |
+| `get(taskId, access?)`                    | The `DetailedTask` snapshot, or `undefined` for unknown, expired, or foreign-principal tasks.                                                                                                                                             |
+| `update(taskId, inputResponses, access?)` | Deliver answers; `false` when the task is not found. Unknown keys are ignored, partial answers accepted. Check each answer against the request it answers and throw a `ProtocolError` (`-32602`) for one that does not fit.               |
+| `cancel(taskId, access?)`                 | Cooperative; resolves on acknowledgement. Idempotent on terminal tasks.                                                                                                                                                                   |
 
 How the work behind a task runs — a queue, a workflow engine, a durable-execution runtime — is invisible to the SDK. The store is also where a writer API lives if your execution needs one; `InMemoryTaskStore.handle` is the reference shape.
 
 ## Wire notes
 
-- The extension is served on the 2026-07-28 revision. On a 2025-11-25 request, `tasks/get`, `tasks/update` and `tasks/cancel` answer `-32601`, and `tasks.create` refuses with `-32021`. Task tools are ordinary tools without `outputSchema`; the result encoder forwards `resultType: "task"` for `tools/call` verbatim.
+- The extension is served on the 2026-07-28 revision. On a 2025-11-25 request, `tasks/get`, `tasks/update` and `tasks/cancel` answer `-32601`, and `tasks.create` refuses with `-32021`. The result encoder forwards `resultType: "task"` for `tools/call` verbatim. A task tool may declare an `outputSchema`: the handle is not validated against it, and neither is the result the task completes with, so validate that in your own work.
+- A task may only ask for input the creating request's client capabilities cover, as an in-band `input_required` result may. `InMemoryTaskStore`'s `requireInput` rejects a request that needs an undeclared capability, such as an elicitation for a client that declared none; fail the task or carry on without the answer.
+- `InMemoryTaskStore` checks each `tasks/update` answer against the request it answers (an `ElicitResult` for an elicitation, and so on) and refuses a bad one with `-32602`, keeping nothing from that update.
 - A request that does not declare `io.modelcontextprotocol/tasks` in its client capabilities is refused with `-32021` — from `tasks.create`, from the `tasks/*` methods, and by the extension's `tools/call` middleware for any handle minted some other way.
 - `tasks/update`'s `inputResponses` shares its name with the multi-round-trip retry field: the protocol layer lifts it out of the params and the extension reads it back from `ctx.mcpReq.inputResponses`.
 - A plain `client.callTool` rejects `resultType: "task"`; the requester half of the extension is `TasksClientExtension` from `@modelcontextprotocol/client/ext/tasks` ([Tasks on the client](../clients/tasks.md)).
-- The wire schemas, types and constants live in `@modelcontextprotocol/core/ext/tasks`, for code that implements either side without the SDK's server or client; both subpaths re-export them.
+- The wire schemas, types and constants live in `@modelcontextprotocol/core/ext/tasks`, for code that implements either side without the SDK's server or client. The server and client subpaths re-export the types and constants, not the schemas.
 - `notifications/tasks` over `subscriptions/listen` is not implemented (typescript-sdk#2569); polling only.
 
 ## Recap

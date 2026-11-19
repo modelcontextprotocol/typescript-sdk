@@ -108,6 +108,9 @@ export class TasksClientExtension implements ClientExtension {
     /**
      * Calls a tool that may answer with a task handle. The ordinary result
      * comes back as `{ kind: 'result' }` for tools that answer synchronously.
+     * Unlike `client.callTool`, this neither mirrors `x-mcp-header` arguments
+     * into `Mcp-Param-*` headers nor validates `structuredContent` against the
+     * tool's `outputSchema`.
      */
     async callTool(params: CallToolRequestParams, options?: RequestOptions): Promise<CallToolOutcome> {
         const raw = await this.client.request({ method: 'tools/call', params }, callToolOutcomeSchema, options);

@@ -45,31 +45,7 @@ export type {
     UpdateTaskResult,
     WorkingTask
 } from '@modelcontextprotocol/core/ext/tasks';
-export {
-    cancelledTaskSchema,
-    cancelTaskParamsSchema,
-    cancelTaskRequestSchema,
-    cancelTaskResultSchema,
-    completedTaskSchema,
-    createTaskResultSchema,
-    detailedTaskSchema,
-    failedTaskSchema,
-    getTaskParamsSchema,
-    getTaskRequestSchema,
-    getTaskResultSchema,
-    inputRequestSchema,
-    inputRequestsSchema,
-    inputRequiredTaskSchema,
-    inputResponseSchema,
-    inputResponsesSchema,
-    taskSchema,
-    tasksExtensionCapabilitySchema,
-    taskStatusSchema,
-    updateTaskParamsSchema,
-    updateTaskRequestSchema,
-    updateTaskResultSchema,
-    workingTaskSchema
-} from '@modelcontextprotocol/core/ext/tasks';
+// The wire schemas are in `@modelcontextprotocol/core/ext/tasks`.
 export { TASK_STATUSES, TASKS_EXTENSION_ID } from '@modelcontextprotocol/core/ext/tasks';
 // The SDK's precise input request and response types, which requireInput and update take.
 export type { InputRequest, InputRequests, InputResponse, InputResponses } from '@modelcontextprotocol/core-internal';

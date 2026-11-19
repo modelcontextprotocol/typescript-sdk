@@ -21,13 +21,6 @@
  * ```
  */
 
-import type { CallToolResult, InputResponses, JSONRPCRequest, Result, ServerContext } from '@modelcontextprotocol/core-internal';
-import {
-    CLIENT_CAPABILITIES_META_KEY,
-    MissingRequiredClientCapabilityError,
-    ProtocolError,
-    ProtocolErrorCode
-} from '@modelcontextprotocol/core-internal';
 import type { CancelTaskResult, CreateTaskResult, GetTaskResult, UpdateTaskResult } from '@modelcontextprotocol/core/ext/tasks';
 import {
     cancelTaskParamsSchema,
@@ -35,6 +28,20 @@ import {
     inputResponsesSchema,
     TASKS_EXTENSION_ID
 } from '@modelcontextprotocol/core/ext/tasks';
+import type {
+    CallToolResult,
+    ClientCapabilities,
+    InputResponses,
+    JSONRPCRequest,
+    Result,
+    ServerContext
+} from '@modelcontextprotocol/core-internal';
+import {
+    CLIENT_CAPABILITIES_META_KEY,
+    MissingRequiredClientCapabilityError,
+    ProtocolError,
+    ProtocolErrorCode
+} from '@modelcontextprotocol/core-internal';
 
 import type { ServerExtension, ServerExtensionContext } from '../../server/extension';
 import type { CreateTaskParams, TaskStore } from './store';
@@ -71,7 +78,7 @@ export interface TasksExtensionOptions {
  *
  * @experimental
  */
-export type CreateTaskOptions = Partial<Omit<CreateTaskParams, 'principal'>>;
+export type CreateTaskOptions = Partial<Omit<CreateTaskParams, 'principal' | 'clientCapabilities'>>;
 
 /**
  * The task handle a tool handler returns in place of a `CallToolResult`.
@@ -94,11 +101,15 @@ const isRecord = (value: unknown): value is Record<string, unknown> => value !==
  * @experimental
  */
 export const declaresTasksExtension = (ctx: ServerContext): boolean => {
-    const envelope = ctx.mcpReq.envelope as Record<string, unknown> | undefined;
+    const extensions = declaredClientCapabilities(ctx).extensions;
+    return isRecord(extensions) && Object.hasOwn(extensions, TASKS_EXTENSION_ID);
+};
+
+/** The client capabilities this request's `_meta` envelope declared; `{}` when it declared none. */
+const declaredClientCapabilities = (ctx: ServerContext): ClientCapabilities => {
+    const envelope: Record<string, unknown> | undefined = ctx.mcpReq.envelope;
     const capabilities = envelope?.[CLIENT_CAPABILITIES_META_KEY];
-    if (!isRecord(capabilities)) return false;
-    const extensions = capabilities['extensions'];
-    return isRecord(extensions) && TASKS_EXTENSION_ID in extensions;
+    return isRecord(capabilities) ? capabilities : {};
 };
 
 const requireTasksExtension = (ctx: ServerContext, what: string): void => {
@@ -166,16 +177,18 @@ export class TasksExtension implements ServerExtension {
      * Creates a task for the current `tools/call` and returns the handle the
      * tool handler answers with. Refuses (`-32021`) when the request did not
      * declare the extension; binds the task to the request's principal when
-     * the transport knows one.
+     * the transport knows one, and records the client capabilities the
+     * request declared, which bound the input the task may ask for.
      */
     async create(ctx: ServerContext, options?: CreateTaskOptions): Promise<TaskToolResult> {
-        requireTasksExtension(ctx, `Tool "${ctx.mcpReq.method}" executes as a task and`);
+        requireTasksExtension(ctx, 'This tool call executes as a task and');
         const principal = this.#principal(ctx);
         const task = await this.store.create({
             ttlMs: options?.ttlMs === undefined ? this.#defaultTtlMs : options.ttlMs,
             pollIntervalMs: options?.pollIntervalMs ?? this.#defaultPollIntervalMs,
             ...(principal !== undefined && { principal }),
-            ...(options?.context !== undefined && { context: options.context })
+            ...(options?.context !== undefined && { context: options.context }),
+            clientCapabilities: declaredClientCapabilities(ctx)
         });
         const result: CreateTaskResult = { resultType: 'task', ...task };
         return result as TaskToolResult;

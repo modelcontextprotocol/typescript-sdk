@@ -433,6 +433,12 @@ export class McpServer {
             return;
         }
 
+        // Nor is a result of another kind, such as an extension's task handle.
+        const resultType: unknown = (result as { resultType?: unknown }).resultType;
+        if (resultType !== undefined && resultType !== 'complete') {
+            return;
+        }
+
         if (result.isError) {
             return;
         }

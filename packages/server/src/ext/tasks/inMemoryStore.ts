@@ -6,8 +6,16 @@
  * write a persistent store would make instead.
  */
 
-import type { CallToolResult, InputRequests, InputResponses } from '@modelcontextprotocol/core-internal';
 import type { DetailedTask, Task, TaskStatus } from '@modelcontextprotocol/core/ext/tasks';
+import type { CallToolResult, ClientCapabilities, InputRequests, InputResponses } from '@modelcontextprotocol/core-internal';
+import {
+    codecForVersion,
+    missingClientCapabilities,
+    MODERN_WIRE_REVISION,
+    ProtocolError,
+    ProtocolErrorCode,
+    requiredClientCapabilitiesForInputRequest
+} from '@modelcontextprotocol/core-internal';
 
 import type { CreateTaskParams, TaskAccess, TaskStore } from './store';
 
@@ -22,6 +30,7 @@ interface TaskRecord {
     taskId: string;
     principal?: string;
     context?: Record<string, unknown>;
+    clientCapabilities?: ClientCapabilities;
     status: TaskStatus;
     statusMessage?: string;
     createdAt: number;
@@ -58,7 +67,8 @@ export interface TaskHandle {
      * Moves the task to `input_required` with `requests` outstanding and
      * resolves once `tasks/update` has answered every key (partial updates
      * accumulate). Rejects if the task is cancelled, purged or settled while
-     * waiting, and when another `requireInput` is already outstanding.
+     * waiting, when another `requireInput` is already outstanding, and when
+     * a request needs a client capability the creating request did not declare.
      */
     requireInput(requests: InputRequests): Promise<InputResponses>;
     complete(result: CallToolResult): Promise<void>;
@@ -115,6 +125,7 @@ export class InMemoryTaskStore implements TaskStore {
             taskId: this.#createTaskId(),
             ...(params.principal !== undefined && { principal: params.principal }),
             ...(params.context !== undefined && { context: params.context }),
+            ...(params.clientCapabilities !== undefined && { clientCapabilities: params.clientCapabilities }),
             status: 'working',
             createdAt: now,
             lastUpdatedAt: now,
@@ -137,12 +148,20 @@ export class InMemoryTaskStore implements TaskStore {
         if (record === undefined) return false;
         const pending = record.pendingInput;
         if (pending === undefined || TERMINAL.has(record.status)) return true;
+        // Unknown keys are ignored; the first answer to a key wins. Every answer is checked before any is kept.
+        const accepted: InputResponses = {};
         for (const [key, response] of Object.entries(inputResponses)) {
-            // Unknown keys are ignored; the first answer to a key wins.
-            if (key in pending.requests && !(key in pending.responses)) pending.responses[key] = response;
+            if (!Object.hasOwn(pending.requests, key) || Object.hasOwn(pending.responses, key)) continue;
+            const method = pending.requests[key]!.method;
+            const outcome = codecForVersion(MODERN_WIRE_REVISION).validateInputResponse(method, response);
+            if (!outcome.ok && outcome.reason === 'invalid') {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `inputResponses["${key}"] is not a valid ${method} result`);
+            }
+            accepted[key] = response;
         }
+        Object.assign(pending.responses, accepted);
         this.#touch(record);
-        if (Object.keys(pending.requests).every(key => key in pending.responses)) {
+        if (Object.keys(pending.requests).every(key => Object.hasOwn(pending.responses, key))) {
             record.pendingInput = undefined;
             record.status = 'working';
             pending.resolve(pending.responses);
@@ -188,6 +207,19 @@ export class InMemoryTaskStore implements TaskStore {
                 if (current === undefined) return Promise.reject(new Error(`Task "${taskId}" is no longer running`));
                 if (current.pendingInput !== undefined) {
                     return Promise.reject(new Error(`Task "${taskId}" is already waiting for input`));
+                }
+                // The creating request's capabilities bound what the task may ask for, as on an in-band input request.
+                if (current.clientCapabilities !== undefined) {
+                    for (const [key, request] of Object.entries(requests)) {
+                        const required = requiredClientCapabilitiesForInputRequest(request);
+                        if (required !== undefined && missingClientCapabilities(required, current.clientCapabilities) !== undefined) {
+                            return Promise.reject(
+                                new Error(
+                                    `Task "${taskId}" cannot request input "${key}" (${request.method}): the client did not declare the capability for it`
+                                )
+                            );
+                        }
+                    }
                 }
                 return new Promise<InputResponses>((resolve, reject) => {
                     const signal = current.abort.signal;
@@ -284,7 +316,7 @@ export class InMemoryTaskStore implements TaskStore {
                 const pending = record.pendingInput;
                 const inputRequests: InputRequests = {};
                 for (const [key, request] of Object.entries(pending?.requests ?? {})) {
-                    if (!(key in (pending?.responses ?? {}))) inputRequests[key] = request;
+                    if (!Object.hasOwn(pending?.responses ?? {}, key)) inputRequests[key] = request;
                 }
                 return { ...base, status: 'input_required', inputRequests };
             }

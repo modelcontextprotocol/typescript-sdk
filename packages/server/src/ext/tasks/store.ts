@@ -6,8 +6,8 @@
  * SDK only cares that a task can be created, read, answered, and cancelled.
  */
 
-import type { InputResponses } from '@modelcontextprotocol/core-internal';
 import type { DetailedTask, Task } from '@modelcontextprotocol/core/ext/tasks';
+import type { ClientCapabilities, InputResponses } from '@modelcontextprotocol/core-internal';
 
 /**
  * What `TasksExtension.create` asks a store to durably create.
@@ -35,6 +35,8 @@ export interface CreateTaskParams {
      * the work. Opaque to the SDK.
      */
     context?: Record<string, unknown>;
+    /** The client capabilities the creating request declared; the task may only request input they cover. */
+    clientCapabilities?: ClientCapabilities;
 }
 
 /**
@@ -56,6 +58,8 @@ export interface TaskAccess {
  *   (durable creation, a Tasks extension rule).
  * - `get`, `update`, `cancel` resolve `undefined` / `false` for an unknown,
  *   expired, or foreign-principal task; the extension answers `-32602`.
+ * - `update` validates each answer against the request it answers and throws
+ *   a `ProtocolError` (`-32602`) for one that does not fit.
  * - `cancel` is cooperative: it resolves on acknowledgement, the task may
  *   still settle `completed` or `failed`. Idempotent on terminal tasks.
  *
