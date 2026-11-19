@@ -568,22 +568,27 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             headers['mcp-session-id'] = this.sessionId;
         }
 
+        // Without a stored priming event the stream still opens, as it did before priming
         const priming = this.createPrimingEvent(
             this._standaloneSseStreamId,
             req.headers.get('mcp-protocol-version') ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION
-        );
+        ).catch((error: unknown) => {
+            this.onerror?.(error as Error);
+            return;
+        });
 
+        let markPrimed!: () => void;
         // Store the stream mapping with the controller for pushing data
         const mapping: StreamMapping = {
             controller: streamController!,
             encoder,
             // send() waits on this so nothing is written ahead of the priming event
-            primed: priming.then(
-                () => {},
-                () => {}
-            ),
+            primed: new Promise<void>(resolve => {
+                markPrimed = resolve;
+            }),
             cleanup: () => {
                 if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
+                markPrimed();
                 this._streamMapping.delete(this._standaloneSseStreamId);
                 try {
                     streamController!.close();
@@ -594,24 +599,22 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         };
         this._streamMapping.set(this._standaloneSseStreamId, mapping);
 
-        let primingEvent: string | undefined;
-        try {
-            primingEvent = await priming;
-        } catch (error) {
-            if (this._streamMapping.get(this._standaloneSseStreamId) === mapping) {
-                mapping.cleanup();
-            }
-            this.onerror?.(error as Error);
-            return this.createJsonErrorResponse(500, -32_000, 'Error storing priming event');
+        const primingEvent = await priming;
+        if (req.signal.aborted && this._streamMapping.get(this._standaloneSseStreamId) === mapping) {
+            mapping.cleanup();
         }
-        // Closed or cancelled while the priming event was being stored
-        if (this._streamMapping.get(this._standaloneSseStreamId) !== mapping) {
+        if (this._closed) {
             return this.createJsonErrorResponse(404, -32_001, 'Session not found');
+        }
+        // Closed while the priming event was being stored: hand back the ended stream so the client reconnects
+        if (this._streamMapping.get(this._standaloneSseStreamId) !== mapping) {
+            return new Response(readable, { headers });
         }
         if (primingEvent !== undefined) {
             streamController!.enqueue(encoder.encode(primingEvent));
         }
         mapping.primed = undefined;
+        markPrimed();
 
         keepAliveTimer = this.startKeepAlive(streamController!, encoder);
         return new Response(readable, { headers });
@@ -1219,7 +1222,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             }
 
             let standaloneSse = this._streamMapping.get(this._standaloneSseStreamId);
-            if (standaloneSse?.primed) {
+            while (standaloneSse?.primed) {
                 await standaloneSse.primed;
                 standaloneSse = this._streamMapping.get(this._standaloneSseStreamId);
             }

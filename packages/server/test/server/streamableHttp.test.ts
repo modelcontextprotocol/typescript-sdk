@@ -1191,23 +1191,76 @@ describe('Zod v4', () => {
                 await reader.cancel();
             });
 
-            it('should return 500 and leave no stream registered when the priming event cannot be stored', async () => {
+            it('should open the stream without a priming event when it cannot be stored', async () => {
                 sessionId = await initializeServer();
                 const errors: Error[] = [];
                 transport.onerror = error => errors.push(error);
 
                 const realStoreEvent = eventStore.storeEvent.bind(eventStore);
-                eventStore.storeEvent = async () => {
-                    throw new Error('store down');
+                eventStore.storeEvent = async (sid, msg) => {
+                    if (sid === '_GET_stream' && Object.keys(msg).length === 0) throw new Error('store down');
+                    return realStoreEvent(sid, msg);
                 };
-                const failed = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
-                expect(failed.status).toBe(500);
+                const response = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+                expect(response.status).toBe(200);
                 expect(errors.map(e => e.message)).toContain('store down');
 
-                eventStore.storeEvent = realStoreEvent;
-                const retried = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
-                expect(retried.status).toBe(200);
-                await primingIdOf(retried);
+                await transport.send(notification);
+                expect((await readSSEEvent(response)).startsWith('event: message\n')).toBe(true);
+            });
+
+            describe('while the priming event is being stored', () => {
+                let release: () => void;
+
+                beforeEach(() => {
+                    const gate = new Promise<void>(resolve => {
+                        release = resolve;
+                    });
+                    const realStoreEvent = eventStore.storeEvent.bind(eventStore);
+                    eventStore.storeEvent = async (sid, msg) => {
+                        if (sid === '_GET_stream' && Object.keys(msg).length === 0) await gate;
+                        return realStoreEvent(sid, msg);
+                    };
+                });
+
+                it('should unregister the stream when the client disconnects', async () => {
+                    sessionId = await initializeServer();
+                    const abort = new AbortController();
+                    const request = createRequest('GET', undefined, { sessionId });
+
+                    const pending = transport.handleRequest(new Request(request, { signal: abort.signal }));
+                    abort.abort();
+                    release();
+                    await pending;
+
+                    const next = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+                    expect(next.status).toBe(200);
+                });
+
+                it('should end the stream, not answer 404, when closeStandaloneSSEStream() is called', async () => {
+                    sessionId = await initializeServer();
+
+                    const pending = transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+                    await new Promise(resolve => setTimeout(resolve, 5));
+                    transport.closeStandaloneSSEStream();
+                    release();
+
+                    const response = await pending;
+                    expect(response.status).toBe(200);
+                    expect(await response.text()).toBe('');
+                });
+
+                it('should not block send() after close()', async () => {
+                    sessionId = await initializeServer();
+
+                    void transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+                    await new Promise(resolve => setTimeout(resolve, 5));
+                    const sent = transport.send(notification);
+                    await new Promise(resolve => setTimeout(resolve, 5));
+                    await transport.close();
+
+                    await expect(sent).resolves.toBeUndefined();
+                });
             });
 
             it('should reject a second GET that arrives while the first is storing its priming event', async () => {
