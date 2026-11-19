@@ -444,6 +444,55 @@ describe('protocol tests', () => {
             await expect(requestPromise).resolves.toEqual({ result: 'success' });
         });
 
+        test('should reset timeout without an onprogress handler', async () => {
+            await protocol.connect(transport);
+            const request = { method: 'example', params: {} };
+            const mockSchema: ZodType<{ result: string }> = z.object({
+                result: z.string()
+            });
+            const onErrorMock = vi.fn();
+            protocol.onerror = onErrorMock;
+
+            const requestPromise = protocol.request(request, mockSchema, {
+                timeout: 1000,
+                resetTimeoutOnProgress: true
+            });
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    params: {
+                        _meta: {
+                            progressToken: 0
+                        }
+                    }
+                }),
+                expect.any(Object)
+            );
+
+            vi.advanceTimersByTime(800);
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                method: 'notifications/progress',
+                params: {
+                    progressToken: 0,
+                    progress: 50,
+                    total: 100
+                }
+            });
+            await Promise.resolve();
+
+            expect(onErrorMock).not.toHaveBeenCalled();
+
+            vi.advanceTimersByTime(800);
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 0,
+                result: { result: 'success' }
+            });
+            await Promise.resolve();
+            await expect(requestPromise).resolves.toEqual({ result: 'success' });
+        });
+
         test('should respect maxTotalTimeout', async () => {
             await protocol.connect(transport);
             const request = { method: 'example', params: {} };
