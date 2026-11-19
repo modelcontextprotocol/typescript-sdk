@@ -1,5 +1,9 @@
 ### Types & schemas
 
+::: warning
+**Raw shape vs `ZodObject` on v1.** On v1, `registerTool` / `server.tool()` expect a raw shape (`{ name: z.string() }`), not `z.object({ name: z.string() })`. Doing it backwards on v1 ≤1.21 crashes `tools/list` with `Cannot read properties of null (reading '_def')`, and on v1 ≤1.26 silently publishes an empty schema (`{"type":"object"}`) so clients strip all arguments. v1.22+ normalizes the mistake for `registerTool`; v1.28+ throws a clear error for `server.tool()`. On v2 the registration API takes a Standard Schema, where `z.object({...})` is the correct form. See the [troubleshooting entry](../troubleshooting.md#inputschema-is-empty--clients-strip-all-arguments).
+:::
+
 #### Zod `*Schema` constants moved to `@modelcontextprotocol/core`
 
 The Zod schemas (`CallToolResultSchema`, `ListToolsResultSchema`, …) that v1 exported
