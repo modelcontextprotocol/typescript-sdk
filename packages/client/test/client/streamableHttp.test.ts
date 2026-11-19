@@ -1843,6 +1843,25 @@ describe('StreamableHTTPClientTransport', () => {
             expect(onStreamEnd).not.toHaveBeenCalled();
         });
 
+        it('onRequestStreamEnd fires when send() starts on an explicit resumption token and GET returns 405', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: false,
+                status: 405,
+                headers: new Headers()
+            });
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'tools/call', id: 1, params: {} },
+                { resumptionToken: 'saved-event-id', requestSignal: new AbortController().signal, onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.waitFor(() => expect(onStreamEnd).toHaveBeenCalledTimes(1));
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(fetchMock.mock.calls[0]![1]?.method).toBe('GET');
+        });
+
         it('onRequestStreamEnd fires when a primed POST→GET resume hits 405 (non-resumable terminal)', async () => {
             // R1 regression: against a server that stamps SSE event ids on the
             // listen POST stream but returns 405 on the GET resume,
