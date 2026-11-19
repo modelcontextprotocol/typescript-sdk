@@ -73,6 +73,7 @@ describe('SdkErrorCode', () => {
             NotInitialized: 'NOT_INITIALIZED',
             CapabilityNotSupported: 'CAPABILITY_NOT_SUPPORTED',
             RequestTimeout: 'REQUEST_TIMEOUT',
+            RequestAborted: 'REQUEST_ABORTED',
             ConnectionClosed: 'CONNECTION_CLOSED',
             SendFailed: 'SEND_FAILED',
             InvalidResult: 'INVALID_RESULT',
