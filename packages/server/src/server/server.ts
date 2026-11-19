@@ -39,10 +39,13 @@ import type {
     Transport
 } from '@modelcontextprotocol/core-internal';
 import {
+    assertExtensionCapabilitiesUnowned,
     assertValidCacheHint,
+    assertWrappable,
     attachCacheHintFallback,
     CLIENT_CAPABILITIES_META_KEY,
     codecForVersion,
+    extensionStateOf,
     isInputRequiredResult,
     isModernProtocolVersion,
     LATEST_PROTOCOL_VERSION,
@@ -359,6 +362,9 @@ export class Server extends Protocol<ServerContext> {
 
     /** Attaches to the given transport; rejects while this instance is connected to another one. */
     override async connect(transport: Transport): Promise<void> {
+        // Waited for here, before the one-connection check, so that check and the attach below stay synchronous.
+        const extensionsReady = extensionStateOf(this)?.ready;
+        if (extensionsReady !== undefined) await extensionsReady;
         if (this.transport !== undefined) {
             throw new SdkError(
                 SdkErrorCode.AlreadyConnected,
@@ -482,6 +488,7 @@ export class Server extends Protocol<ServerContext> {
         if (this.transport) {
             throw new SdkError(SdkErrorCode.AlreadyConnected, 'Cannot register capabilities after connecting to transport');
         }
+        assertExtensionCapabilitiesUnowned(this, capabilities);
         const hadLogging = !!this._capabilities.logging;
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
         if (!hadLogging && this._capabilities.logging) {
@@ -877,6 +884,10 @@ export class Server extends Protocol<ServerContext> {
                 break;
             }
         }
+    }
+
+    protected override assertMiddlewareMethod(method: string): void {
+        assertWrappable('server', method);
     }
 
     protected assertRequestHandlerCapability(method: string): void {
