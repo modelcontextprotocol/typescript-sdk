@@ -19,11 +19,11 @@ import { Client } from '@modelcontextprotocol/client';
 import { TasksClientExtension } from '@modelcontextprotocol/client/ext/tasks';
 
 const tasks = new TasksClientExtension();
-const client = new Client({ name: 'report-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' }, extensions: [tasks] });
+const client = new Client({ name: 'report-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' }, capabilities: { elicitation: { form: {} } }, extensions: [tasks] });
 await client.connect(transport);
 ```
 
-The client declares `io.modelcontextprotocol/tasks` in the capabilities envelope of every request — the server refuses task handles to clients that do not — and accepts `resultType: "task"` on `tools/call`, which the plain `client.callTool` cannot describe.
+The client declares `io.modelcontextprotocol/tasks` in the capabilities envelope of every request — the server refuses task handles to clients that do not — and accepts `resultType: "task"` on `tools/call`, which the plain `client.callTool` cannot describe. Declare the capabilities for the input you can answer, such as `elicitation` above: a task may only ask for what the request that created it declared.
 
 ## Call a tool that may become a task
 

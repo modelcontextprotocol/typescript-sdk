@@ -18,7 +18,8 @@ const { transport, url } = parseExampleArgs();
 const tasks = new TasksClientExtension();
 const client = new Client(
     { name: 'tasks-example-client', version: '1.0.0' },
-    { versionNegotiation: { mode: 'auto' }, extensions: [tasks] }
+    // The elicitation capability lets the task ask for input; a task may only request what the client declared.
+    { versionNegotiation: { mode: 'auto' }, capabilities: { elicitation: { form: {} } }, extensions: [tasks] }
 );
 
 await client.connect(
