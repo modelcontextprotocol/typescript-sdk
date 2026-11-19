@@ -52,6 +52,7 @@ export type { SdkLogger } from '../../shared/logger';
 export type {
     BaseContext,
     ClientContext,
+    CloseOptions,
     NotificationOptions,
     ProgressCallback,
     ProtocolOptions,
