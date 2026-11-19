@@ -105,6 +105,29 @@ async function readSSEEvent(response: Response): Promise<string> {
 }
 
 /**
+ * Reads from an SSE stream until the accumulated text contains every expected string.
+ * Events may be split across fetch chunks, so a single read() is not enough.
+ */
+async function readSSEUntil(reader: ReadableStreamDefaultReader<Uint8Array>, expected: string[], timeoutMs = 5000): Promise<string> {
+    const decoder = new TextDecoder();
+    let text = '';
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out waiting for SSE text ${JSON.stringify(expected)}; got: ${text}`)), timeoutMs);
+    });
+    try {
+        while (!expected.every(s => text.includes(s))) {
+            const { value, done } = await Promise.race([reader.read(), timeout]);
+            if (done) throw new Error(`SSE stream ended before ${JSON.stringify(expected)}; got: ${text}`);
+            text += decoder.decode(value, { stream: true });
+        }
+        return text;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/**
  * Helper to send JSON-RPC request
  */
 async function sendPostRequest(
@@ -738,9 +761,8 @@ describe('Zod v4', () => {
 
             const reader = response.body?.getReader();
 
-            // The responses may come in any order or together in one chunk
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
+            // The responses may arrive in any order, in one chunk or several
+            const text = await readSSEUntil(reader!, ['"id":"req-1"', '"tools"', '"id":"req-2"', 'Hello, BatchUser']);
 
             // Check that both responses were sent on the same stream
             expect(text).toContain('"id":"req-1"');
@@ -1493,15 +1515,15 @@ describe('Zod v4', () => {
 
             // Read the notification from the SSE stream
             const reader = sseResponse.body?.getReader();
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
+            const text = await readSSEUntil(reader!, ['First notification from MCP server', '\n\n']);
 
             // Verify the notification was sent with an event ID
             expect(text).toContain('id: ');
             expect(text).toContain('First notification from MCP server');
 
-            // Extract the event ID
-            const idMatch = text.match(/id: ([^\n]+)/);
+            // Extract the ID of the event carrying the notification (an earlier priming event may precede it)
+            const notificationEvent = text.split('\n\n').find(event => event.includes('First notification from MCP server'));
+            const idMatch = notificationEvent?.match(/id: ([^\n]+)/);
             expect(idMatch).toBeTruthy();
             const firstEventId = idMatch![1]!;
 
@@ -1526,8 +1548,7 @@ describe('Zod v4', () => {
 
             // Read the replayed notification
             const reconnectReader = reconnectResponse.body?.getReader();
-            const reconnectData = await reconnectReader!.read();
-            const reconnectText = new TextDecoder().decode(reconnectData.value);
+            const reconnectText = await readSSEUntil(reconnectReader!, ['Second notification from MCP server']);
 
             // Verify we received the second notification that was sent after our stored eventId
             expect(reconnectText).toContain('Second notification from MCP server');
