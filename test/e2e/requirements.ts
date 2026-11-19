@@ -711,6 +711,22 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'sdk',
         behavior: "Registering a tool whose name violates the spec's tool-naming conventions emits a warning; registration still succeeds."
     },
+    'mcpserver:tool:missing-client-capability-error': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic#_meta',
+        behavior:
+            'On 2026-07-28, a tool that throws MissingRequiredClientCapabilityError answers tools/call with JSON-RPC error -32021 and its requiredCapabilities, not an isError tool result.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        supersedes: ['typescript:mcpserver:tool:missing-client-capability-error:legacy'],
+        note: 'entryModern is the arm that serves 2026-07-28 requests.'
+    },
+    'typescript:mcpserver:tool:missing-client-capability-error:legacy': {
+        source: 'sdk',
+        behavior:
+            'On 2025-11-25, which does not define -32021, a tool that throws MissingRequiredClientCapabilityError answers with an isError tool result carrying the message, like any other throw.',
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'mcpserver:tool:missing-client-capability-error'
+    },
     'mcpserver:tool:url-elicitation-error': {
         source: 'sdk',
         behavior:
@@ -2807,6 +2823,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'A POST whose body is not valid JSON is answered 400 by a createMcpHandler endpoint on both legs, with a JSON-RPC Parse-error (-32700) body: the entry classifier reads no envelope claim from a non-JSON body, so the stateless legacy fallback delegates the parse error and the modern-only strict path emits it itself.',
         transports: ['entryStateless', 'entryModern'],
         note: 'Runs on the createMcpHandler entry arms; the malformed body is POSTed through wired.fetch so the HTTP status and JSON-RPC error code are observed directly.'
+    },
+    'typescript:hosting:entry:tool-missing-capability-400': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic#_meta',
+        behavior:
+            'A tool that throws MissingRequiredClientCapabilityError is answered HTTP 400 by a createMcpHandler endpoint on a 2026-07-28 request, with the -32021 JSON-RPC error and its requiredCapabilities as the body.',
+        transports: ['entryModern'],
+        note: 'The spec ties the 400 to the 2026-07-28 error; the status is read through wired.fetch. A response whose stream is already open keeps its 200 and carries the error in-stream.'
     },
     'typescript:hosting:entry:legacy-accept-406': {
         source: 'sdk',

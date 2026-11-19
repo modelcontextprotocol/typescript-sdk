@@ -35,6 +35,7 @@ import {
     attachCacheHintFallback,
     guardLogger,
     isInputRequiredResult,
+    isModernProtocolVersion,
     normalizeRawShapeSchema,
     promptArgumentsFromStandardSchema,
     ProtocolError,
@@ -353,6 +354,16 @@ export class McpServer {
             } catch (error) {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult
+                }
+                // -32021 is defined from 2026-07-28; earlier revisions keep the tool error.
+                const version = this.server.getNegotiatedProtocolVersion();
+                if (
+                    error instanceof ProtocolError &&
+                    error.code === ProtocolErrorCode.MissingRequiredClientCapability &&
+                    version !== undefined &&
+                    isModernProtocolVersion(version)
+                ) {
+                    throw error;
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }

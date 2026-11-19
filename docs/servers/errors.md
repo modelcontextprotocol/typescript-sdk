@@ -61,7 +61,7 @@ The model reads the message, sees `welcome` in it, and retries with an id that e
 
 ## Let a thrown exception become a tool error
 
-Throw instead: the SDK catches anything a tool handler throws and converts it to the same `isError: true` shape.
+Throw instead: the SDK catches what a tool handler throws and converts it to the same `isError: true` shape. The two exceptions reach the client as protocol errors: `UrlElicitationRequiredError` on 2025-11-25 and `MissingRequiredClientCapabilityError` on 2026-07-28 (see [Throw a protocol error](#throw-a-protocol-error)).
 
 ```ts source="../../examples/guides/servers/errors.examples.ts#registerTool_throw"
 server.registerTool(
@@ -147,7 +147,7 @@ Pick by audience. The model drives `tools/call`, so a failure it can recover fro
 
 The handler decides which channel exists:
 
-- A tool handler produces only tool errors. The SDK converts every exception it throws — including a thrown `ProtocolError` — into an `isError: true` result. `UrlElicitationRequiredError` is the one exception; it propagates as a JSON-RPC error so the host can open the URL — see [Elicitation](./elicitation.md).
+- A tool handler produces only tool errors. The SDK converts every exception it throws — including a thrown `ProtocolError` — into an `isError: true` result. `UrlElicitationRequiredError` and `MissingRequiredClientCapabilityError` are the two exceptions. On 2025-11-25 the first propagates as a JSON-RPC error so the host can open the URL — see [Elicitation](./elicitation.md); on 2026-07-28 the second tells the client which capability to declare.
 - A resource, prompt, or completion callback produces only protocol errors. Throw a `ProtocolError`.
 
 ## Use the typed error subclasses
@@ -175,9 +175,9 @@ The error carries the requested URI in `data` and the code the spec mandates for
 
 Three more subclasses cover the other structured protocol errors:
 
-- `UrlElicitationRequiredError(elicitations)` — `-32042`; the only error a tool handler can propagate. See [Elicitation](./elicitation.md).
+- `UrlElicitationRequiredError(elicitations)` — `-32042`; a tool handler can propagate it on 2025-11-25. On 2026-07-28 return `inputRequired.elicitUrl(...)` instead. See [Elicitation](./elicitation.md).
 - `UnsupportedProtocolVersionError({ supported, requested })` — `-32022`; `data.supported` lets the peer pick a version and retry.
-- `MissingRequiredClientCapabilityError({ requiredCapabilities })` — `-32021`; `data.requiredCapabilities` names exactly what the client must declare.
+- `MissingRequiredClientCapabilityError({ requiredCapabilities })` — `-32021`; `data.requiredCapabilities` names exactly what the client must declare. A tool handler can propagate it on 2026-07-28, where over HTTP it is answered with status 400 unless the response stream is already open; on 2025-11-25 it becomes a tool error like any other throw.
 
 Match these by `code` and `data` shape when peers may run pre-brand SDK copies or hand you plain wire shapes; on brand-aware releases `instanceof` also matches across separately bundled copies of the SDK. The same check is available as an explicit static guard — `ProtocolError.isInstance(err)`, `ResourceNotFoundError.isInstance(err)` — which narrows in TypeScript and reads the same brand.
 
@@ -203,7 +203,7 @@ Match these by `code` and `data` shape when peers may run pre-brand SDK copies o
 
 - `isError: true` is a successful JSON-RPC result carrying a tool failure the model reads and acts on.
 - A tool handler that throws produces the same `isError: true` result; the exception's `message` becomes the `content` text.
-- A tool handler cannot produce a protocol error — only `UrlElicitationRequiredError` escapes.
+- A tool handler cannot produce a protocol error — only `UrlElicitationRequiredError` (2025-11-25) and `MissingRequiredClientCapabilityError` (2026-07-28) escape.
 - `ProtocolError` and its subclasses, thrown from resource, prompt, and completion callbacks, become JSON-RPC error responses the model never sees.
 - `ResourceNotFoundError` and the other subclasses pick the code and pack structured `data`; match them by `code` and `data` — or, on brand-aware releases, by `instanceof`.
 - The table above lists every `ProtocolErrorCode` member.

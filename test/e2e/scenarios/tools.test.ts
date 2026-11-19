@@ -34,6 +34,7 @@ import type {
 import {
     isJSONRPCRequest,
     McpServer,
+    MissingRequiredClientCapabilityError,
     ProtocolError,
     ProtocolErrorCode,
     Server,
@@ -1361,4 +1362,36 @@ verifies('mcpserver:tool:metadata-roundtrip', async ({ transport }: TestArgs) =>
     expect(tool.description).toBe('Echo tool carrying every metadata field registerTool accepts.');
     expect(tool.annotations).toEqual(annotations);
     expect(tool._meta).toEqual(meta);
+});
+
+const gatedFactory = () => {
+    const s = new McpServer({ name: 's', version: '0' });
+    s.registerTool('gated', { inputSchema: z.object({}) }, () => {
+        throw new MissingRequiredClientCapabilityError(
+            { requiredCapabilities: { extensions: { 'com.example/gate': {} } } },
+            'declare com.example/gate'
+        );
+    });
+    return s;
+};
+
+verifies('mcpserver:tool:missing-client-capability-error', async ({ transport }: TestArgs) => {
+    const client = newClient();
+    await using _ = await wire(transport, gatedFactory, client);
+
+    const err = await client.callTool({ name: 'gated', arguments: {} }).catch((error: unknown) => error);
+    expect(err).toBeInstanceOf(ProtocolError);
+    expect(err).toMatchObject({
+        code: ProtocolErrorCode.MissingRequiredClientCapability,
+        data: { requiredCapabilities: { extensions: { 'com.example/gate': {} } } }
+    });
+});
+
+verifies('typescript:mcpserver:tool:missing-client-capability-error:legacy', async ({ transport }: TestArgs) => {
+    const client = newClient();
+    await using _ = await wire(transport, gatedFactory, client);
+
+    const result = await client.callTool({ name: 'gated', arguments: {} });
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([{ type: 'text', text: 'declare com.example/gate' }]);
 });
