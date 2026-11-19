@@ -559,6 +559,77 @@ verifies('hosting:resume:priming', async (_args: TestArgs) => {
     }
 });
 
+verifies('hosting:resume:priming-get', async (_args: TestArgs) => {
+    const RETRY_MS = 7331;
+    const eventStore = new InMemoryEventStore();
+
+    let serverRef: McpServer | undefined;
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' }, { capabilities: { logging: {} } });
+        serverRef = s;
+        s.registerTool('close-standalone', { inputSchema: z.object({}) }, async (_input, ctx) => {
+            ctx.http?.closeStandaloneSSE?.();
+            return { content: [{ type: 'text', text: 'closed' }] };
+        });
+        return s;
+    };
+
+    const handle = hostResumable(makeServer, { eventStore, retryInterval: RETRY_MS });
+
+    const url = new URL('http://in-process/mcp');
+    const fetch = (u: URL | string, init?: RequestInit) => handle.handleRequest(new Request(u, init));
+
+    try {
+        const { baseHeaders } = await completeHandshake(url, fetch);
+
+        const standaloneRes = await fetch(url, {
+            method: 'GET',
+            headers: { ...baseHeaders, accept: 'text/event-stream' }
+        });
+        expect(standaloneRes.status).toBe(200);
+
+        const postRes = await fetch(url, {
+            method: 'POST',
+            headers: { ...baseHeaders, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 'close-standalone-1',
+                method: 'tools/call',
+                params: { name: 'close-standalone', arguments: {} }
+            })
+        });
+        expect(postRes.status).toBe(200);
+        await readSseBody(requireBody(postRes));
+
+        const standaloneBody = await readSseBody(requireBody(standaloneRes));
+        const events = standaloneBody.split('\n\n').filter(e => e.trim().length > 0);
+        expect(events).toHaveLength(1);
+        const primingLines = events[0]!.split('\n');
+        expect(primingLines).toContain(`retry: ${RETRY_MS}`);
+        expect(primingLines).toContain('data: ');
+        const primingId = primingLines
+            .find(l => l.startsWith('id:'))
+            ?.slice('id:'.length)
+            .trim();
+        expect(primingId).toBeTruthy();
+        if (!primingId) throw new Error('No priming event id in GET SSE body');
+
+        if (!serverRef) throw new Error('serverRef not set');
+        await serverRef.server.sendLoggingMessage({ level: 'info', data: 'while-disconnected' });
+
+        const resumeRes = await fetch(url, {
+            method: 'GET',
+            headers: { ...baseHeaders, accept: 'text/event-stream', 'last-event-id': primingId }
+        });
+        expect(resumeRes.status).toBe(200);
+        const resumed = parseSseFrames(await readSseFramesUntil(requireBody(resumeRes), 1));
+        expect(resumed).toHaveLength(1);
+        expect(JSON.parse(resumed[0]!.data)).toMatchObject({ method: 'notifications/message', params: { data: 'while-disconnected' } });
+    } finally {
+        await handle.close();
+    }
+});
+
 verifies('hosting:resume:stream-scoped', async (_args: TestArgs) => {
     const eventStore = new InMemoryEventStore();
 
@@ -821,7 +892,7 @@ verifies('hosting:resume:close-stream', async (_args: TestArgs) => {
         const postBody = await readSseBody(requireBody(postRes));
         const standaloneBody = await readSseBody(requireBody(standaloneRes));
 
-        expect(standaloneBody).toBe('');
+        expect(standaloneBody).toMatch(/^id: \S+\ndata: \n\n$/);
         expect(postBody).not.toMatch(/^event: message$/m);
 
         const primingId = postBody.match(/^id:\s*(.+)$/m)?.[1]?.trim();

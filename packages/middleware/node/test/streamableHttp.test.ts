@@ -1444,6 +1444,8 @@ describe('Zod v4', () => {
 
             expect(sseResponse.status).toBe(200);
             expect(sseResponse.headers.get('content-type')).toBe('text/event-stream');
+            const reader = sseResponse.body?.getReader();
+            expect(new TextDecoder().decode((await reader!.read()).value)).toMatch(/^id: _GET_stream\S*\n(retry: \d+\n)?data: \n\n$/);
 
             // Send a notification that should be stored with an event ID
             const notification: JSONRPCMessage = {
@@ -1456,7 +1458,6 @@ describe('Zod v4', () => {
             await transport.send(notification);
 
             // Read from the stream and verify we got the notification with an event ID
-            const reader = sseResponse.body?.getReader();
             const { value } = await reader!.read();
             const text = new TextDecoder().decode(value);
 
@@ -1487,12 +1488,13 @@ describe('Zod v4', () => {
                 }
             });
             expect(sseResponse.status).toBe(200);
+            const reader = sseResponse.body?.getReader();
+            expect(new TextDecoder().decode((await reader!.read()).value)).toMatch(/^id: _GET_stream\S*\n(retry: \d+\n)?data: \n\n$/);
 
             // Send a server notification through the MCP server
             await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'First notification from MCP server' });
 
             // Read the notification from the SSE stream
-            const reader = sseResponse.body?.getReader();
             const { value } = await reader!.read();
             const text = new TextDecoder().decode(value);
 
@@ -2249,6 +2251,7 @@ describe('Zod v4', () => {
             expect(sseResponse.status).toBe(200);
 
             const getReader = sseResponse.body?.getReader();
+            expect(new TextDecoder().decode((await getReader!.read()).value)).toMatch(/^id: _GET_stream\S*\n(retry: \d+\n)?data: \n\n$/);
 
             // Send a notification to confirm GET stream is established
             await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Stream established' });
@@ -2330,6 +2333,7 @@ describe('Zod v4', () => {
             expect(sseResponse.status).toBe(200);
 
             const getReader = sseResponse.body?.getReader();
+            expect(new TextDecoder().decode((await getReader!.read()).value)).toMatch(/^id: _GET_stream\S*\n(retry: \d+\n)?data: \n\n$/);
 
             // Send a notification to get an event ID
             await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Initial message' });
