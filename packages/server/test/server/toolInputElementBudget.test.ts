@@ -60,6 +60,7 @@ describe('maxToolInputElements', () => {
     it('refuses arguments past a configured limit', async () => {
         const result = await callArrayTool(Array(60_000).fill('x'), { maxToolInputElements: 1_000 });
         expect(result?.isError).toBe(true);
+        expect(result?.content?.[0]?.text).toContain('Input validation error: Invalid arguments for tool');
         expect(result?.content?.[0]?.text).toContain('more than the maximum');
     });
 
