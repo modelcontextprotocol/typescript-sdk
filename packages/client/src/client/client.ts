@@ -62,6 +62,7 @@ import {
     DiscoverResultSchema,
     guardLogger,
     HEADER_MISMATCH_ERROR_CODE,
+    isInputRequiredResult,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isModernProtocolVersion,
@@ -2527,7 +2528,8 @@ export class Client extends Protocol<ClientContext> {
         }
 
         const validator = compiled !== undefined && compiled.ok ? compiled.validator : undefined;
-        if (validator) {
+        // An input_required result is not the tool's output yet; validate the completed retry instead.
+        if (validator && !isInputRequiredResult(result)) {
             // If tool has outputSchema, it MUST return structuredContent (unless it's an error).
             // SEP-2106: presence is `=== undefined`, not falsy — `null`/`0`/`false`/`""` are legal
             // values and are validated below (so a falsy value against an object-typed schema still
