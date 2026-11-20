@@ -406,6 +406,41 @@ describe('manual mode', () => {
         await client.close();
     });
 
+    it('hands input_required back before output-schema validation when the tool declares an outputSchema', async () => {
+        const { clientTx } = await scriptedModernServer((_request, call) =>
+            call === 1
+                ? { resultType: 'input_required', inputRequests: { github_login: ELICIT_ENTRY }, requestState: 'manual-state' }
+                : { resultType: 'complete', content: [{ type: 'text', text: '{"id":7}' }], structuredContent: { id: 7 } }
+        );
+
+        const client = makeClient({ inputRequired: { autoFulfill: false } });
+        await client.connect(clientTx);
+        const toolDefinition = {
+            name: 'deploy',
+            inputSchema: { type: 'object' as const },
+            outputSchema: { type: 'object' as const, properties: { id: { type: 'number' } }, required: ['id'] }
+        };
+
+        const first = (await client.callTool(
+            { name: 'deploy', arguments: {} },
+            { allowInputRequired: true, toolDefinition }
+        )) as unknown as Record<string, unknown>;
+        expect(first.resultType).toBe('input_required');
+
+        const second = await client.callTool(
+            {
+                name: 'deploy',
+                arguments: {},
+                inputResponses: { github_login: { action: 'accept', content: { name: 'octocat' } } },
+                requestState: first.requestState as string
+            } as Parameters<Client['callTool']>[0],
+            { toolDefinition }
+        );
+        expect(second.structuredContent).toEqual({ id: 7 });
+
+        await client.close();
+    });
+
     it('carries the result-level _meta through to the manual caller', async () => {
         const { clientTx } = await scriptedModernServer(() => ({
             resultType: 'input_required',
