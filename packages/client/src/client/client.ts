@@ -1666,6 +1666,9 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     async listPrompts(params?: ListPromptsRequest['params'], options?: CacheableRequestOptions): Promise<ListPromptsResult> {
+        if (!this.transport) {
+            return this.request({ method: 'prompts/list', params }, options);
+        }
         if (!this._serverCapabilities?.prompts && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support prompts
             this._logger.debug?.('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
@@ -1706,6 +1709,9 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     async listResources(params?: ListResourcesRequest['params'], options?: CacheableRequestOptions): Promise<ListResourcesResult> {
+        if (!this.transport) {
+            return this.request({ method: 'resources/list', params }, options);
+        }
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
             this._logger.debug?.('Client.listResources() called but server does not advertise resources capability - returning empty list');
@@ -1735,6 +1741,9 @@ export class Client extends Protocol<ClientContext> {
         params?: ListResourceTemplatesRequest['params'],
         options?: CacheableRequestOptions
     ): Promise<ListResourceTemplatesResult> {
+        if (!this.transport) {
+            return this.request({ method: 'resources/templates/list', params }, options);
+        }
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
             this._logger.debug?.(
@@ -2594,6 +2603,9 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     async listTools(params?: ListToolsRequest['params'], options?: CacheableRequestOptions): Promise<ListToolsResult> {
+        if (!this.transport) {
+            return this.request({ method: 'tools/list', params }, options);
+        }
         if (!this._serverCapabilities?.tools && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support tools
             this._logger.debug?.('Client.listTools() called but server does not advertise tools capability - returning empty list');

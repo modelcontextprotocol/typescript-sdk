@@ -3056,12 +3056,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'typescript:protocol:error:not-connected': {
         source: 'sdk',
         behavior:
-            "Calling a request method on a Client whose transport is closed or never connected rejects with an Error containing 'Not connected', and client.transport is undefined before connect and after close.",
-        knownFailures: [
-            {
-                note: "changed in v2: capability-lenient list methods resolve with an empty result before connect instead of rejecting 'Not connected'; the after-close rejection still behaves as required."
-            }
-        ]
+            "Calling a request method on a Client whose transport is closed or never connected rejects with an Error containing 'Not connected', and client.transport is undefined before connect and after close."
     },
     'typescript:client-transport:http:session-id-property': {
         source: 'sdk',
