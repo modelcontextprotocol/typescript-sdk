@@ -377,8 +377,10 @@ export class ClientResponseCache {
     }
 
     /**
-     * Two-probe lookup: this client's own (private) partition first, then the
-     * connected server's shared (public) partition. The shared probe is gated
+     * Two-probe lookup: this client's fresh private entry first, then the
+     * connected server's shared (public) partition. A stale private entry is
+     * retained for derived metadata only when no public entry is held.
+     * The shared probe is gated
      * on `entry.scope === 'public'` — a co-tenant client that omits
      * `cachePartition` writes its `'private'`-scoped entries at the public
      * partition, and serving those to a correctly-partitioned client would
@@ -391,11 +393,11 @@ export class ClientResponseCache {
         const key = { method, params: params ?? '' };
         const ownPartition = this._partitionFor('private');
         const own = await this._store.get({ ...key, partition: ownPartition });
-        if (own !== undefined) return own;
+        if (own?.expiresAt !== undefined && own.expiresAt > this.now()) return own;
         const sharedPartition = this._partitionFor('public');
-        if (sharedPartition === ownPartition) return undefined;
+        if (sharedPartition === ownPartition) return own;
         const shared = await this._store.get({ ...key, partition: sharedPartition });
-        return shared?.scope === 'public' ? shared : undefined;
+        return shared?.scope === 'public' ? shared : own;
     }
 
     /**
@@ -553,8 +555,8 @@ export class ClientResponseCache {
 
     /**
      * Serve the fresh cached result for `{method, params}`, or `undefined`.
-     * Lookup is the two-probe order (own-partition then this server's shared
-     * partition, gated on `scope === 'public'`); freshness is
+     * Lookup prefers a fresh private entry, then this server's shared
+     * partition, gated on `scope === 'public'`; freshness is
      * `entry.expiresAt > now()` (a missing `expiresAt` is never fresh),
      * checked BEFORE decoding so stale entries cost no parse. Every hit is
      * freshly parsed, so the caller owns the value outright. An entry whose

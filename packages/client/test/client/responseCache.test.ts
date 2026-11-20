@@ -149,6 +149,39 @@ describe('InMemoryResponseCacheStore', () => {
 });
 
 describe('ClientResponseCache', () => {
+    it('keeps the single-partition lookup to one probe when its entry is stale', async () => {
+        const store = new InMemoryResponseCacheStore();
+        const get = store.get.bind(store);
+        let probes = 0;
+        store.get = key => {
+            probes++;
+            return get(key);
+        };
+        const cache = new ClientResponseCache(store, true);
+        await cache.write('tools/list', { tools: [TOOL_A] }, cache.captureGeneration('tools/list'));
+        expect((await cache.toolDefinition('a'))?.name).toBe('a');
+        expect(probes).toBe(1);
+    });
+
+    it.each([undefined, 'private'] as const)('retains stale private metadata when the shared entry has scope %s', async sharedScope => {
+        const store = new InMemoryResponseCacheStore();
+        const cache = new ClientResponseCache(store, true, undefined, 'alice', () => 10);
+        cache.setServerIdentity('srv');
+        store.set(
+            { method: 'tools/list', partition: part('alice', 'srv') },
+            { value: JSON.stringify({ tools: [TOOL_A] }), expiresAt: 10, scope: 'private' }
+        );
+        if (sharedScope !== undefined) {
+            store.set(
+                { method: 'tools/list', partition: part('', 'srv') },
+                { value: JSON.stringify({ tools: [TOOL_B] }), expiresAt: 20, scope: sharedScope }
+            );
+        }
+        expect(await cache.read('tools/list')).toBeUndefined();
+        expect((await cache.toolDefinition('a'))?.name).toBe('a');
+        expect(await cache.outputValidator('a', tool => tool.name)).toBe('a');
+    });
+
     it('write skips when the captured generation moved (list_changed-during-walk guard)', async () => {
         const store = new InMemoryResponseCacheStore();
         const cache = new ClientResponseCache(store, false);
@@ -840,6 +873,46 @@ describe('Client honours cacheHints (SEP-2549)', () => {
             expect((await toolDef(bob, 'b'))?.name).toBe('b');
             expect(await toolDef(bob, 'a')).toBeUndefined();
         }
+    });
+
+    it('an expired private entry falls back to a fresh public entry and its tool metadata', async () => {
+        const store = new InMemoryResponseCacheStore();
+        const a = await scriptedModernServer([[TOOL_A]], { listHint: { ttlMs: 10, cacheScope: 'private' } });
+        const alice = modernClient(store, { cachePartition: 'alice' });
+        await alice.connect(a.clientTx);
+        setNow(alice, 1_000_000);
+        await alice.listTools();
+        expect((await toolDef(alice, 'a'))?.name).toBe('a');
+        const compile = (tool: Tool): string => tool.name;
+        expect(await cacheOf(alice).outputValidator('a', compile)).toBe('a');
+
+        const b = await scriptedModernServer([[TOOL_B]], { listHint: { ttlMs: 60_000, cacheScope: 'public' } });
+        const bob = modernClient(store, { cachePartition: 'bob' });
+        await bob.connect(b.clientTx);
+        setNow(bob, 1_000_005);
+        await bob.listTools();
+        expect(b.listCount()).toBe(1);
+
+        setNow(alice, 1_000_005);
+        expect((await alice.listTools()).tools.map(t => t.name)).toEqual(['a']);
+        expect((await toolDef(alice, 'a'))?.name).toBe('a');
+        expect(a.listCount()).toBe(1);
+
+        setNow(alice, 1_000_010);
+        expect((await alice.listTools()).tools.map(t => t.name)).toEqual(['b']);
+        expect(a.listCount()).toBe(1);
+        expect((await toolDef(alice, 'b'))?.name).toBe('b');
+        expect(await toolDef(alice, 'a')).toBeUndefined();
+        expect(await cacheOf(alice).outputValidator('b', compile)).toBe('b');
+        expect(await cacheOf(alice).outputValidator('a', compile)).toBeUndefined();
+        expect(store.get({ method: 'tools/list', partition: part('alice') })).toBeDefined();
+
+        setNow(alice, 1_100_000);
+        expect(await cacheOf(alice).read('tools/list')).toBeUndefined();
+        expect((await toolDef(alice, 'b'))?.name).toBe('b');
+        expect(await cacheOf(alice).outputValidator('b', compile)).toBe('b');
+        await alice.close();
+        await bob.close();
     });
 
     it("different serverIdentity on a shared store: no cross-talk even for 'public' entries", async () => {
