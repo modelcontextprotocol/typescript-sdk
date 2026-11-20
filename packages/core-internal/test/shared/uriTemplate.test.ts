@@ -311,4 +311,42 @@ describe('UriTemplate', () => {
             expect(elapsed).toBeLessThan(100);
         });
     });
+
+    describe('RFC 6570 section 3.2.1 value encoding', () => {
+        it("percent-encodes sub-delimiters !'()* in strict expansions", () => {
+            expect(new UriTemplate('{var}').expand({ var: "!'()*" })).toBe('%21%27%28%29%2A');
+            expect(new UriTemplate('search{?q}').expand({ q: 'hello!' })).toBe('search?q=hello%21');
+            expect(new UriTemplate('search{&q}').expand({ q: "a'b(c)d*e" })).toBe('search&q=a%27b%28c%29d%2Ae');
+            expect(new UriTemplate('item{.ext}').expand({ ext: 'v(1)!' })).toBe('item.v%281%29%21');
+            expect(new UriTemplate('item{/part}').expand({ part: '*test*' })).toBe('item/%2Atest%2A');
+        });
+
+        it('keeps RFC 6570 unreserved characters and percent-encodes existing %HH in strict expansions', () => {
+            expect(new UriTemplate('{var}').expand({ var: 'A-Z_a.z~09' })).toBe('A-Z_a.z~09');
+            expect(new UriTemplate('{var}').expand({ var: 'My%20File.txt' })).toBe('My%2520File.txt');
+        });
+
+        it('preserves existing %HH triplets in reserved (+) and fragment (#) expansions', () => {
+            expect(new UriTemplate('file:///docs/{+path}').expand({ path: 'My%20File.txt' })).toBe('file:///docs/My%20File.txt');
+            expect(new UriTemplate('docs{#frag}').expand({ frag: 'Part%20One' })).toBe('docs#Part%20One');
+            expect(new UriTemplate('file:///docs/{+path}').expand({ path: 'dir%2fname' })).toBe('file:///docs/dir%2fname');
+            expect(new UriTemplate('file:///docs/{+path}').expand({ path: 'café%20bar' })).toBe('file:///docs/caf%C3%A9%20bar');
+        });
+
+        it('still percent-encodes lone and malformed % sequences in reserved and fragment expansions', () => {
+            expect(new UriTemplate('{+val}').expand({ val: '100%' })).toBe('100%25');
+            expect(new UriTemplate('{+val}').expand({ val: '50% off' })).toBe('50%25%20off');
+            expect(new UriTemplate('{+val}').expand({ val: '%2G' })).toBe('%252G');
+            expect(new UriTemplate('{+val}').expand({ val: '%2' })).toBe('%252');
+            expect(new UriTemplate('{+val}').expand({ val: '%%20' })).toBe('%25%20');
+            expect(new UriTemplate('{+val}').expand({ val: '%2520' })).toBe('%2520');
+            expect(new UriTemplate('{+val}').expand({ val: '%25' })).toBe('%25');
+            expect(new UriTemplate('{#frag}').expand({ frag: '50%&20' })).toBe('#50%25&20');
+        });
+
+        it("leaves reserved sub-delimiters !'()* unencoded in reserved and fragment expansions", () => {
+            expect(new UriTemplate('{+val}').expand({ val: "!'()*" })).toBe("!'()*");
+            expect(new UriTemplate('{#frag}').expand({ frag: 'hello!' })).toBe('#hello!');
+        });
+    });
 });
