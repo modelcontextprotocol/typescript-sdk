@@ -104,9 +104,13 @@ export class UriTemplate {
     private encodeValue(value: string, operator: string): string {
         UriTemplate.validateLength(value, MAX_VARIABLE_LENGTH, 'Variable value');
         if (operator === '+' || operator === '#') {
-            return encodeURI(value);
+            // RFC 6570 §3.2.1: reserved and fragment expansions preserve existing %HH triplets
+            // while percent-encoding lone or malformed '%' sequences.
+            return encodeURI(value).replaceAll(/%25([0-9A-Fa-f]{2})/g, '%$1');
         }
-        return encodeURIComponent(value);
+        // RFC 6570 §3.2.1: strict expansions only leave unreserved characters unencoded;
+        // encodeURIComponent leaves sub-delimiters !'()* unencoded.
+        return encodeURIComponent(value).replaceAll(/[!'()*]/g, char => `%${char.codePointAt(0)!.toString(16).toUpperCase()}`);
     }
 
     private expandPart(
