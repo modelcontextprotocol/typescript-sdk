@@ -57,11 +57,11 @@ function resolveMaxRequestBodySize(value: number | undefined): number {
  * `node:` imports.
  */
 export interface NodeIncomingMessageLike extends AsyncIterable<unknown> {
-    method?: string;
-    url?: string;
+    method?: string | undefined;
+    url?: string | undefined;
     headers: Record<string, string | string[] | undefined>;
     /** Validated authentication info attached by upstream middleware (pass-through). */
-    auth?: AuthInfo;
+    auth?: AuthInfo | undefined;
 }
 
 /** Minimal duck-typed shape of a Node.js `ServerResponse` accepted by {@linkcode toNodeHandler}. */
@@ -70,7 +70,7 @@ export interface NodeServerResponseLike {
     write(chunk: string | Uint8Array): unknown;
     end(chunk?: string | Uint8Array): unknown;
     on(event: string, listener: (...args: unknown[]) => void): unknown;
-    destroyed?: boolean;
+    destroyed?: boolean | undefined;
 }
 
 /**
