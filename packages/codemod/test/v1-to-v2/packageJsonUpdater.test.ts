@@ -688,3 +688,63 @@ describe('peer-declared zod (review)', () => {
         expect(written.devDependencies?.zod).toBeUndefined();
     });
 });
+
+describe('v2 packages only test files import go to devDependencies', () => {
+    function writeSrc(rel: string, spec: string): void {
+        const p = path.join(dir, rel);
+        mkdirSync(path.dirname(p), { recursive: true });
+        writeFileSync(p, `import * as sdk from '${spec}';\nconsole.log(sdk);\n`);
+    }
+
+    it('adds a test-only package to devDependencies and keeps source packages in dependencies', () => {
+        const manifest = writeJson('package.json', { name: 'app', dependencies: { '@modelcontextprotocol/sdk': '^1.29.0' } });
+        writeSrc('src/server.ts', '@modelcontextprotocol/sdk/server/mcp.js');
+        writeSrc('src/server.test.ts', '@modelcontextprotocol/sdk/client/index.js');
+        run(v1ToV2Migration, { targetDir: dir, dryRun: false });
+        const written = readJson(manifest) as Record<string, Record<string, string>>;
+        expect(Object.keys(written.dependencies!)).toEqual(['@modelcontextprotocol/server']);
+        expect(Object.keys(written.devDependencies!)).toEqual(['@modelcontextprotocol/client']);
+    });
+
+    it('keeps a package used by both test and source files in dependencies', () => {
+        const manifest = writeJson('package.json', { name: 'app', dependencies: { '@modelcontextprotocol/sdk': '^1.29.0' } });
+        writeSrc('src/client.ts', '@modelcontextprotocol/sdk/client/index.js');
+        writeSrc('test/client.test.ts', '@modelcontextprotocol/sdk/client/index.js');
+        run(v1ToV2Migration, { targetDir: dir, dryRun: false });
+        const written = readJson(manifest) as Record<string, Record<string, string>>;
+        expect(Object.keys(written.dependencies!)).toEqual(['@modelcontextprotocol/client']);
+        expect(written.devDependencies).toBeUndefined();
+    });
+
+    it('classifies hoisted member files relative to the manifest that receives the dependency', () => {
+        const root = writeJson('package.json', {
+            name: 'root',
+            workspaces: ['packages/*', 'tests/*'],
+            dependencies: { '@modelcontextprotocol/sdk': '^1.29.0' }
+        });
+        writeJson('packages/api/package.json', { name: 'api' });
+        writeJson('tests/e2e/package.json', { name: 'e2e' });
+        writeSrc('packages/api/src/server.ts', '@modelcontextprotocol/sdk/server/mcp.js');
+        writeSrc('packages/api/test/server.test.ts', '@modelcontextprotocol/sdk/server/mcp.js');
+        // Not a test path inside the member, but tests/e2e/... is one from the root.
+        writeSrc('tests/e2e/src/run.ts', '@modelcontextprotocol/sdk/client/index.js');
+        run(v1ToV2Migration, { targetDir: dir, dryRun: false });
+        const written = readJson(root) as Record<string, Record<string, string>>;
+        expect(Object.keys(written.dependencies!)).toEqual(['@modelcontextprotocol/server']);
+        expect(Object.keys(written.devDependencies!)).toEqual(['@modelcontextprotocol/client']);
+    });
+
+    it('does not demote for a test segment in an ancestor directory', () => {
+        const nested = path.join('tests', 'ci', 'repo');
+        const manifest = writeJson(path.join(nested, 'package.json'), {
+            name: 'app',
+            dependencies: { '@modelcontextprotocol/sdk': '^1.29.0' }
+        });
+        writeSrc(path.join(nested, 'src/server.ts'), '@modelcontextprotocol/sdk/server/mcp.js');
+        writeSrc(path.join(nested, 'src/client.ts'), '@modelcontextprotocol/sdk/client/index.js');
+        run(v1ToV2Migration, { targetDir: path.join(dir, nested), dryRun: false });
+        const written = readJson(manifest) as Record<string, Record<string, string>>;
+        expect(Object.keys(written.dependencies!).toSorted()).toEqual(['@modelcontextprotocol/client', '@modelcontextprotocol/server']);
+        expect(written.devDependencies).toBeUndefined();
+    });
+});

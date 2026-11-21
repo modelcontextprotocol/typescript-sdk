@@ -247,10 +247,19 @@ function parseManifest(manifestPath: string): ParsedManifest | undefined {
  * The v2 additions come from the **post-transform** import state of the files each
  * manifest owns (`usedByManifest`), not from what was rewritten in this run — so a
  * partially or fully pre-migrated package still gets the v2 packages its imports
- * need when its v1 dependency is removed.
+ * need when its v1 dependency is removed. A package that only test files import
+ * (per `usedFilesByManifest`) is added to devDependencies.
  */
 const ZOD_RANGE = '^4.2.0';
 const TEST_PATH_RE = /(^|\/)(test|tests|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$/;
+
+/**
+ * Classify against the path RELATIVE to the package: a test/ segment in some
+ * ancestor directory (CI checkout dirs) must not demote a dependency.
+ */
+function isTestFile(manifestDir: string, file: string): boolean {
+    return TEST_PATH_RE.test(toPosix(path.relative(manifestDir, file)));
+}
 
 function writeManifest(manifestPath: string, raw: string, pkgJson: Record<string, unknown>): void {
     const indent = detectIndent(raw);
@@ -263,7 +272,8 @@ export function updatePackageJson(
     manifests: readonly ManifestInfo[],
     usedByManifest: ReadonlyMap<string, ReadonlySet<string>>,
     dryRun: boolean,
-    zodInjectedByManifest: ReadonlyMap<string, readonly string[]> = new Map()
+    zodInjectedByManifest: ReadonlyMap<string, readonly string[]> = new Map(),
+    usedFilesByManifest: ReadonlyMap<string, ReadonlyMap<string, readonly string[]>> = new Map()
 ): PackageJsonChange[] {
     const changes: PackageJsonChange[] = [];
     const nearestPath = manifests[0]?.path;
@@ -282,10 +292,22 @@ export function updatePackageJson(
     // otherwise a hoisted monorepo would get the v1 dependency removed from the
     // root with none of the v2 replacements added.
     const effectiveUsed = new Map<string, Set<string>>();
+    // Files using each v2 package (keyed by package root), rolled up alongside effectiveUsed.
+    const effectiveFiles = new Map<string, Map<string, string[]>>();
     const hoistNotes = new Map<string, string[]>();
     for (const m of manifests) {
         effectiveUsed.set(m.path, new Set(usedByManifest.get(m.path)));
+        effectiveFiles.set(m.path, new Map());
     }
+    const addFiles = (manifestPath: string, filesBySpec: ReadonlyMap<string, readonly string[]> | undefined): void => {
+        const target = effectiveFiles.get(manifestPath);
+        if (!target || !filesBySpec) return;
+        for (const [spec, files] of filesBySpec) {
+            const pkg = normalizeToRoot(spec);
+            target.set(pkg, [...(target.get(pkg) ?? []), ...files]);
+        }
+    };
+    for (const m of manifests) addFiles(m.path, usedFilesByManifest.get(m.path));
     const v1Ancestors = manifests.filter(a => parsedByPath.get(a.path)?.declaresV1 === true);
 
     // zod-injected files follow the same hoisting rule as usage: a member without its
@@ -315,6 +337,7 @@ export function updatePackageJson(
         if (ancestor) {
             const target = effectiveUsed.get(ancestor.path);
             for (const pkg of used) target?.add(pkg);
+            addFiles(ancestor.path, usedFilesByManifest.get(m.path));
             let notes = hoistNotes.get(ancestor.path);
             if (!notes) {
                 notes = [];
@@ -350,9 +373,7 @@ export function updatePackageJson(
         const declaresZod = [deps, devDeps, peerDeps, optionalDeps].some(section => section !== undefined && 'zod' in section);
         const needsInjectedZod = injectedFiles !== undefined && injectedFiles.length > 0 && !declaresZod;
         const addInjectedZod = (targetSection: 'dependencies' | 'devDependencies'): 'dependencies' | 'devDependencies' => {
-            // Classify against the path RELATIVE to the package — a test/ segment in
-            // some ancestor directory (CI checkout dirs) must not demote the dep.
-            const testOnly = injectedFiles!.every(file => TEST_PATH_RE.test(toPosix(path.relative(manifest.dir, file))));
+            const testOnly = injectedFiles!.every(file => isTestFile(manifest.dir, file));
             const section = testOnly ? 'devDependencies' : targetSection;
             if (!pkgJson[section]) {
                 pkgJson[section] = {};
@@ -392,10 +413,13 @@ export function updatePackageJson(
             const alreadyInDevDeps = devDeps !== undefined && pkg in devDeps;
             if (alreadyInDeps || alreadyInDevDeps) continue;
 
-            if (!pkgJson[targetSection]) {
-                pkgJson[targetSection] = {};
+            // A package only test files import is a devDependency, like injected zod.
+            const files = effectiveFiles.get(manifest.path)?.get(pkg) ?? [];
+            const section = files.length > 0 && files.every(file => isTestFile(manifest.dir, file)) ? 'devDependencies' : targetSection;
+            if (!pkgJson[section]) {
+                pkgJson[section] = {};
             }
-            (pkgJson[targetSection] as Record<string, string>)[pkg] = V2_PACKAGE_VERSIONS[pkg]!;
+            (pkgJson[section] as Record<string, string>)[pkg] = V2_PACKAGE_VERSIONS[pkg]!;
             added.push(pkg);
         }
 

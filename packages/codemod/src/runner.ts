@@ -248,14 +248,13 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
     if (hasImportsTransform) {
         const manifests = discoverManifests(options.targetDir);
         const usedByManifest = new Map<string, Set<string>>();
+        // Which files use each specifier, so the updater can put packages only tests import in devDependencies.
+        const usedFilesByManifest = new Map<string, Map<string, string[]>>();
         for (const sourceFile of sourceFiles) {
-            const owner = ownerManifest(sourceFile.getFilePath(), manifests);
+            const filePath = sourceFile.getFilePath();
+            const owner = ownerManifest(filePath, manifests);
             if (!owner) continue;
-            let used = usedByManifest.get(owner.path);
-            if (!used) {
-                used = new Set();
-                usedByManifest.set(owner.path, used);
-            }
+            const used = new Set<string>();
             for (const decl of sourceFile.getImportDeclarations()) {
                 const spec = decl.getModuleSpecifierValue();
                 if (spec.startsWith('@modelcontextprotocol/')) used.add(spec);
@@ -272,6 +271,15 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
                 if (!isModuleRef) continue;
                 const spec = call.getArguments()[0]?.asKind(SyntaxKind.StringLiteral)?.getLiteralValue();
                 if (spec !== undefined && spec.startsWith('@modelcontextprotocol/')) used.add(spec);
+            }
+            if (!usedByManifest.has(owner.path)) {
+                usedByManifest.set(owner.path, new Set());
+                usedFilesByManifest.set(owner.path, new Map());
+            }
+            const filesBySpec = usedFilesByManifest.get(owner.path)!;
+            for (const spec of used) {
+                usedByManifest.get(owner.path)!.add(spec);
+                filesBySpec.set(spec, [...(filesBySpec.get(spec) ?? []), filePath]);
             }
         }
         // A single-file run sees one file's imports — applying a manifest edit from that
@@ -290,7 +298,13 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
             files.push(fileResult.filePath);
         }
 
-        const changes = updatePackageJson(manifests, usedByManifest, (options.dryRun ?? false) || targetIsFile, zodInjectedByManifest);
+        const changes = updatePackageJson(
+            manifests,
+            usedByManifest,
+            (options.dryRun ?? false) || targetIsFile,
+            zodInjectedByManifest,
+            usedFilesByManifest
+        );
         packageJsonChanges = changes.length > 0 ? changes : undefined;
     }
 
