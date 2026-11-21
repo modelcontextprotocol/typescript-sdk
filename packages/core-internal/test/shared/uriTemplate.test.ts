@@ -35,6 +35,12 @@ describe('UriTemplate', () => {
             const template = new UriTemplate('{var}');
             expect(template.expand({ var: 'value with spaces' })).toBe('value%20with%20spaces');
         });
+
+        it('should percent-encode characters encodeURIComponent leaves unescaped (RFC 6570 section 3.2.1)', () => {
+            const template = new UriTemplate('{var}');
+            expect(template.expand({ var: 'Hello World!' })).toBe('Hello%20World%21');
+            expect(template.expand({ var: "a!b'c(d)e*f" })).toBe('a%21b%27c%28d%29e%2Af');
+        });
     });
 
     describe('reserved expansion', () => {
@@ -42,6 +48,11 @@ describe('UriTemplate', () => {
             const template = new UriTemplate('{+path}/here');
             expect(template.expand({ path: '/foo/bar' })).toBe('/foo/bar/here');
             expect(template.variableNames).toEqual(['path']);
+        });
+
+        it('should leave sub-delims unencoded with + operator', () => {
+            const template = new UriTemplate('{+var}');
+            expect(template.expand({ var: "a!b'c(d)e*f" })).toBe("a!b'c(d)e*f");
         });
     });
 
@@ -74,6 +85,11 @@ describe('UriTemplate', () => {
             const template = new UriTemplate('X{?var}');
             expect(template.expand({ var: 'test' })).toBe('X?var=test');
             expect(template.variableNames).toEqual(['var']);
+        });
+
+        it('should percent-encode sub-delims in query values', () => {
+            const template = new UriTemplate('X{?q}');
+            expect(template.expand({ q: 'a(b)' })).toBe('X?q=a%28b%29');
         });
     });
 

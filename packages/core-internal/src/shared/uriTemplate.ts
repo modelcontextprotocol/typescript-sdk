@@ -106,7 +106,9 @@ export class UriTemplate {
         if (operator === '+' || operator === '#') {
             return encodeURI(value);
         }
-        return encodeURIComponent(value);
+        // encodeURIComponent leaves !'()* unescaped, but RFC 6570 section 3.2.1
+        // requires them percent-encoded for non-reserved operators.
+        return encodeURIComponent(value).replaceAll(/[!'()*]/g, c => `%${c.codePointAt(0)!.toString(16).toUpperCase()}`);
     }
 
     private expandPart(
