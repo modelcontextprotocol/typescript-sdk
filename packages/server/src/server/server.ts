@@ -832,7 +832,19 @@ export class Server extends Protocol<ServerContext> {
                 break;
             }
 
-            case 'notifications/resources/updated':
+            case 'notifications/resources/updated': {
+                // Resource updates only reach clients that opted in via
+                // resources/subscribe, which requires the advertised
+                // resources.subscribe capability (#2545).
+                if (!this._capabilities.resources?.subscribe) {
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Server does not support resource subscriptions (required for ${method})`
+                    );
+                }
+                break;
+            }
+
             case 'notifications/resources/list_changed': {
                 if (!this._capabilities.resources) {
                     throw new SdkError(
@@ -918,6 +930,20 @@ export class Server extends Protocol<ServerContext> {
             case 'resources/read': {
                 if (!this._capabilities.resources) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support resources (required for ${method})`);
+                }
+                break;
+            }
+
+            case 'resources/subscribe':
+            case 'resources/unsubscribe': {
+                // Handler registration must match the advertised bit; otherwise
+                // clients that subscribe (or the server's own handlers) see a
+                // silent dead-end when the capability was never declared (#2545).
+                if (!this._capabilities.resources?.subscribe) {
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Server does not support resource subscriptions (required for ${method})`
+                    );
                 }
                 break;
             }
@@ -1341,6 +1367,7 @@ export class Server extends Protocol<ServerContext> {
     }
 
     async sendResourceUpdated(params: ResourceUpdatedNotification['params']) {
+        // assertNotificationCapability requires resources.subscribe (#2545).
         return this.notification({
             method: 'notifications/resources/updated',
             params
