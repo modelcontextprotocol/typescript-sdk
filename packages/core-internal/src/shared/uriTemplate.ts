@@ -104,9 +104,18 @@ export class UriTemplate {
     private encodeValue(value: string, operator: string): string {
         UriTemplate.validateLength(value, MAX_VARIABLE_LENGTH, 'Variable value');
         if (operator === '+' || operator === '#') {
+            // Reserved expansion keeps RFC 3986 reserved characters — including
+            // the sub-delims "!" "'" "(" ")" "*" — and passes existing
+            // pct-triplets through, so encodeURI is the right encoder here.
             return encodeURI(value);
         }
-        return encodeURIComponent(value);
+        // encodeURIComponent leaves "!" "'" "(" ")" "*" unescaped, but RFC 6570
+        // §3.2.1 expands everything outside ALPHA / DIGIT / "-" / "." / "_" / "~",
+        // so those five have to be percent-encoded explicitly.
+        return encodeURIComponent(value).replaceAll(/[!'()*]/g, char => {
+            const codePoint = char.codePointAt(0)!;
+            return `%${codePoint.toString(16).toUpperCase()}`;
+        });
     }
 
     private expandPart(

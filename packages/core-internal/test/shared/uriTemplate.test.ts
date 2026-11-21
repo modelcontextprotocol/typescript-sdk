@@ -35,6 +35,17 @@ describe('UriTemplate', () => {
             const template = new UriTemplate('{var}');
             expect(template.expand({ var: 'value with spaces' })).toBe('value%20with%20spaces');
         });
+
+        it('should encode the sub-delimiters encodeURIComponent leaves alone', () => {
+            const template = new UriTemplate('{var}');
+            expect(template.expand({ var: "a!b'c(d)e*f" })).toBe('a%21b%27c%28d%29e%2Af');
+            expect(template.expand({ var: 'Hello World!' })).toBe('Hello%20World%21');
+        });
+
+        it('should keep sub-delimiters for reserved and fragment expansion', () => {
+            expect(new UriTemplate('{+var}').expand({ var: 'Hello World!' })).toBe('Hello%20World!');
+            expect(new UriTemplate('{#var}').expand({ var: 'a(b)!' })).toBe('#a(b)!');
+        });
     });
 
     describe('reserved expansion', () => {
