@@ -254,8 +254,7 @@ function isProvablyObjectShapedRoot(schema: Record<string, unknown>, root = sche
     if (
         target !== null &&
         typeof target === 'object' &&
-        ((target as Record<string, unknown>).type === 'object' ||
-            isProvablyObjectShapedRoot(target as Record<string, unknown>, {}))
+        ((target as Record<string, unknown>).type === 'object' || isProvablyObjectShapedRoot(target as Record<string, unknown>, {}))
     ) {
         return true;
     }
