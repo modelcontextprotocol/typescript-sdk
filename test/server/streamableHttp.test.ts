@@ -711,19 +711,22 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(errorData.error.message).toContain('Invalid JSON');
         });
 
-        it('should return 400 error for invalid JSON-RPC messages', async () => {
+        it('should return 400 Invalid Request (-32600) for valid JSON that is not a valid JSON-RPC message', async () => {
             sessionId = await initializeServer();
 
-            // Invalid JSON-RPC (missing required jsonrpc version)
-            const invalidMessage = { method: 'tools/list', params: {}, id: 1 }; // missing jsonrpc version
-            const response = await sendPostRequest(baseUrl, invalidMessage as JSONRPCMessage, sessionId);
+            const invalidPayloads: unknown[] = [
+                { method: 'tools/list', params: {}, id: 1 }, // missing jsonrpc version
+                { not_a_valid_request: true }, // arbitrary JSON object
+                { jsonrpc: '2.0', id: 7 }, // missing method/result/error
+                [] // empty batch
+            ];
 
-            expect(response.status).toBe(400);
-            const errorData = await response.json();
-            expect(errorData).toMatchObject({
-                jsonrpc: '2.0',
-                error: expect.anything()
-            });
+            for (const payload of invalidPayloads) {
+                const response = await sendPostRequest(baseUrl, payload as JSONRPCMessage, sessionId);
+                expect(response.status).toBe(400);
+                const errorData = await response.json();
+                expectErrorResponse(errorData, -32600, /Invalid Request/);
+            }
         });
 
         it('should reject requests to uninitialized server', async () => {

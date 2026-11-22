@@ -1,4 +1,4 @@
-import express, { Express } from 'express';
+import express, { Express, NextFunction, Request, Response } from 'express';
 import { hostHeaderValidation, localhostHostValidation } from './middleware/hostHeaderValidation.js';
 
 /**
@@ -72,6 +72,23 @@ export function createMcpExpressApp(options: CreateMcpExpressAppOptions = {}): E
     // The JSON body parser runs after the Host header validation, so a request
     // with a disallowed Host is answered 403 without its body being read.
     app.use(express.json());
+
+    // Map malformed JSON bodies from express.json() to a JSON-RPC Parse Error
+    // instead of letting Express's default HTML error handler emit stack traces.
+    app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+        if (!res.headersSent && err instanceof SyntaxError && 'type' in err && (err as { type?: unknown }).type === 'entity.parse.failed') {
+            res.status(400).json({
+                jsonrpc: '2.0',
+                error: {
+                    code: -32700,
+                    message: 'Parse error: Invalid JSON'
+                },
+                id: null
+            });
+            return;
+        }
+        next(err);
+    });
 
     return app;
 }

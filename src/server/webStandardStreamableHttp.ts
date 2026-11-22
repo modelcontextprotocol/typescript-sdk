@@ -759,6 +759,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     return this.createJsonErrorResponse(400, -32700, 'Parse error: Invalid JSON');
                 }
             }
+            if (Array.isArray(rawMessage) && rawMessage.length === 0) {
+                this.onerror?.(new Error('Invalid Request: Batch must not be empty'));
+                return this.createJsonErrorResponse(400, -32600, 'Invalid Request: Batch must not be empty');
+            }
             if (Array.isArray(rawMessage) && rawMessage.length > MAX_BATCH_SIZE) {
                 this.onerror?.(new Error(`Invalid Request: Batch must not exceed ${MAX_BATCH_SIZE} messages`));
                 return this.createJsonErrorResponse(400, -32600, `Invalid Request: Batch must not exceed ${MAX_BATCH_SIZE} messages`);
@@ -774,8 +778,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     messages = [JSONRPCMessageSchema.parse(rawMessage)];
                 }
             } catch {
-                this.onerror?.(new Error('Parse error: Invalid JSON-RPC message'));
-                return this.createJsonErrorResponse(400, -32700, 'Parse error: Invalid JSON-RPC message');
+                this.onerror?.(new Error('Invalid Request: Invalid JSON-RPC message'));
+                return this.createJsonErrorResponse(400, -32600, 'Invalid Request: Invalid JSON-RPC message');
             }
 
             // close() may have run while awaiting the request body above: don't

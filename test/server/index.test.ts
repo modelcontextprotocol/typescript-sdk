@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
+import type { NextFunction, Request, Response } from 'express';
 import supertest from 'supertest';
 import { Client } from '../../src/client/index.js';
 import { InMemoryTransport } from '../../src/inMemory.js';
@@ -2081,6 +2082,16 @@ describe('createMcpExpressApp', () => {
             .set('Content-Type', 'application/json')
             .send('{not json');
         expect(invalidJson.status).toBe(400);
+        expect(invalidJson.headers['content-type']).toMatch(/application\/json/);
+        expect(invalidJson.body).toEqual({
+            jsonrpc: '2.0',
+            error: {
+                code: -32700,
+                message: 'Parse error: Invalid JSON'
+            },
+            id: null
+        });
+        expect(invalidJson.text).not.toContain('SyntaxError');
 
         const allowed = await supertest(app)
             .post('/mcp')
@@ -2101,6 +2112,45 @@ describe('createMcpExpressApp', () => {
 
         expect(response.status).toBe(200);
         expect(response.body).toEqual({ received: { hello: 'world' } });
+    });
+
+    test('should return JSON-RPC -32700 without HTML stack trace for malformed JSON and pass through other errors', async () => {
+        const app = createMcpExpressApp();
+        app.post('/mcp', (_req, res) => {
+            res.json({ ok: true });
+        });
+        app.post('/boom', () => {
+            throw new SyntaxError('route syntax error');
+        });
+        app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+            res.status(500).json({ custom: err.message });
+        });
+
+        const malformed = await supertest(app)
+            .post('/mcp')
+            .set('Host', 'localhost:3000')
+            .set('Content-Type', 'application/json')
+            .send('not valid json{');
+
+        expect(malformed.status).toBe(400);
+        expect(malformed.headers['content-type']).toMatch(/application\/json/);
+        expect(malformed.body).toEqual({
+            jsonrpc: '2.0',
+            error: {
+                code: -32700,
+                message: 'Parse error: Invalid JSON'
+            },
+            id: null
+        });
+        expect(malformed.text).not.toMatch(/<html|SyntaxError/i);
+
+        const routeError = await supertest(app)
+            .post('/boom')
+            .set('Host', 'localhost:3000')
+            .set('Content-Type', 'application/json')
+            .send('{}');
+        expect(routeError.status).toBe(500);
+        expect(routeError.body).toEqual({ custom: 'route syntax error' });
     });
 
     test('should reject requests with invalid Host header by default', async () => {
