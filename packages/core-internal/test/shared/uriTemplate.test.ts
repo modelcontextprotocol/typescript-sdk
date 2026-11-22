@@ -231,6 +231,38 @@ describe('UriTemplate', () => {
             expect(() => new UriTemplate('{a}{')).toThrow();
         });
 
+        it('should return null from match() for templates with empty expressions', () => {
+            for (const expr of ['{}', '{,}', '{ }', '{*}', '{+}', '{#}', '{/}', '{.}', '{?}', '{&}']) {
+                const template = new UriTemplate(expr);
+                expect(template.variableNames).toEqual([]);
+                expect(template.expand({})).toBe('');
+                expect(template.expand({ undefined: 'value' })).toBe('');
+                expect(template.match('')).toBeNull();
+                expect(template.match('abc')).toBeNull();
+                expect(template.match('/')).toBeNull();
+                expect(template.match('.')).toBeNull();
+            }
+
+            const trailing = new UriTemplate('/api/{}');
+            expect(trailing.variableNames).toEqual([]);
+            expect(trailing.expand({})).toBe('/api/');
+            expect(trailing.match('/api/')).toBeNull();
+            expect(trailing.match('/api/x')).toBeNull();
+
+            const middle = new UriTemplate('/api/{}/items');
+            expect(middle.variableNames).toEqual([]);
+            expect(middle.expand({})).toBe('/api//items');
+            expect(middle.match('/api/items')).toBeNull();
+            expect(middle.match('/api//items')).toBeNull();
+            expect(middle.match('/api/x/items')).toBeNull();
+
+            const mixed = new UriTemplate('/users/{id}/{}');
+            expect(mixed.variableNames).toEqual(['id']);
+            expect(mixed.expand({ id: '123' })).toBe('/users/123/');
+            expect(mixed.match('/users/123/')).toBeNull();
+            expect(mixed.match('/users/123/extra')).toBeNull();
+        });
+
         it('should handle pathological regex patterns', () => {
             const template = new UriTemplate('/api/{param}');
             // Create a string that could cause catastrophic backtracking

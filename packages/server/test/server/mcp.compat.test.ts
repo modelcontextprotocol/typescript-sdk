@@ -1,8 +1,8 @@
 import type { JSONRPCMessage, SdkLogger } from '@modelcontextprotocol/core-internal';
-import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION, ProtocolErrorCode } from '@modelcontextprotocol/core-internal';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import * as z from 'zod/v4';
-import { McpServer } from '../../src/index';
+import { McpServer, ResourceTemplate } from '../../src/index';
 import type { InferRawShape } from '../../src/server/mcp';
 import { completable } from '../../src/server/completable';
 
@@ -239,5 +239,66 @@ describe('SEP-2106: registerTool with non-object outputSchema (type-level)', () 
             structuredContent: 'any JSON value remains valid without outputSchema'
         }));
         expectTypeOf<number[]>().toMatchTypeOf<z.infer<ReturnType<typeof z.array<z.ZodNumber>>>>();
+    });
+});
+
+describe('ResourceTemplate with empty expressions', () => {
+    it('returns resource not found (-32602) instead of internal error on resources/read', async () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+        const readCallback = vi.fn(async (uri: URL) => ({
+            contents: [{ uri: uri.href, text: 'unexpected' }]
+        }));
+
+        server.registerResource('empty-expr', new ResourceTemplate('test://{}', { list: undefined }), {}, readCallback);
+
+        const [client, srv] = InMemoryTransport.createLinkedPair();
+        await server.connect(srv);
+        await client.start();
+
+        const responses: JSONRPCMessage[] = [];
+        client.onmessage = m => responses.push(m);
+
+        try {
+            await client.send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'initialize',
+                params: {
+                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    capabilities: {},
+                    clientInfo: { name: 'c', version: '1.0.0' }
+                }
+            } as JSONRPCMessage);
+            await client.send({ jsonrpc: '2.0', method: 'notifications/initialized' } as JSONRPCMessage);
+            await client.send({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'resources/read',
+                params: { uri: 'test://abc' }
+            } as JSONRPCMessage);
+            await client.send({
+                jsonrpc: '2.0',
+                id: 3,
+                method: 'resources/read',
+                params: { uri: 'test://' }
+            } as JSONRPCMessage);
+
+            await vi.waitFor(() => expect(responses.some(r => 'id' in r && r.id === 3)).toBe(true));
+
+            const nonEmptyUriResp = responses.find(r => 'id' in r && r.id === 2) as {
+                error?: { code: number; message: string };
+            };
+            const emptySuffixResp = responses.find(r => 'id' in r && r.id === 3) as {
+                error?: { code: number; message: string };
+            };
+
+            expect(nonEmptyUriResp.error?.code).toBe(ProtocolErrorCode.InvalidParams);
+            expect(nonEmptyUriResp.error?.message).toContain('Resource not found');
+            expect(emptySuffixResp.error?.code).toBe(ProtocolErrorCode.InvalidParams);
+            expect(emptySuffixResp.error?.message).toContain('Resource not found');
+            expect(readCallback).not.toHaveBeenCalled();
+        } finally {
+            await server.close();
+        }
     });
 });
