@@ -2,6 +2,15 @@
 
 export type Variables = Record<string, string | string[]>;
 
+interface ExpressionPart {
+    name: string | undefined;
+    operator: string;
+    names: string[];
+    exploded: boolean;
+}
+
+type TemplatePart = string | ExpressionPart;
+
 const MAX_TEMPLATE_LENGTH = 1_000_000; // 1MB
 const MAX_VARIABLE_LENGTH = 1_000_000; // 1MB
 const MAX_TEMPLATE_EXPRESSIONS = 10_000;
@@ -25,7 +34,7 @@ export class UriTemplate {
         }
     }
     private readonly template: string;
-    private readonly parts: Array<string | { name: string; operator: string; names: string[]; exploded: boolean }>;
+    private readonly parts: TemplatePart[];
 
     get variableNames(): string[] {
         return this.parts.flatMap(part => (typeof part === 'string' ? [] : part.names));
@@ -41,8 +50,8 @@ export class UriTemplate {
         return this.template;
     }
 
-    private parse(template: string): Array<string | { name: string; operator: string; names: string[]; exploded: boolean }> {
-        const parts: Array<string | { name: string; operator: string; names: string[]; exploded: boolean }> = [];
+    private parse(template: string): TemplatePart[] {
+        const parts: TemplatePart[] = [];
         let currentText = '';
         let i = 0;
         let expressionCount = 0;
@@ -65,7 +74,7 @@ export class UriTemplate {
                 const operator = this.getOperator(expr);
                 const exploded = expr.includes('*');
                 const names = this.getNames(expr);
-                const name = names[0]!;
+                const name = names[0];
 
                 // Validate variable name length
                 for (const name of names) {
@@ -109,15 +118,9 @@ export class UriTemplate {
         return encodeURIComponent(value);
     }
 
-    private expandPart(
-        part: {
-            name: string;
-            operator: string;
-            names: string[];
-            exploded: boolean;
-        },
-        variables: Variables
-    ): string {
+    private expandPart(part: ExpressionPart, variables: Variables): string {
+        if (part.names.length === 0) return '';
+
         if (part.operator === '?' || part.operator === '&') {
             const pairs = part.names
                 .map(name => {
@@ -141,6 +144,7 @@ export class UriTemplate {
             return values.map(v => (Array.isArray(v) ? v[0] : v)).join(',');
         }
 
+        if (part.name === undefined) return '';
         const value = variables[part.name];
         if (value === undefined) return '';
 
@@ -197,13 +201,12 @@ export class UriTemplate {
         return str.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
     }
 
-    private partToRegExp(part: {
-        name: string;
-        operator: string;
-        names: string[];
-        exploded: boolean;
-    }): Array<{ pattern: string; name: string }> {
+    private partToRegExp(part: ExpressionPart): Array<{ pattern: string; name: string }> {
         const patterns: Array<{ pattern: string; name: string }> = [];
+
+        if (part.names.length === 0 || part.name === undefined) {
+            return patterns;
+        }
 
         // Validate variable name length for matching
         for (const name of part.names) {
@@ -261,6 +264,9 @@ export class UriTemplate {
             if (typeof part === 'string') {
                 pattern += this.escapeRegExp(part);
             } else {
+                if (part.names.length === 0) {
+                    return null;
+                }
                 const patterns = this.partToRegExp(part);
                 for (const { pattern: partPattern, name } of patterns) {
                     pattern += partPattern;
