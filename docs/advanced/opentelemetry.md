@@ -10,11 +10,13 @@ shape: how-to
 import { context, metrics, propagation, trace } from '@opentelemetry/api';
 import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
 import { W3CTraceContextPropagator } from '@opentelemetry/core';
+import { AggregationTemporality, InMemoryMetricExporter, MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { InMemorySpanExporter, SimpleSpanProcessor, TracerProvider } from '@opentelemetry/sdk-trace';
 
-// Swap the in-memory exporter for an OTLP exporter to send spans to a backend.
+// Swap the in-memory exporters for OTLP exporters to send spans and metrics to a backend.
 const exporter = new InMemorySpanExporter();
 const tracerProvider = new TracerProvider({ spanProcessors: [new SimpleSpanProcessor({ exporter })] });
+const metricReader = new PeriodicExportingMetricReader({ exporter: new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE) });
 
 context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
 propagation.setGlobalPropagator(new W3CTraceContextPropagator());
@@ -31,7 +33,7 @@ The MCP semantic conventions are still in development. Span and attribute names 
 The SDK packages talk to the OpenTelemetry API, which does nothing until an application registers an SDK. Without one, nothing is recorded and nothing is added to `params._meta`.
 
 ```sh
-npm install @opentelemetry/api @opentelemetry/sdk-trace @opentelemetry/context-async-hooks @opentelemetry/core
+npm install @opentelemetry/api @opentelemetry/sdk-trace @opentelemetry/sdk-metrics @opentelemetry/context-async-hooks @opentelemetry/core
 ```
 
 The server needs no telemetry configuration of its own.

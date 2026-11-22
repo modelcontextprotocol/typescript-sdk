@@ -13,25 +13,20 @@
  */
 /* eslint-disable no-console */
 import type { DataPoint, Histogram } from '@opentelemetry/sdk-metrics';
-import { MeterProvider, MetricReader } from '@opentelemetry/sdk-metrics';
 import type { ReadableSpan } from '@opentelemetry/sdk-trace';
-
-class CollectingMetricReader extends MetricReader {
-    protected async onShutdown(): Promise<void> {}
-    protected async onForceFlush(): Promise<void> {}
-}
-const metricReader = new CollectingMetricReader();
 
 // "Register an OpenTelemetry SDK" — the application's job, once, before any MCP traffic.
 //#region sdk_setup
 import { context, metrics, propagation, trace } from '@opentelemetry/api';
 import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
 import { W3CTraceContextPropagator } from '@opentelemetry/core';
+import { AggregationTemporality, InMemoryMetricExporter, MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { InMemorySpanExporter, SimpleSpanProcessor, TracerProvider } from '@opentelemetry/sdk-trace';
 
-// Swap the in-memory exporter for an OTLP exporter to send spans to a backend.
+// Swap the in-memory exporters for OTLP exporters to send spans and metrics to a backend.
 const exporter = new InMemorySpanExporter();
 const tracerProvider = new TracerProvider({ spanProcessors: [new SimpleSpanProcessor({ exporter })] });
+const metricReader = new PeriodicExportingMetricReader({ exporter: new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE) });
 
 context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
 propagation.setGlobalPropagator(new W3CTraceContextPropagator());
