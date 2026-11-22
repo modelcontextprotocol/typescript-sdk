@@ -105,6 +105,17 @@ describe('protocol tests', () => {
         expect(oncloseMock).toHaveBeenCalled();
     });
 
+    test('a request without a transport rejects with SdkError NotConnected, before connect and after close', async () => {
+        const isNotConnected = (error: unknown) =>
+            error instanceof SdkError && error.code === SdkErrorCode.NotConnected && error.message === 'Not connected';
+
+        await expect(testRequest(protocol, { method: 'example', params: {} }, z.object({}))).rejects.toSatisfy(isNotConnected);
+
+        await protocol.connect(transport);
+        await protocol.close();
+        await expect(testRequest(protocol, { method: 'example', params: {} }, z.object({}))).rejects.toSatisfy(isNotConnected);
+    });
+
     test('should abort in-flight request handlers when the connection is closed', async () => {
         await protocol.connect(transport);
 
