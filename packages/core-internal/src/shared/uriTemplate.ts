@@ -259,7 +259,10 @@ export class UriTemplate {
                     queryNames.push({ name, exploded: part.exploded });
                 }
 
-                pattern += part.operator === '?' ? String.raw`(?:\?[^#]*)?` : '(?:&[^#]*)?';
+                // Omitted and reordered keys are valid, but an unrelated key does not belong to this expansion.
+                const separator = part.operator === '?' ? String.raw`\?` : '&';
+                const pair = `(?:${part.names.map(name => this.escapeRegExp(name)).join('|')})=[^&#]*`;
+                pattern += `(?:${separator}${pair}(?:&${pair})*)?`;
             } else {
                 const patterns = this.partToRegExp(part);
                 for (const { pattern: partPattern, name } of patterns) {

@@ -212,6 +212,19 @@ describe('UriTemplate', () => {
             expect(template.variableNames).toEqual(['q', 'page', 'limit']);
         });
 
+        it('should reject query parameters that are absent from the template', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            expect(template.match('/search?other=1')).toBeNull();
+            expect(template.match('/search?q=test&other=1')).toBeNull();
+        });
+
+        it('should match an optional query continuation after a literal query parameter', () => {
+            const template = new UriTemplate('/search?mode=advanced{&q,page}');
+            expect(template.match('/search?mode=advanced')).toEqual({});
+            expect(template.match('/search?mode=advanced&page=1&q=test')).toEqual({ q: 'test', page: '1' });
+            expect(template.match('/search?mode=advanced&other=1')).toBeNull();
+        });
+
         it('should stop simple path variables before query parameters', () => {
             const template = new UriTemplate('dom://{pageId}{?selector,includeText}');
             const match = template.match('dom://page-1?includeText=true');
