@@ -12,11 +12,11 @@ import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
     isJsonContentType,
-    mediaTypeEssence,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
+    mediaTypeEssence,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
