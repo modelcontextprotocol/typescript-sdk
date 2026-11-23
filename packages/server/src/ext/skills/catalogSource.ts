@@ -1,5 +1,5 @@
 import { ProtocolError, ProtocolErrorCode, ResourceNotFoundError } from '@modelcontextprotocol/core-internal';
-import { canonicalUri, decodeUtf8Lossless, sha256Digest } from '@modelcontextprotocol/core-internal/ext/skills';
+import { canonicalUri, decodeUtf8Lossless, sha256Digest, skillFileKey } from '@modelcontextprotocol/core-internal/ext/skills';
 
 import type { CatalogSnapshot } from './catalogBuild';
 import { trustedSources } from './internal';
@@ -12,6 +12,21 @@ export interface CatalogState {
 }
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+// Normalises a requested resource or directory URI below its authority so alternate
+// percent-encodings (`Q%26A.md`, lowercase `%c3%a9`, raw `^` on Node 20/22) match the
+// catalog's published entry, while rejecting URIs carrying a query or fragment.
+function catalogUriKey(uri: string): string | undefined {
+    let url: URL;
+    try {
+        url = new URL(uri);
+    } catch {
+        return undefined;
+    }
+    const canonical = url.href;
+    if (/[#?]/.test(canonical)) return undefined;
+    return skillFileKey(`${url.protocol}//${url.host}`, canonical);
+}
 
 // A trusted source: the SDK built and checked the snapshot's entries.
 export function catalogSource(
@@ -31,8 +46,8 @@ export function catalogSource(
         },
         read: uri => readChecked(state.current, files, uri, warn),
         async readDirectory(uri, { cursor }) {
-            const canonical = canonicalUri(uri);
-            const children = canonical === undefined ? undefined : state.current.dirs.get(canonical);
+            const key = catalogUriKey(uri);
+            const children = key === undefined ? undefined : state.current.dirs.get(key);
             if (children === undefined) return;
             const page = paginate(children, cursor, pageSize, child => child.uri);
             return page.nextCursor === undefined ? { resources: page.items } : { resources: page.items, nextCursor: page.nextCursor };
@@ -52,10 +67,10 @@ async function readChecked(
     uri: string,
     warn: (warning: SkillWarning) => void
 ): Promise<SkillReadResult | undefined> {
-    const canonical = canonicalUri(uri);
-    const file = canonical === undefined ? undefined : snapshot.files.get(canonical);
+    const key = catalogUriKey(uri);
+    const file = key === undefined ? undefined : snapshot.files.get(key);
     if (file === undefined) {
-        if (canonical !== undefined && snapshot.dirs.has(canonical)) {
+        if (key !== undefined && snapshot.dirs.has(key)) {
             throw new ResourceNotFoundError(uri, `${uri} is a directory; use resources/directory/read`);
         }
         return undefined;
