@@ -660,6 +660,10 @@ verifies('protocol:timeout:basic', async ({ transport }: TestArgs) => {
 });
 
 verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
+    // Captured before faking: the wait for the call below needs a deadline the
+    // frozen fake clock cannot hold back.
+    const realSetTimeout = globalThis.setTimeout;
+    const realClearTimeout = globalThis.clearTimeout;
     vi.useFakeTimers();
     try {
         let markCallReceived!: () => void;
@@ -712,11 +716,21 @@ verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
         // promise, unlike vi.waitFor, does not move the fake clock. If the call settles
         // without reaching the handler (e.g. its arguments are rejected), fail with
         // that reason instead of waiting on callReceived until the test times out.
+        // If nothing comes back at all, the frozen clock also holds back the
+        // per-request timeout, so bound the wait in real time.
         const settledFirst = call.then(() => {
             throw new Error('tools/call settled before the tool handler ran');
         });
         settledFirst.catch(() => {});
-        await Promise.race([callReceived, settledFirst]);
+        let deadline: ReturnType<typeof realSetTimeout> | undefined;
+        const neverArrived = new Promise<never>((_, reject) => {
+            deadline = realSetTimeout(() => reject(new Error('tools/call did not reach the tool handler within 5s')), 5000);
+        });
+        try {
+            await Promise.race([callReceived, settledFirst, neverArrived]);
+        } finally {
+            realClearTimeout(deadline);
+        }
 
         for (let elapsed = 0; elapsed < maxTotal + perChunk; elapsed += delayMs) {
             await vi.advanceTimersByTimeAsync(delayMs);
