@@ -301,6 +301,26 @@ describe('Zod v4', () => {
                 expectErrorResponse(errorData, -32_000, /Not Acceptable/);
             });
 
+            it('should reject Accept values that only contain required media types as substrings', async () => {
+                const request = createRequest('POST', TEST_MESSAGES.initialize, {
+                    accept: 'application/jsonx, text/event-stream-bogus'
+                });
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(406);
+                const errorData = await response.json();
+                expectErrorResponse(errorData, -32_000, /Not Acceptable/);
+            });
+
+            it('should accept case-insensitive media types with parameters', async () => {
+                const request = createRequest('POST', TEST_MESSAGES.initialize, {
+                    accept: 'Application/JSON; q=0.9, Text/Event-Stream; charset=utf-8'
+                });
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(200);
+            });
+
             it('should reject request with wrong Content-Type header', async () => {
                 const request = new Request('http://localhost/mcp', {
                     method: 'POST',
@@ -369,6 +389,33 @@ describe('Zod v4', () => {
                 expect(response.status).toBe(406);
                 const errorData = await response.json();
                 expectErrorResponse(errorData, -32_000, /Not Acceptable/);
+            });
+
+            it('should reject GET Accept values that only contain text/event-stream as a substring', async () => {
+                sessionId = await initializeServer();
+
+                const request = createRequest('GET', undefined, {
+                    sessionId,
+                    accept: 'text/event-stream-bogus'
+                });
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(406);
+                const errorData = await response.json();
+                expectErrorResponse(errorData, -32_000, /Not Acceptable/);
+            });
+
+            it('should accept a case-insensitive parameterized SSE media type', async () => {
+                sessionId = await initializeServer();
+
+                const request = createRequest('GET', undefined, {
+                    sessionId,
+                    accept: 'Text/Event-Stream; charset=utf-8'
+                });
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(200);
+                expect(response.headers.get('content-type')).toBe('text/event-stream');
             });
 
             it('should reject second standalone SSE stream', async () => {
