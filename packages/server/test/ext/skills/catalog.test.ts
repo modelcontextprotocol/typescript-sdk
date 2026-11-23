@@ -117,6 +117,61 @@ describe('SkillCatalog serving', () => {
         }
     });
 
+    it('resolves equivalent percent-encodings, lowercase hex, and raw carets in resources/read and resources/directory/read', async () => {
+        const { mcp, catalog, files } = await loaded();
+        files['git-workflow/references/Q&A.md'] = '# Q&A\n';
+        files['git-workflow/references/x^y.md'] = '# Caret\n';
+        files['git-workflow/references/100%.md'] = '# Percent\n';
+        files['git-workflow/Q&A/note.md'] = '# Dir QA\n';
+        files['git-workflow/x^y/note.md'] = '# Dir Caret\n';
+        await catalog.reload();
+
+        for (const [requested, text] of [
+            ['skill://git-workflow/references/Q&A.md', '# Q&A\n'],
+            ['skill://git-workflow/references/Q%26A.md', '# Q&A\n'],
+            ['skill://git-workflow/references/%51&A.md', '# Q&A\n'],
+            ['skill://git-workflow/references/x^y.md', '# Caret\n'],
+            ['skill://git-workflow/references/x%5Ey.md', '# Caret\n'],
+            ['skill://acme/billing/refunds/templates/Rembours%c3%a9.md', '# Remboursement\n'],
+            ['skill://git-workflow/references/100%25.md', '# Percent\n'],
+            ['skill://git-workflow/references/100%.md', '# Percent\n']
+        ] as const) {
+            expect(await resultOf(mcp, 'resources/read', { uri: requested })).toMatchObject({ contents: [{ text }] });
+        }
+
+        for (const rejected of [
+            'skill://git-workflow/references/Q&A.md?v=1',
+            'skill://git-workflow/references/Q&A.md?',
+            'skill://git-workflow/references/Q&A.md#section',
+            'skill://git-workflow/references/Q&A.md#'
+        ]) {
+            expect(await errorOf(mcp, 'resources/read', { uri: rejected })).toMatchObject({ code: -32_602 });
+        }
+
+        for (const dirUri of ['skill://git-workflow/Q%26A', 'skill://git-workflow/x^y']) {
+            expect(await errorOf(mcp, 'resources/read', { uri: dirUri })).toMatchObject({
+                code: -32_602,
+                message: expect.stringMatching(/is a directory/)
+            });
+            expect(await resultOf(mcp, 'resources/directory/read', { uri: dirUri })).toMatchObject({
+                resources: [{ name: 'note.md' }]
+            });
+        }
+
+        for (const badDir of ['skill://git-workflow/Q&A?v=1', 'skill://git-workflow/Q&A#section']) {
+            expect(await errorOf(mcp, 'resources/directory/read', { uri: badDir })).toMatchObject({ code: -32_602 });
+        }
+
+        const prefixed = await loaded({ prefix: 'acme:prod' });
+        prefixed.files['git-workflow/references/Q&A.md'] = '# Prefixed Q&A\n';
+        await prefixed.catalog.reload();
+        expect(
+            await resultOf(prefixed.mcp, 'resources/read', { uri: 'skill://acme%3Aprod/git-workflow/references/Q%26A.md' })
+        ).toMatchObject({
+            contents: [{ text: '# Prefixed Q&A\n' }]
+        });
+    });
+
     it('answers -32602 when resources/read targets a directory', async () => {
         const { mcp } = await loaded();
         expect(await errorOf(mcp, 'resources/read', { uri: 'skill://acme/billing/refunds' })).toMatchObject({
