@@ -269,7 +269,8 @@ function acceptsMediaType(acceptHeader: string | null, expected: string): boolea
         return false;
     }
 
-    return acceptHeader.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).some(range => mediaTypeEssence(range) === expected);
+    const mediaRanges = acceptHeader.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
+    return mediaRanges.some(range => mediaTypeEssence(range) === expected);
 }
 
 export class WebStandardStreamableHTTPServerTransport implements Transport {
