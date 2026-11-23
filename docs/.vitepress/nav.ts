@@ -68,10 +68,12 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
         items: [
             { text: 'Low-level server', link: '/advanced/low-level-server' },
             { text: 'Custom methods', link: '/advanced/custom-methods' },
+            { text: 'Extensions', link: '/advanced/extensions' },
             { text: 'Schema libraries', link: '/advanced/schema-libraries' },
             { text: 'Custom transports', link: '/advanced/custom-transports' },
             { text: 'Wire schemas', link: '/advanced/wire-schemas' },
-            { text: 'Gateway', link: '/advanced/gateway' }
+            { text: 'Gateway', link: '/advanced/gateway' },
+            { text: 'OpenTelemetry', link: '/advanced/opentelemetry' }
         ]
     },
     { text: 'Testing', link: '/testing' },
