@@ -12,6 +12,7 @@ import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
     isJsonContentType,
+    mediaTypeEssence,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
@@ -256,6 +257,23 @@ export interface HandleRequestOptions {
  * };
  * ```
  */
+/**
+ * Checks whether an Accept header lists an exact media type.
+ *
+ * Commas inside quoted parameter values are not list separators. Parse each
+ * media range with the shared media-type parser so parameters and casing are
+ * handled consistently with Content-Type validation.
+ */
+function acceptsMediaType(acceptHeader: string | null, expected: string): boolean {
+    if (!acceptHeader) {
+        return false;
+    }
+
+    return acceptHeader
+        .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
+        .some(range => mediaTypeEssence(range) === expected);
+}
+
 export class WebStandardStreamableHTTPServerTransport implements Transport {
     // when sessionId is not set (undefined), it means the transport is in stateless mode
     private sessionIdGenerator: (() => string) | undefined;
@@ -506,7 +524,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private async handleGetRequest(req: Request): Promise<Response> {
         // The client MUST include an Accept header, listing text/event-stream as a supported content type.
         const acceptHeader = req.headers.get('accept');
-        if (!acceptHeader?.includes('text/event-stream')) {
+        if (!acceptsMediaType(acceptHeader, 'text/event-stream')) {
             this.onerror?.(new Error('Not Acceptable: Client must accept text/event-stream'));
             return this.createJsonErrorResponse(406, -32_000, 'Not Acceptable: Client must accept text/event-stream');
         }
@@ -785,9 +803,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // Validate the Accept header
             const acceptHeader = req.headers.get('accept');
             // The client MUST include an Accept header, listing both application/json and text/event-stream as supported content types.
-            // Accept is a comma-separated list, so a substring check is the intended semantics here (unlike Content-Type below).
-            // eslint-disable-next-line no-restricted-syntax
-            if (!acceptHeader?.includes('application/json') || !acceptHeader.includes('text/event-stream')) {
+            if (
+                !acceptsMediaType(acceptHeader, 'application/json') ||
+                !acceptsMediaType(acceptHeader, 'text/event-stream')
+            ) {
                 this.onerror?.(new Error('Not Acceptable: Client must accept both application/json and text/event-stream'));
                 return this.createJsonErrorResponse(
                     406,
