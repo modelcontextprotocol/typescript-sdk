@@ -61,9 +61,10 @@ export interface PackageJsonChange {
     removed: string[];
     packageJsonPath: string;
     /**
-     * True for the manifest the codemod writes (the nearest one walking up from the
-     * target directory) — or, under dry-run, the one it would write. False entries
-     * describe edits to other manifests — typically workspace members — that are
+     * True for manifests the codemod writes (the nearest one walking up from the
+     * target directory, or any workspace member whose source files were rewritten
+     * by the run) — or, under dry-run, the ones it would write. False entries
+     * describe edits to other manifests — un-migrated workspace members — that are
      * reported for the user to apply themselves; those are never written.
      */
     applied: boolean;

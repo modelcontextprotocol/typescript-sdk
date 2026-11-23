@@ -258,7 +258,7 @@ describe('run() manifest integration', () => {
         // Source uses v1 SDK import — will be rewritten by the run
         writeFileSync(
             path.join(dir, 'packages/a/src/index.ts'),
-            "import { Client } from '@modelcontextprotocol/sdk/client/index.js';\\nexport const c = new Client({ name: 'x', version: '1' });\\n"
+            "import { Client } from '@modelcontextprotocol/sdk/client/index.js';\nexport const c = new Client({ name: 'x', version: '1' });\n"
         );
 
         const result = run(v1ToV2Migration, { targetDir: dir, dryRun: false });
@@ -273,6 +273,49 @@ describe('run() manifest integration', () => {
         const deps = readJson(member).dependencies as Record<string, string>;
         expect(deps['@modelcontextprotocol/sdk']).toBeUndefined();
         expect(deps['@modelcontextprotocol/client']).toBeDefined();
+    });
+
+    it('applies manifest changes only to workspace members whose files were rewritten, reporting untouched members', () => {
+        writeJson('package.json', { name: 'mono', workspaces: ['packages/*'] });
+        const memberA = writeJson('packages/a/package.json', {
+            name: 'a',
+            dependencies: { '@modelcontextprotocol/sdk': '^1.29.0' }
+        });
+        const memberB = writeJson('packages/b/package.json', {
+            name: 'b',
+            dependencies: { '@modelcontextprotocol/sdk': '^1.29.0' }
+        });
+        mkdirSync(path.join(dir, 'packages/a/src'), { recursive: true });
+        mkdirSync(path.join(dir, 'packages/b/src'), { recursive: true });
+
+        // packages/a uses v1 imports -> will be rewritten
+        writeFileSync(
+            path.join(dir, 'packages/a/src/index.ts'),
+            "import { Client } from '@modelcontextprotocol/sdk/client/index.js';\nexport const c = new Client({ name: 'x', version: '1' });\n"
+        );
+        // packages/b is already on v2 -> will NOT be rewritten
+        writeFileSync(
+            path.join(dir, 'packages/b/src/index.ts'),
+            "import { Server } from '@modelcontextprotocol/server';\nexport const s = new Server({ name: 's', version: '1' });\n"
+        );
+
+        const result = run(v1ToV2Migration, { targetDir: dir, dryRun: false });
+
+        // packages/a manifest is applied and written
+        const changeA = result.packageJsonChanges?.find(c => c.packageJsonPath === memberA);
+        expect(changeA).toBeDefined();
+        expect(changeA!.applied).toBe(true);
+        const depsA = readJson(memberA).dependencies as Record<string, string>;
+        expect(depsA['@modelcontextprotocol/sdk']).toBeUndefined();
+        expect(depsA['@modelcontextprotocol/client']).toBeDefined();
+
+        // packages/b manifest is reported only, never written
+        const changeB = result.packageJsonChanges?.find(c => c.packageJsonPath === memberB);
+        expect(changeB).toBeDefined();
+        expect(changeB!.applied).toBe(false);
+        const depsB = readJson(memberB).dependencies as Record<string, string>;
+        expect(depsB['@modelcontextprotocol/sdk']).toBe('^1.29.0');
+        expect(depsB['@modelcontextprotocol/server']).toBeUndefined();
     });
 
     it('survives a directory symlink cycle without following it', () => {
