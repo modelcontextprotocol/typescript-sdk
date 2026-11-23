@@ -85,7 +85,11 @@ export function normalizeToRoot(pkg: string): string {
 
 /** ts-morph standardizes file paths to forward slashes on every platform; manifests must compare the same way. */
 function toPosix(p: string): string {
-    return p.replaceAll('\\', '/');
+    let posix = p.replaceAll('\\', '/');
+    if (/^[a-zA-Z]:\//.test(posix)) {
+        posix = posix[0]!.toUpperCase() + posix.slice(1);
+    }
+    return posix;
 }
 
 function detectIndent(text: string): string {
@@ -108,7 +112,8 @@ function pnpmWorkspaceGlobs(rootDir: string): string[] {
     if (!existsSync(p)) return [];
     const globs: string[] = [];
     let inPackages = false;
-    for (const line of readFileSync(p, 'utf8').split('\n')) {
+    for (const rawLine of readFileSync(p, 'utf8').split('\n')) {
+        const line = rawLine.replace(/\r$/, '');
         if (/^packages\s*:/.test(line)) {
             inPackages = true;
             continue;
@@ -164,7 +169,8 @@ export function discoverManifests(targetDir: string): ManifestInfo[] {
     // run's scope and is not reported.
     const resolvedRoot = path.resolve(rootDir);
     for (const dir of memberDirs) {
-        if (!path.resolve(dir).startsWith(resolvedRoot + path.sep)) continue;
+        const rel = path.relative(resolvedRoot, path.resolve(dir));
+        if (rel.startsWith('..') || path.isAbsolute(rel) || rel === '') continue;
         const manifest = path.join(dir, 'package.json');
         if (existsSync(manifest) && manifest !== rootManifest) {
             manifests.push({ dir: toPosix(dir), path: manifest });
@@ -253,10 +259,30 @@ function parseManifest(manifestPath: string): ParsedManifest | undefined {
 const ZOD_RANGE = '^4.2.0';
 const TEST_PATH_RE = /(^|\/)(test|tests|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$/;
 
+function sortDependencies(pkgJson: Record<string, unknown>): void {
+    const depSections = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'] as const;
+    for (const section of depSections) {
+        const obj = pkgJson[section];
+        if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+            const sorted: Record<string, unknown> = {};
+            for (const key of Object.keys(obj as Record<string, unknown>).toSorted()) {
+                sorted[key] = (obj as Record<string, unknown>)[key];
+            }
+            pkgJson[section] = sorted;
+        }
+    }
+}
+
 function writeManifest(manifestPath: string, raw: string, pkgJson: Record<string, unknown>): void {
+    sortDependencies(pkgJson);
     const indent = detectIndent(raw);
     let output = JSON.stringify(pkgJson, null, indent);
-    if (raw.endsWith('\n')) output += '\n';
+    if (raw.endsWith('\r\n') || raw.endsWith('\n')) {
+        output += raw.includes('\r\n') ? '\r\n' : '\n';
+    }
+    if (raw.includes('\r\n')) {
+        output = output.replaceAll('\n', '\r\n');
+    }
     writeFileSync(manifestPath, output);
 }
 

@@ -219,6 +219,37 @@ describe('updatePackageJson', () => {
         updatePackageJson(discoverManifests(dir), new Map(), false);
         expect(readFileSync(manifest, 'utf8')).toContain('\n    "name"');
     });
+
+    it('preserves CRLF line endings when present in manifest', () => {
+        const manifest = path.join(dir, 'package.json');
+        writeFileSync(
+            manifest,
+            '{\r\n  "name": "app",\r\n  "dependencies": {\r\n    "@modelcontextprotocol/sdk": "^1.29.0"\r\n  }\r\n}\r\n'
+        );
+        updatePackageJson(discoverManifests(dir), new Map([[manifest, new Set(['@modelcontextprotocol/client'])]]), false);
+        const written = readFileSync(manifest, 'utf8');
+        expect(written).toContain('\r\n');
+        expect(written.replaceAll('\r\n', '')).not.toContain('\n');
+    });
+
+    it('sorts dependencies alphabetically when writing manifest', () => {
+        const manifest = writeJson('package.json', {
+            name: 'app',
+            dependencies: {
+                z: '^1.0.0',
+                '@modelcontextprotocol/sdk': '^1.29.0',
+                a: '^1.0.0'
+            }
+        });
+        updatePackageJson(
+            discoverManifests(dir),
+            new Map([[manifest, new Set(['@modelcontextprotocol/server', '@modelcontextprotocol/client'])]]),
+            false
+        );
+        const written = readFileSync(manifest, 'utf8');
+        const parsed = JSON.parse(written) as { dependencies: Record<string, string> };
+        expect(Object.keys(parsed.dependencies)).toEqual(['@modelcontextprotocol/client', '@modelcontextprotocol/server', 'a', 'z']);
+    });
 });
 
 describe('run() manifest integration', () => {
