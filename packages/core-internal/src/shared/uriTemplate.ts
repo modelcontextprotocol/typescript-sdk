@@ -213,9 +213,20 @@ export class UriTemplate {
         if (part.operator === '?' || part.operator === '&') {
             for (let i = 0; i < part.names.length; i++) {
                 const name = part.names[i]!;
-                const prefix = i === 0 ? '\\' + part.operator : '&';
+                // Query variables are optional by definition: `expand` drops a
+                // pair whose variable is undefined, so a URI it produced can
+                // carry any subset of `names`. Keep each pair optional (and let
+                // the value be empty, since an empty string still expands to
+                // `name=`) so `match(expand(vars))` is never null.
+                //
+                // The pair a URI starts with is therefore not necessarily the
+                // first name: with `{?q,page}` and only `page` set, `expand`
+                // emits `?page=1`. And a template that already opened its query
+                // (`/search?fixed=1{?a,b}`) expands that first pair with `&`,
+                // also at i === 0. Both markers are legal at any position.
+                const prefix = part.operator === '?' ? '[?&]' : '&';
                 patterns.push({
-                    pattern: prefix + this.escapeRegExp(name) + '=([^&]+)',
+                    pattern: `(?:${prefix}${this.escapeRegExp(name)}=([^&]*))?`,
                     name
                 });
             }
@@ -279,7 +290,9 @@ export class UriTemplate {
         const result: Variables = {};
         for (const [i, name_] of names.entries()) {
             const { name, exploded } = name_!;
-            const value = match[i + 1]!;
+            const value = match[i + 1];
+            // An omitted optional query pair leaves its group unset.
+            if (value === undefined) continue;
             const cleanName = name.replace('*', '');
 
             result[cleanName] = exploded && value.includes(',') ? value.split(',') : value;
