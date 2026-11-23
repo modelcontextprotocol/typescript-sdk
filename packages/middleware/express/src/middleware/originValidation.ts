@@ -11,7 +11,7 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
  * `Origin` header pass (non-browser MCP clients do not send one); a present
  * value that is not allowed, or that cannot be parsed, is rejected with `403`.
  *
- * @param allowedOriginHostnames - List of allowed origin hostnames (without scheme or port).
+ * @param allowedOriginHostnames - List of allowed origin hostnames (without scheme or port), or `<scheme>://*` entries.
  *   For IPv6, provide the address with brackets (e.g., `[::1]`).
  * @returns Express middleware function
  *

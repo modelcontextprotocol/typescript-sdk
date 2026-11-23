@@ -2,12 +2,12 @@
     "revision": "2026-07-28",
     "source": {
         "repo": "modelcontextprotocol/modelcontextprotocol",
-        "path": "schema/draft/examples",
-        "commit": "71e306956a4959c9655e5036be215d41986596e6"
+        "path": "schema/2026-07-28/examples",
+        "commit": "271ecc9accafdd9b83a3c869fa67c22953b2af80"
     },
     "regenerate": "pnpm fetch:spec-examples --spec-dir <spec-checkout>   # or [sha] to fetch from GitHub",
-    "directoryCount": 87,
-    "fileCount": 128,
+    "directoryCount": 88,
+    "fileCount": 129,
     "directories": {
         "AudioContent": [
             "audio-wav-content.json"
@@ -272,6 +272,9 @@
         ],
         "SubscriptionsListenResult": [
             "listen-closed.json"
+        ],
+        "SubscriptionsListenResultResponse": [
+            "listen-closed-response.json"
         ],
         "TextContent": [
             "text-content.json"

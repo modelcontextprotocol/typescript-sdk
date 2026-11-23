@@ -44,7 +44,7 @@ const guarded = {
 };
 ```
 
-A request whose `Host` is not on the list gets `403` before `handler.fetch` runs; both helpers take hostnames, port-agnostic, and a request without an `Origin` header always passes. For a localhost-only process, `localhostAllowedHostnames()` and `localhostAllowedOrigins()` (same package) replace the explicit lists.
+A request whose `Host` is not on the list gets `403` before `handler.fetch` runs; both helpers take hostnames, port-agnostic, and a request without an `Origin` header always passes. For a localhost-only process, `localhostAllowedHostnames()` and `localhostAllowedOrigins()` (same package) replace the explicit lists. A client that runs as a browser extension sends its extension ID as `Origin`: add that ID to the `originValidationResponse` list to admit one extension, or a lowercase scheme entry such as `'moz-extension://*'` to admit every extension of that browser, which Firefox needs because its IDs differ on every install. `http://*` and `https://*` are not honoured.
 
 ## Forward auth and the parsed body
 

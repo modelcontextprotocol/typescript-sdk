@@ -21,6 +21,7 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
         items: [
             { text: 'Tools', link: '/servers/tools' },
             { text: 'Resources', link: '/servers/resources' },
+            { text: 'Skills', link: '/servers/skills' },
             { text: 'Prompts', link: '/servers/prompts' },
             { text: 'Completion', link: '/servers/completion' },
             { text: 'Logging, progress, cancellation', link: '/servers/logging-progress-cancellation' },
@@ -56,7 +57,8 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
             { text: 'OAuth', link: '/clients/oauth' },
             { text: 'Machine auth', link: '/clients/machine-auth' },
             { text: 'Middleware', link: '/clients/middleware' },
-            { text: 'Caching', link: '/clients/caching' }
+            { text: 'Caching', link: '/clients/caching' },
+            { text: 'Skills', link: '/clients/skills' }
         ]
     },
     { text: 'Protocol versions', link: '/protocol-versions' },
@@ -66,10 +68,12 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
         items: [
             { text: 'Low-level server', link: '/advanced/low-level-server' },
             { text: 'Custom methods', link: '/advanced/custom-methods' },
+            { text: 'Extensions', link: '/advanced/extensions' },
             { text: 'Schema libraries', link: '/advanced/schema-libraries' },
             { text: 'Custom transports', link: '/advanced/custom-transports' },
             { text: 'Wire schemas', link: '/advanced/wire-schemas' },
-            { text: 'Gateway', link: '/advanced/gateway' }
+            { text: 'Gateway', link: '/advanced/gateway' },
+            { text: 'OpenTelemetry', link: '/advanced/opentelemetry' }
         ]
     },
     { text: 'Testing', link: '/testing' },

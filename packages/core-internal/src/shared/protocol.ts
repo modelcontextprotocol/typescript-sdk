@@ -50,8 +50,18 @@ import type { StandardSchemaV1 } from '../util/standardSchema';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema';
 import { bootstrapOutboundCodec } from '../wire/bootstrap';
 import type { LiftedWireMaterial, WireCodec } from '../wire/codec';
-import { classifiedWireEra, codecForVersion, isSpecNotificationMethod, isSpecRequestMethod, MODERN_WIRE_REVISION } from '../wire/codec';
+import {
+    classifiedWireEra,
+    codecForVersion,
+    isExtensionReusedRequestMethod,
+    isSpecNotificationMethod,
+    isSpecRequestMethod,
+    MODERN_WIRE_REVISION
+} from '../wire/codec';
+import { extensionStateOf } from './extensions';
 import { manualInputRequiredValue, partitionInputResponses } from './inputRequiredEngine';
+import type { GuardedScope, ProtocolInstrumentation } from './instrumentation';
+import { outcomeForAbort, outcomeForError, runInScope, startScope, traceContextCarrier } from './instrumentation';
 import type { Transport, TransportSendOptions } from './transport';
 
 /**
@@ -88,6 +98,13 @@ export type ProtocolOptions = {
      * e.g., `['notifications/tools/list_changed']`
      */
     debouncedNotificationMethods?: string[];
+
+    /**
+     * Set to `false` to turn off this instance's OpenTelemetry instrumentation: no MCP spans or metrics, and no trace
+     * context added to outgoing `params._meta`. By default the SDK uses the global OpenTelemetry API, which records
+     * nothing until the application registers an OpenTelemetry SDK.
+     */
+    openTelemetry?: false;
 };
 
 /**
@@ -197,6 +214,46 @@ const RESERVED_ENVELOPE_META_KEYS: readonly string[] = [
  * (a vendor notification may legitimately use the same names).
  */
 const RETRY_PARAMS_KEYS = ['inputResponses', 'requestState'] as const;
+
+// The no-handler MethodNotFound raised under middleware, and the responses carrying it.
+const noHandlerErrors = new WeakSet<object>();
+const noHandlerResponses = new WeakSet<object>();
+
+/** Whether `message` answers a method with no handler that middleware passed through; package-internal. */
+export function isNoHandlerResponse(message: object): boolean {
+    return noHandlerResponses.has(message);
+}
+
+let addExtensionMiddleware: <ContextT extends BaseContext>(
+    protocol: Protocol<ContextT>,
+    method: string,
+    middleware: RequestMiddleware<ContextT>
+) => void;
+
+/** `ctx.use`: middleware in the extension tier, outside middleware the application adds with `use()`; package-internal. */
+export function useAsExtension<ContextT extends BaseContext>(
+    protocol: Protocol<ContextT>,
+    method: string,
+    middleware: RequestMiddleware<ContextT>
+): void {
+    addExtensionMiddleware(protocol, method, middleware);
+}
+
+/**
+ * Request middleware (see `Protocol.use`): receives the JSON-RPC request,
+ * with wire-only material lifted onto `ctx.mcpReq` and params not yet
+ * validated, the context, and `next` — the handler it wraps — and returns
+ * the result that goes on the wire.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
+export type RequestMiddleware<ContextT> = (
+    request: JSONRPCRequest,
+    ctx: ContextT,
+    next: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>
+) => Result | Promise<Result>;
 
 /**
  * Lift wire-only material out of an inbound message so handlers see exactly
@@ -548,6 +605,16 @@ export function setNegotiatedProtocolVersion<ContextT extends BaseContext>(
     writeNegotiatedProtocolVersion(instance, version);
 }
 
+let writeInstrumentation: <ContextT extends BaseContext>(instance: Protocol<ContextT>, instrumentation: ProtocolInstrumentation) => void;
+
+// Package-internal: `Client` and `Server` attach OpenTelemetry through this. Not public API.
+export function setProtocolInstrumentation<ContextT extends BaseContext>(
+    instance: Protocol<ContextT>,
+    instrumentation: ProtocolInstrumentation
+): void {
+    writeInstrumentation(instance, instrumentation);
+}
+
 /**
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
@@ -559,6 +626,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
+    /** Methods registered with an explicit schema; the era gate in `_onrequest` reads it for the Tasks extension names. */
+    private _customSchemaRequestMethods = new Set<string>();
+    /** Middleware installed by `use`, in registration order across every method (see `_resolveRequestHandler`). */
+    private _requestMiddleware: Array<{ method: string; middleware: RequestMiddleware<ContextT> }> = [];
+    /** Middleware installed by extensions with `ctx.use`; it runs outside `_requestMiddleware`. */
+    private _extensionMiddleware: Array<{ method: string; middleware: RequestMiddleware<ContextT> }> = [];
+    /** Extension result kinds accepted per method (see `acceptResultType`). */
+    private _acceptedResultTypes: Map<string, Set<string>> = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification, codec: WireCodec) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
@@ -578,7 +653,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
         writeNegotiatedProtocolVersion = (instance, version) => {
             instance._negotiatedProtocolVersion = version;
         };
+        writeInstrumentation = (instance, instrumentation) => {
+            instance._instrumentation = instrumentation;
+        };
     }
+
+    private _instrumentation?: ProtocolInstrumentation;
 
     protected _supportedProtocolVersions: string[];
 
@@ -720,7 +800,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * input request).
      */
     protected _getRequestHandler(method: string): ((request: JSONRPCRequest, ctx: ContextT) => Promise<Result>) | undefined {
-        return this._requestHandlers.get(method);
+        const handler = this._requestHandlers.get(method);
+        return handler === undefined ? undefined : this._withMiddleware(method, handler);
     }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
@@ -783,6 +864,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * The caller assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
+        // Wait for asynchronous extension setups; a failed one fails the connect.
+        const extensionsReady = extensionStateOf(this)?.ready;
+        if (extensionsReady !== undefined) await extensionsReady;
         this._transport = transport;
         const _onclose = this.transport?.onclose;
         this._transport.onclose = () => {
@@ -920,10 +1004,22 @@ export abstract class Protocol<ContextT extends BaseContext> {
             return;
         }
 
+        const scope = this._startInbound(
+            rawNotification,
+            this._notificationHandlers.has(notification.method) || isSpecNotificationMethod(notification.method),
+            extra
+        );
+
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
-        Promise.resolve()
-            .then(() => (handler === undefined ? fallback!(notification) : handler(notification, codec)))
-            .catch(error => this._onerror(new Error(`Uncaught error in notification handler: ${error}`)));
+        runInScope(scope, () =>
+            Promise.resolve().then(() => (handler === undefined ? fallback!(notification) : handler(notification, codec)))
+        ).then(
+            () => scope?.end({ type: 'delivered' }),
+            error => {
+                scope?.end({ type: 'failed', error });
+                this._onerror(new Error(`Uncaught error in notification handler: ${error}`));
+            }
+        );
     }
 
     private _onrequest(rawRequest: JSONRPCRequest, extra?: MessageExtraInfo): void {
@@ -952,7 +1048,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // Capture the current transport at request time to ensure responses go to the correct client
         const capturedTransport = this._transport;
 
+        const scope = this._startInbound(
+            rawRequest,
+            this._requestHandlers.has(request.method) || isSpecRequestMethod(request.method),
+            extra
+        );
+
         const sendErrorResponse = (code: number, message: string, data?: unknown) => {
+            scope?.end({ type: 'error', error: { code, message } });
             const errorResponse: JSONRPCErrorResponse = {
                 jsonrpc: '2.0',
                 id: request.id,
@@ -1000,12 +1103,17 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // shadow a deleted spec method across eras). Methods outside the
         // spec universe are consumer-owned extension methods and stay
         // era-blind.
-        if (isSpecRequestMethod(request.method) && !codec.hasRequestMethod(request.method)) {
+        // Exception: the Tasks extension names (SEP-2663), when registered with an explicit schema.
+        if (
+            isSpecRequestMethod(request.method) &&
+            !codec.hasRequestMethod(request.method) &&
+            !(isExtensionReusedRequestMethod(request.method) && this._customSchemaRequestMethods.has(request.method))
+        ) {
             sendErrorResponse(ProtocolErrorCode.MethodNotFound, 'Method not found');
             return;
         }
 
-        const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
+        const handler = this._resolveRequestHandler(request.method);
 
         if (handler === undefined) {
             sendErrorResponse(ProtocolErrorCode.MethodNotFound, 'Method not found');
@@ -1035,11 +1143,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 ...options,
                 relatedRequestId: request.id
             });
-        const sendRequest = <U extends StandardSchemaV1>(r: Request, resultSchema: U, options?: RequestOptions) =>
-            this._requestWithSchemaViaCodec(this._resolveOutboundCodec(r.method), r, resultSchema, {
-                ...options,
-                relatedRequestId: request.id
-            });
+        const sendRequest = <U extends StandardSchemaV1>(r: Request, resultSchema: U, options?: RequestOptions, explicitSchema = false) =>
+            this._requestWithSchemaViaCodec(
+                this._resolveOutboundCodec(r.method),
+                r,
+                resultSchema,
+                { ...options, relatedRequestId: request.id },
+                explicitSchema
+            );
 
         const abortController = new AbortController();
         this._requestHandlerAbortControllers.set(request.id, abortController);
@@ -1080,7 +1191,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     const sendCodec = this._resolveOutboundCodec(r.method);
                     this._assertOutboundRequestInEra(sendCodec, r.method);
                     if (isStandardSchema(schemaOrOptions)) {
-                        return sendRequest(r, schemaOrOptions, maybeOptions);
+                        return sendRequest(r, schemaOrOptions, maybeOptions, true);
                     }
                     const validate = codecResultValidator(sendCodec, r.method);
                     if (validate === undefined) {
@@ -1096,9 +1207,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
         };
         const ctx = this.buildContext(baseCtx, extra);
 
+        if (scope !== undefined) {
+            abortController.signal.addEventListener('abort', () => scope.end(outcomeForAbort(abortController.signal.reason)), {
+                once: true
+            });
+        }
+
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
-        Promise.resolve()
-            .then(() => handler(request, ctx))
+        // Only the handler runs in the instrumentation's context; encoding and sending do not need it.
+        runInScope(scope, () => Promise.resolve().then(() => handler(request, ctx)))
             .then(
                 async result => {
                     if (abortController.signal.aborted) {
@@ -1123,6 +1240,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         return;
                     }
 
+                    scope?.end({ type: 'result', result: encoded });
                     const response: JSONRPCResponse = {
                         result: encoded,
                         jsonrpc: '2.0',
@@ -1150,6 +1268,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
                             ...(error['data'] !== undefined && { data: error['data'] })
                         }
                     };
+                    if (noHandlerErrors.has(error)) noHandlerResponses.add(errorResponse);
+                    scope?.end({
+                        type: 'error',
+                        error: { code: errorResponse.error.code, message: errorResponse.error.message },
+                        cause: error
+                    });
                     await capturedTransport?.send(errorResponse);
                 }
             )
@@ -1270,10 +1394,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
     ): Promise<StandardSchemaV1.InferOutput<T>>;
     request(request: Request, schemaOrOptions?: StandardSchemaV1 | RequestOptions, maybeOptions?: RequestOptions): Promise<unknown> {
         const codec = this._resolveOutboundCodec(request.method);
-        this._assertOutboundRequestInEra(codec, request.method);
         if (isStandardSchema(schemaOrOptions)) {
-            return this._requestWithSchemaViaCodec(codec, request, schemaOrOptions, maybeOptions);
+            // Only the Tasks extension names skip the era gate here; every other spec method stays gated.
+            if (!isExtensionReusedRequestMethod(request.method)) this._assertOutboundRequestInEra(codec, request.method);
+            return this._requestWithSchemaViaCodec(codec, request, schemaOrOptions, maybeOptions, true);
         }
+        this._assertOutboundRequestInEra(codec, request.method);
         const validate = codecResultValidator(codec, request.method);
         if (validate === undefined) {
             throw new TypeError(`'${request.method}' is not a spec method; pass a result schema as the second argument to request().`);
@@ -1364,7 +1490,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
         codec: WireCodec,
         request: Request,
         resultSchema: T,
-        options?: RequestOptions
+        options?: RequestOptions,
+        // Whether an `acceptResultType` kind reaches the caller's schema (explicit-schema calls) or is refused (typed calls).
+        acceptExtensionResultTypes = false
     ): Promise<StandardSchemaV1.InferOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken, headers } = options ?? {};
         // Flow start for non-complete result resolution: `maxTotalTimeout`
@@ -1442,15 +1570,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
             // both share the same `_meta`): a no-op on the legacy era — the
             // envelope seam returns undefined and the request goes out exactly as
             // built above.
-            const outbound = this._envelopeOutbound(jsonrpcRequest);
+            const { message: outbound, scope } = this._startOutbound(this._envelopeOutbound(jsonrpcRequest));
 
             let responseReceived = false;
 
-            const cancel = (reason: unknown) => {
+            const cancel = (reason: unknown, outcome: 'timeout' | 'cancelled') => {
                 if (responseReceived) {
                     return;
                 }
                 this._progressHandlers.delete(messageId);
+                scope?.end({ type: outcome });
 
                 if (requestAbort === undefined) {
                     // "A client MUST NOT attempt to cancel its `initialize`
@@ -1462,19 +1591,17 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     // legacy era can reach this — `initialize` is absent from the
                     // modern registry, which negotiates via `server/discover`.
                     if (request.method !== 'initialize') {
-                        this._transport
-                            ?.send(
-                                this._envelopeOutbound({
-                                    jsonrpc: '2.0',
-                                    method: 'notifications/cancelled',
-                                    params: {
-                                        requestId: messageId,
-                                        reason: String(reason)
-                                    }
-                                }),
-                                { relatedRequestId, resumptionToken, onresumptiontoken }
-                            )
-                            .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
+                        this._sendNotificationMessage(
+                            this._envelopeOutbound({
+                                jsonrpc: '2.0',
+                                method: 'notifications/cancelled',
+                                params: {
+                                    requestId: messageId,
+                                    reason: String(reason)
+                                }
+                            }),
+                            { relatedRequestId, resumptionToken, onresumptiontoken }
+                        ).catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
                     }
                 } else {
                     // Modern-era per-request-stream transport: aborting the
@@ -1497,7 +1624,31 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 responseReceived = true;
 
                 if (response instanceof Error) {
+                    scope?.end(outcomeForError(response));
                     return reject(response);
+                }
+
+                // Extension result kinds (see `acceptResultType`) reach an explicit schema as-is; typed calls refuse them on every era.
+                if (this._isAcceptedResultType(request.method, response.result)) {
+                    if (!acceptExtensionResultTypes) {
+                        const resultType = (response.result as { resultType: string }).resultType;
+                        reject(
+                            new SdkError(
+                                SdkErrorCode.UnsupportedResultType,
+                                `Unsupported result type '${resultType}' for ${request.method}: pass a result schema to request() to receive it`,
+                                { resultType, method: request.method }
+                            )
+                        );
+                        return;
+                    }
+                    validateStandardSchema(resultSchema, response.result).then(parseResult => {
+                        if (parseResult.success) {
+                            resolve(parseResult.data);
+                        } else {
+                            reject(new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${request.method}: ${parseResult.error}`));
+                        }
+                    }, reject);
+                    return;
                 }
 
                 // Codec decode hop — the structural V-1 home. The era codec
@@ -1518,12 +1669,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 try {
                     decoded = codec.decodeResult(request.method, response.result);
                 } catch (error) {
-                    return reject(error instanceof Error ? error : new Error(String(error)));
+                    const decodeError = error instanceof Error ? error : new Error(String(error));
+                    scope?.end({ type: 'failed', error: decodeError });
+                    return reject(decodeError);
                 }
                 if (decoded.kind === 'invalid') {
+                    scope?.end({ type: 'failed', error: decoded.error });
                     return reject(decoded.error);
                 }
                 if (decoded.kind === 'input_required') {
+                    scope?.end({ type: 'result', result: response.result });
                     // Manual mode (the primitive any driver layers over):
                     // hand the input-required value back to the caller.
                     if (options?.allowInputRequired === true) {
@@ -1544,36 +1699,63 @@ export abstract class Protocol<ContextT extends BaseContext> {
                                 codec,
                                 params === undefined ? { method: request.method } : { method: request.method, params },
                                 resultSchema,
-                                legOptions
+                                legOptions,
+                                acceptExtensionResultTypes
                             )
                     };
-                    return resolve(this._resolveNonCompleteResult(decoded, flow) as Promise<StandardSchemaV1.InferOutput<T>>);
+                    // Embedded input requests are fulfilled in this leg's context, so their spans nest under it.
+                    const inputRequired = decoded;
+                    return resolve(
+                        runInScope(scope, () => this._resolveNonCompleteResult(inputRequired, flow)) as Promise<
+                            StandardSchemaV1.InferOutput<T>
+                        >
+                    );
                 }
                 const result = decoded.result;
 
-                validateStandardSchema(resultSchema, result).then(parseResult => {
-                    if (parseResult.success) {
-                        resolve(parseResult.data);
-                    } else {
-                        reject(new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${request.method}: ${parseResult.error}`));
+                validateStandardSchema(resultSchema, result).then(
+                    parseResult => {
+                        if (parseResult.success) {
+                            scope?.end({ type: 'result', result: response.result });
+                            resolve(parseResult.data);
+                        } else {
+                            const error = new SdkError(
+                                SdkErrorCode.InvalidResult,
+                                `Invalid result for ${request.method}: ${parseResult.error}`
+                            );
+                            scope?.end({ type: 'failed', error });
+                            reject(error);
+                        }
+                    },
+                    error => {
+                        scope?.end({ type: 'failed', error });
+                        reject(error);
                     }
-                }, reject);
+                );
             });
 
-            onAbort = () => cancel(options?.signal?.reason);
+            onAbort = () => cancel(options?.signal?.reason, 'cancelled');
             options?.signal?.addEventListener('abort', onAbort, { once: true });
 
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
-            const timeoutHandler = () => cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
+            const timeoutHandler = () => cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }), 'timeout');
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
-            this._transport
-                .send(outbound, { relatedRequestId, resumptionToken, onresumptiontoken, headers, requestSignal: requestAbort?.signal })
-                .catch(error => {
-                    this._progressHandlers.delete(messageId);
-                    reject(error);
-                });
+            const transport = this._transport;
+            runInScope(scope, () =>
+                transport.send(outbound, {
+                    relatedRequestId,
+                    resumptionToken,
+                    onresumptiontoken,
+                    headers,
+                    requestSignal: requestAbort?.signal
+                })
+            ).catch(error => {
+                this._progressHandlers.delete(messageId);
+                scope?.end({ type: 'failed', error });
+                reject(error);
+            });
         }).finally(() => {
             // Per-request cleanup that must run on every exit path. Consolidated
             // here so new exit paths added to the promise body can't forget it.
@@ -1593,7 +1775,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Emits a notification, which is a one-way message that does not expect a response.
      */
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
-        return this._notificationViaCodec(this._resolveOutboundCodec(notification.method), notification, options);
+        return await this._notificationViaCodec(this._resolveOutboundCodec(notification.method), notification, options);
     }
 
     /**
@@ -1651,14 +1833,81 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
                 // Send the notification, but don't await it here to avoid blocking.
                 // Handle potential errors with a .catch().
-                this._transport?.send(jsonrpcNotification, options).catch(error => this._onerror(error));
+                this._sendNotificationMessage(jsonrpcNotification, options).catch(error => this._onerror(error));
             });
 
             // Return immediately.
             return;
         }
 
-        await this._transport.send(jsonrpcNotification, options);
+        await this._sendNotificationMessage(jsonrpcNotification, options);
+    }
+
+    /** Writes an outbound notification to the transport, observed by the instrumentation when one is configured. */
+    private async _sendNotificationMessage(message: JSONRPCNotification, options?: TransportSendOptions): Promise<void> {
+        const transport = this._transport;
+        if (!transport) return;
+        const { message: outbound, scope } = this._startOutbound(message);
+        if (scope === undefined) return transport.send(outbound, options);
+        try {
+            await scope.run(() => transport.send(outbound, options));
+        } catch (error) {
+            scope.end({ type: 'failed', error });
+            throw error;
+        }
+        scope.end({ type: 'delivered' });
+    }
+
+    /** Starts the instrumentation scope for an outbound message and merges its trace-context carrier into `params._meta`. */
+    private _startOutbound<T extends JSONRPCRequest | JSONRPCNotification>(message: T): { message: T; scope: GuardedScope | undefined } {
+        const instrumentation = this._instrumentation;
+        if (instrumentation?.send === undefined) return { message, scope: undefined };
+        const params = message.params;
+        const carrier = traceContextCarrier(params?._meta);
+        const scope = startScope(
+            () =>
+                instrumentation.send?.({
+                    method: message.method,
+                    ...('id' in message && { id: message.id }),
+                    ...(params !== undefined && { params }),
+                    ...this._operationSession(),
+                    carrier
+                }),
+            error => this._onerror(error)
+        );
+        if (Object.keys(carrier).length === 0) return { message, scope };
+        return { message: { ...message, params: { ...params, _meta: { ...params?._meta, ...carrier } } }, scope };
+    }
+
+    /** Starts the instrumentation scope for an inbound request or notification. */
+    private _startInbound(
+        message: JSONRPCRequest | JSONRPCNotification,
+        knownMethod: boolean,
+        extra?: MessageExtraInfo
+    ): GuardedScope | undefined {
+        const instrumentation = this._instrumentation;
+        if (instrumentation?.receive === undefined) return undefined;
+        const params = message.params;
+        const meta = params?._meta;
+        return startScope(
+            () =>
+                instrumentation.receive?.({
+                    method: message.method,
+                    ...('id' in message && { id: message.id }),
+                    ...(params !== undefined && { params }),
+                    ...(isPlainObject(meta) && { meta }),
+                    ...this._operationSession(),
+                    knownMethod,
+                    ...(extra?.request !== undefined && { httpRequest: extra.request })
+                }),
+            error => this._onerror(error)
+        );
+    }
+
+    private _operationSession(): { sessionId?: string; protocolVersion?: string } {
+        const sessionId = this._transport?.sessionId;
+        const protocolVersion = this._negotiatedProtocolVersion;
+        return { ...(sessionId !== undefined && { sessionId }), ...(protocolVersion !== undefined && { protocolVersion }) };
     }
 
     /**
@@ -1751,7 +2000,150 @@ export abstract class Protocol<ContextT extends BaseContext> {
             throw new TypeError('setRequestHandler: handler is required');
         }
 
+        // The era gate reads how the handler was registered; a method-keyed re-registration ends the exemption.
+        if (typeof schemasOrHandler === 'function') {
+            this._customSchemaRequestMethods.delete(method);
+        } else {
+            this._customSchemaRequestMethods.add(method);
+        }
+
         this._requestHandlers.set(method, this._wrapHandler(method, stored));
+    }
+
+    /**
+     * Installs middleware on the request handler for `method`. The middleware
+     * receives the JSON-RPC request, the context, and `next` —
+     * the handler it wraps — and may answer itself, transform what `next`
+     * returns, or throw a `ProtocolError` that becomes the JSON-RPC error
+     * response. `setRequestHandler` is the route handler; this is the
+     * middleware around it, Koa-shaped: `await next(request, ctx)` yields the
+     * result and the middleware returns what goes on the wire.
+     *
+     * It wraps requests this side receives. A core notification,
+     * `subscriptions/listen` on a server (the HTTP and stdio entries answer
+     * it before any middleware) and a core request this side is never sent
+     * throw a `TypeError`.
+     *
+     * Middleware sits at the JSON-RPC level, before the handler's own
+     * steps: wire-only material (the reserved `_meta` envelope keys,
+     * `inputResponses`, `requestState`) is already lifted onto `ctx.mcpReq`,
+     * params are not validated yet, `ctx.mcpReq.requestState()` is
+     * the raw wire value (the server's `requestState.verify` hook has not run),
+     * and a result the middleware returns without calling `next` skips the
+     * handler's result validation.
+     *
+     * Middleware composes at dispatch time, so middleware installed before
+     * the underlying handler exists (e.g. `tools/call`, which `McpServer`
+     * registers on the first tool registration) still applies. With no
+     * underlying handler and no fallback, `next` throws `MethodNotFound`;
+     * passed through, it is answered as an unknown method (HTTP 404 on a
+     * per-request HTTP exchange), as a web framework answers 404 through route
+     * middleware. Middleware runs in registration order, the first installed
+     * outermost, and all of it inside middleware extensions add with
+     * `ctx.use`. Method names are exact — there is no wildcard; what an
+     * extension needs every peer to know belongs in its advertised
+     * capability, not in per-request middleware.
+     *
+     * Experimental: may change in a minor release while the extensions SEPs settle.
+     *
+     * @returns A function that removes the middleware.
+     * @experimental
+     */
+    use(method: RequestMethod | string, middleware: RequestMiddleware<ContextT>): () => void {
+        if (typeof middleware !== 'function') {
+            throw new TypeError('use: middleware is required');
+        }
+        this.assertMiddlewareMethod(method);
+        const entry = { method, middleware };
+        this._requestMiddleware.push(entry);
+        return () => {
+            const index = this._requestMiddleware.indexOf(entry);
+            if (index !== -1) this._requestMiddleware.splice(index, 1);
+        };
+    }
+
+    /**
+     * Declares that results of `method` may carry `resultType` — a kind an
+     * extension defines beyond the spec's `complete` / `input_required`
+     * vocabulary (the Tasks extension answers `tools/call` with
+     * `resultType: "task"`). A raw response with that discriminator skips the
+     * era codec's decode and is validated against the caller's explicit
+     * result schema as-is, discriminator included, on the explicit-schema
+     * `request(request, resultSchema)` path. Typed spec calls such as
+     * `callTool` reject it with `UnsupportedResultType` on either protocol
+     * version. Client extensions reach this through
+     * `ctx.acceptResultType` in their `setup`.
+     *
+     * Experimental: may change in a minor release while the extensions SEPs settle.
+     *
+     * @returns A function that withdraws the declaration.
+     * @experimental
+     */
+    acceptResultType(method: string, resultType: string): () => void {
+        const accepted = this._acceptedResultTypes.get(method) ?? new Set<string>();
+        accepted.add(resultType);
+        this._acceptedResultTypes.set(method, accepted);
+        return () => {
+            const current = this._acceptedResultTypes.get(method);
+            current?.delete(resultType);
+            if (current?.size === 0) this._acceptedResultTypes.delete(method);
+        };
+    }
+
+    private _isAcceptedResultType(method: string, raw: unknown): boolean {
+        const accepted = this._acceptedResultTypes.get(method);
+        if (accepted === undefined || !isPlainObject(raw)) return false;
+        const resultType = raw['resultType'];
+        return typeof resultType === 'string' && accepted.has(resultType);
+    }
+
+    /** The handler `_onrequest` dispatches `method` to, middleware included; `undefined` when there is none. */
+    private _resolveRequestHandler(method: string): ((request: JSONRPCRequest, ctx: ContextT) => Promise<Result>) | undefined {
+        const base = this._requestHandlers.get(method) ?? this.fallbackRequestHandler;
+        if (this._middlewareFor(method).length === 0) return base;
+        return this._withMiddleware(
+            method,
+            base ??
+                (async () => {
+                    const error = new ProtocolError(ProtocolErrorCode.MethodNotFound, 'Method not found');
+                    noHandlerErrors.add(error);
+                    throw error;
+                })
+        );
+    }
+
+    static {
+        // Reaches the private extension tier for `useAsExtension`, so no public method is needed.
+        addExtensionMiddleware = (protocol, method, middleware) => {
+            if (typeof middleware !== 'function') throw new TypeError('use: middleware is required');
+            protocol.assertMiddlewareMethod(method);
+            protocol._extensionMiddleware.push({ method, middleware });
+        };
+    }
+
+    /** Throws when middleware on `method` could never run on this side; `Client` and `Server` check. */
+    protected assertMiddlewareMethod(_method: string): void {}
+
+    /** The middleware for `method`, outermost first: extension middleware (`ctx.use`), then `use()`. */
+    private _middlewareFor(method: string): RequestMiddleware<ContextT>[] {
+        return [...this._extensionMiddleware, ...this._requestMiddleware]
+            .filter(entry => entry.method === method)
+            .map(entry => entry.middleware);
+    }
+
+    /** `handler` with the middleware for `method` composed around it, outermost first. */
+    private _withMiddleware(
+        method: string,
+        handler: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>
+    ): (request: JSONRPCRequest, ctx: ContextT) => Promise<Result> {
+        const stack = this._middlewareFor(method);
+        let composed = handler;
+        // Wrap innermost first, so the first middleware ends up outermost.
+        for (const middleware of stack.toReversed()) {
+            const next = composed;
+            composed = async (request, ctx) => middleware(request, ctx, next);
+        }
+        return composed;
     }
 
     /**
@@ -1787,6 +2179,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     removeRequestHandler(method: RequestMethod | string): void {
         this._requestHandlers.delete(method);
+        this._customSchemaRequestMethods.delete(method);
     }
 
     /**
@@ -1888,7 +2281,10 @@ export interface RequestHandlerSchemas<
     result?: R;
 }
 
-type InferHandlerResult<R extends StandardSchemaV1 | undefined> = R extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<R> : Result;
+/** What a custom request handler returns: the output of its `result` schema, or any `Result` when it has none. */
+export type InferHandlerResult<R extends StandardSchemaV1 | undefined> = R extends StandardSchemaV1
+    ? StandardSchemaV1.InferOutput<R>
+    : Result;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);

@@ -8,8 +8,7 @@ import { LATEST_PROTOCOL_VERSION, McpServer } from '@modelcontextprotocol/server
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import * as z from 'zod/v4';
 
-async function setupServer(withSessionManagement: boolean) {
-    const server: Server = createServer();
+async function connectPair(withSessionManagement: boolean) {
     const mcpServer = new McpServer(
         { name: 'test-server', version: '1.0.0' },
         {
@@ -68,8 +67,22 @@ async function setupServer(withSessionManagement: boolean) {
 
     await mcpServer.connect(serverTransport);
 
+    return { mcpServer, serverTransport };
+}
+
+async function setupServer(withSessionManagement: boolean) {
+    const server: Server = createServer();
+    const { mcpServer, serverTransport } = await connectPair(withSessionManagement);
+
     server.on('request', async (req, res) => {
-        await serverTransport.handleRequest(req, res);
+        if (withSessionManagement) {
+            await serverTransport.handleRequest(req, res);
+            return;
+        }
+        // A stateless transport serves one request: connect a new pair for each.
+        const pair = await connectPair(false);
+        res.on('close', () => void pair.mcpServer.close());
+        await pair.serverTransport.handleRequest(req, res);
     });
 
     // Start the server on a random port

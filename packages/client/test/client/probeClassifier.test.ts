@@ -346,3 +346,40 @@ describe('row: browser opaque CORS/preflight TypeError, PROBE PHASE ONLY → leg
         expect(verdict.kind).toBe('error');
     });
 });
+
+describe('row: unusable-reply — the HTTP layer answered 2xx with an unusable body → typed connect error', () => {
+    const jsonSyntaxError = () => {
+        try {
+            JSON.parse('');
+            throw new Error('unreachable');
+        } catch (error) {
+            return error;
+        }
+    };
+
+    test.each([true, false])('an empty JSON body is never an era verdict (fallbackAvailable: %s)', fallbackAvailable => {
+        const cause = jsonSyntaxError();
+        const verdict = classify({ kind: 'unusable-reply', error: cause }, { fallbackAvailable });
+        expect(verdict.kind).toBe('error');
+        if (verdict.kind === 'error') {
+            expect(verdict.error).toBeInstanceOf(SdkError);
+            expect((verdict.error as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
+            expect(verdict.error.message).toContain('the server answered with an unusable reply');
+            expect((verdict.error as SdkError).data).toMatchObject({ cause });
+            expect(verdict.error.cause).toBe(cause);
+        }
+    });
+
+    test('an unaccepted media type (bare 204, text/plain) is never an era verdict', () => {
+        const cause = new SdkError(SdkErrorCode.ClientHttpUnexpectedContent, 'Unexpected content type: text/plain', {
+            contentType: 'text/plain'
+        });
+        const verdict = classify({ kind: 'unusable-reply', error: cause });
+        expect(verdict.kind).toBe('error');
+        if (verdict.kind === 'error') {
+            expect((verdict.error as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
+            expect(verdict.error.message).toContain('the server answered with an unusable reply (Unexpected content type: text/plain)');
+            expect(verdict.error.cause).toBe(cause);
+        }
+    });
+});

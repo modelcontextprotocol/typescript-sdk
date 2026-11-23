@@ -144,6 +144,10 @@ describe('scanXMcpHeaderDeclarations — constraint table', () => {
         expect(invalid({ type: 'object', properties: { a: { type: 'array', [X_MCP_HEADER_KEY]: 'Items' } } })).toMatch(/primitive/);
     });
 
+    test('number-typed property is rejected (only integer, string, boolean are permitted)', () => {
+        expect(invalid({ type: 'object', properties: { a: { type: 'number', [X_MCP_HEADER_KEY]: 'Score' } } })).toMatch(/primitive/);
+    });
+
     test('null-typed property is rejected', () => {
         expect(invalid({ type: 'object', properties: { a: { type: 'null', [X_MCP_HEADER_KEY]: 'Nil' } } })).toMatch(/primitive/);
     });
@@ -281,6 +285,41 @@ describe('validateMcpParamHeaders — server-behavior table', () => {
             cell: 'param-header-mismatch',
             data: { mismatch: { header: 'Mcp-Param-Region' } }
         });
+    });
+
+    test('header present but the body value is an object or array → reject 400/-32020', () => {
+        const intDecl = [{ path: ['n'], headerName: 'N', type: 'integer' }] as const;
+        const headers = new Headers({ [`${MCP_PARAM_HEADER_PREFIX}N`]: '5' });
+        for (const n of [{ a: 1 }, [5]]) {
+            expect(validateMcpParamHeaders(intDecl, { n }, headers)).toMatchObject({
+                kind: 'reject',
+                httpStatus: 400,
+                code: HEADER_MISMATCH_ERROR_CODE,
+                cell: 'param-header-mismatch'
+            });
+        }
+    });
+
+    test('header absent and the body value is an object or array → reject 400/-32020 as missing', () => {
+        for (const region of [{ a: 'eu' }, ['eu']]) {
+            expect(validateMcpParamHeaders(DECLS, { region }, new Headers())).toMatchObject({
+                kind: 'reject',
+                httpStatus: 400,
+                code: HEADER_MISMATCH_ERROR_CODE,
+                cell: 'param-header-missing'
+            });
+        }
+    });
+
+    test('unsafe integer body value: a present header is rejected, an absent one passes', () => {
+        const intDecl = [{ path: ['n'], headerName: 'N', type: 'integer' }] as const;
+        const n = 2 ** 53;
+        expect(validateMcpParamHeaders(intDecl, { n }, new Headers({ [`${MCP_PARAM_HEADER_PREFIX}N`]: '5' }))).toMatchObject({
+            kind: 'reject',
+            code: HEADER_MISMATCH_ERROR_CODE,
+            cell: 'param-header-mismatch'
+        });
+        expect(validateMcpParamHeaders(intDecl, { n }, new Headers())).toBeUndefined();
     });
 
     test('invalid Base64 sentinel → reject 400/-32020', () => {

@@ -1,9 +1,9 @@
 /**
- * Vendors the draft-revision (2026-07-28) example corpus from the spec
- * repository into `packages/core-internal/test/corpus/fixtures/2026-07-28/`.
+ * Vendors the released 2026-07-28 example corpus from the spec repository
+ * into `packages/core-internal/test/corpus/fixtures/2026-07-28/`.
  *
- * The spec repository ships canonical example instances for the draft schema
- * (`schema/draft/examples/<TypeName>/*.json`). The corpus harness
+ * The spec repository ships canonical example instances for the released schema
+ * (`schema/2026-07-28/examples/<TypeName>/*.json`). The corpus harness
  * (`packages/core-internal/test/corpus/specCorpus.test.ts`) parses every vendored
  * example through the SDK's wire schemas, so accept-side drift between the
  * SDK and the specification turns CI red.
@@ -13,7 +13,7 @@
  *
  * Usage:
  *   pnpm fetch:spec-examples --spec-dir <path-to-spec-checkout>
- *   pnpm fetch:spec-examples [sha]     # fetch from GitHub (default: latest main)
+ *   pnpm fetch:spec-examples [sha]     # fetch from GitHub (default: released pin)
  *
  * With `--spec-dir`, examples are read from a local checkout of
  * modelcontextprotocol/modelcontextprotocol (provenance is the checkout's
@@ -30,24 +30,15 @@ const __filename = fileURLToPath(import.meta.url);
 const PROJECT_ROOT = join(dirname(__filename), '..');
 
 const SPEC_REPO = 'modelcontextprotocol/modelcontextprotocol';
-/** The upcoming protocol revision; its examples live in the spec repo's draft directory. */
-const DRAFT_REVISION = '2026-07-28';
-const EXAMPLES_PATH = 'schema/draft/examples';
-const OUTPUT_DIR = join(PROJECT_ROOT, 'packages', 'core-internal', 'test', 'corpus', 'fixtures', DRAFT_REVISION);
+const REVISION = '2026-07-28';
+const RELEASED_REVISION_PIN = '271ecc9accafdd9b83a3c869fa67c22953b2af80';
+const EXAMPLES_PATH = `schema/${REVISION}/examples`;
+const OUTPUT_DIR = join(PROJECT_ROOT, 'packages', 'core-internal', 'test', 'corpus', 'fixtures', REVISION);
 
 interface ExampleFile {
     /** `<TypeName>/<file>.json` relative to the examples root. */
     relPath: string;
     content: string;
-}
-
-async function fetchLatestSHA(): Promise<string> {
-    const url = `https://api.github.com/repos/${SPEC_REPO}/commits?path=${EXAMPLES_PATH}&per_page=1`;
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Failed to fetch commit info: ${response.status} ${response.statusText}`);
-    const commits = (await response.json()) as Array<{ sha: string }>;
-    if (!commits?.length) throw new Error('No commits found for the examples path');
-    return commits[0].sha;
 }
 
 async function listExamplesFromGitHub(sha: string): Promise<string[]> {
@@ -115,7 +106,7 @@ function writeCorpus(files: ExampleFile[], sha: string): void {
     }
 
     const manifest = {
-        revision: DRAFT_REVISION,
+        revision: REVISION,
         source: { repo: SPEC_REPO, path: EXAMPLES_PATH, commit: sha },
         regenerate: 'pnpm fetch:spec-examples --spec-dir <spec-checkout>   # or [sha] to fetch from GitHub',
         directoryCount: Object.keys(dirs).length,
@@ -139,7 +130,7 @@ async function main(): Promise<void> {
         return;
     }
 
-    const sha = args[0] ?? (await fetchLatestSHA());
+    const sha = args[0] ?? RELEASED_REVISION_PIN;
     const files = await fetchExamplesFromGitHub(sha);
     writeCorpus(files, sha);
 }

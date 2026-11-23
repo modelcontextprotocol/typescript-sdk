@@ -20,6 +20,7 @@ import {
     requestJwtAuthorizationGrant,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
+import { SkillsClient, SkillVerificationError } from '@modelcontextprotocol/client/ext/skills';
 import * as z from 'zod/v4';
 
 import { ConformanceOAuthProvider } from './helpers/conformanceOAuthProvider';
@@ -903,6 +904,54 @@ async function runJsonSchema2020_12PreservationClient(serverUrl: string): Promis
 }
 
 registerScenario('json-schema-2020-12-preservation', runJsonSchema2020_12PreservationClient);
+
+// ============================================================================
+// SEP-2640 Skills
+// ============================================================================
+
+async function connectSkillsHost(serverUrl: string): Promise<Client> {
+    const client = new Client(
+        { name: 'test-client', version: '1.0.0' },
+        { capabilities: {}, ...(isModernConformanceRun() && { versionNegotiation: { mode: 'auto' as const } }) }
+    );
+    await client.connect(new StreamableHTTPClientTransport(new URL(serverUrl)));
+    return client;
+}
+
+// Load every listed skill the way a host does: read SKILL.md (verified by
+// SkillsClient), and only if it verifies, read the skill's other files.
+async function runSkillsLoadClient(serverUrl: string): Promise<void> {
+    const client = await connectSkillsHost(serverUrl);
+    const skills = new SkillsClient(client);
+    const { skills: entries } = await skills.list();
+    for (const entry of entries) {
+        try {
+            await skills.read(entry);
+        } catch (error) {
+            if (!(error instanceof SkillVerificationError)) throw error;
+            logger.debug(`not loading ${entry.uri}: ${error.message}`);
+            continue;
+        }
+        for (const resource of entry.resources === 'dynamic' ? [] : entry.resources) {
+            if (resource.uri !== entry.uri) await skills.read(entry, resource.uri);
+        }
+    }
+    await client.close();
+}
+
+// Listing alone must not read any skill file.
+async function runSkillsNoPrefetchClient(serverUrl: string): Promise<void> {
+    const client = await connectSkillsHost(serverUrl);
+    const { skills } = await new SkillsClient(client).list();
+    logger.debug(`listed ${skills.length} skills without reading them`);
+    await client.close();
+}
+
+registerScenarios(
+    ['sep-2640-client-verify-digest', 'sep-2640-client-verify-size', 'sep-2640-client-verify-frontmatter'],
+    runSkillsLoadClient
+);
+registerScenario('sep-2640-client-no-prefetch', runSkillsNoPrefetchClient);
 
 // ============================================================================
 // Main entry point

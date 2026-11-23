@@ -105,7 +105,7 @@ export interface ListenRouter {
      * against what the serving instance advertises (honoring a filter without
      * capabilities would fail open and deliver unadvertised types).
      * `serverInfo` is the serving instance's identity, stamped onto the
-     * graceful-close result's `_meta` (the spec's `SubscriptionsListenResultMeta`
+     * graceful-close result's `_meta` (the spec's `SubscriptionsListenResultMetaObject`
      * extends `ResultMetaObject`, so the serverInfo SHOULD applies there too).
      */
     serve(message: JSONRPCRequest, signal: AbortSignal | undefined, capabilities: ServerCapabilities, serverInfo: Implementation): Response;
@@ -213,6 +213,12 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
                 );
                 writeNotification(ack.method, ack.params);
 
+                // Nothing honored means nothing can ever be delivered: complete the subscription instead of holding the stream.
+                if (Object.keys(honored).length === 0) {
+                    teardown(true);
+                    return;
+                }
+
                 // Only after the ack frame is enqueued does delivery activate.
                 unsubscribe = bus.subscribe(event => {
                     if (closed || !listenFilterAccepts(honored, event)) return;
@@ -305,7 +311,7 @@ export class StdioListenRouter {
     private _serverCapabilities: ServerCapabilities | undefined;
     /**
      * The serving instance's identity, stamped onto the graceful-close
-     * results' `_meta` (the spec's `SubscriptionsListenResultMeta` extends
+     * results' `_meta` (the spec's `SubscriptionsListenResultMetaObject` extends
      * `ResultMetaObject`). Handed over together with the capabilities.
      */
     private _serverInfo: Implementation | undefined;

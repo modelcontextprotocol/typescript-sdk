@@ -108,6 +108,15 @@ server.registerTool(
 );
 //#endregion registerTool_contentTypes
 
+// "Limit the number of elements in tool arguments" — typecheck-only wrapper.
+function McpServer_maxToolInputElements() {
+    //#region McpServer_maxToolInputElements
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { maxToolInputElements: 10_000 });
+    //#endregion McpServer_maxToolInputElements
+    return server;
+}
+void McpServer_maxToolInputElements;
+
 // ---------------------------------------------------------------------------
 // Harness (not shown on the page). An in-memory client drives the calls whose
 // output servers/tools.md quotes verbatim. Any MCP client behaves the same.

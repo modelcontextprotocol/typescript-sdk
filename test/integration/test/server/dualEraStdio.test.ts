@@ -53,9 +53,9 @@ function spawnFixtureTransport(): StdioClientTransport {
 function recordInbound(transport: StdioClientTransport): JSONRPCMessage[] {
     const inbound: JSONRPCMessage[] = [];
     const original = transport.onmessage;
-    transport.onmessage = (message, extra) => {
+    transport.onmessage = message => {
         inbound.push(message);
-        original?.(message, extra);
+        original?.(message);
     };
     return inbound;
 }
@@ -64,9 +64,9 @@ function recordInbound(transport: StdioClientTransport): JSONRPCMessage[] {
 function recordOutbound(transport: StdioClientTransport): JSONRPCMessage[] {
     const outbound: JSONRPCMessage[] = [];
     const originalSend = transport.send.bind(transport);
-    transport.send = async (message, options) => {
+    transport.send = async message => {
         outbound.push(message);
-        return originalSend(message, options);
+        return originalSend(message);
     };
     return outbound;
 }

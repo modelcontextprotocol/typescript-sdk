@@ -19,6 +19,7 @@ import type {
     Resource,
     ResourceTemplateReference,
     Result,
+    SdkLogger,
     ServerContext,
     StandardSchemaWithJSON,
     Tool,
@@ -32,6 +33,7 @@ import {
     assertCompleteRequestResourceTemplate,
     assertValidCacheHint,
     attachCacheHintFallback,
+    guardLogger,
     isInputRequiredResult,
     normalizeRawShapeSchema,
     promptArgumentsFromStandardSchema,
@@ -40,6 +42,7 @@ import {
     ResourceNotFoundError,
     scanXMcpHeaderDeclarations,
     standardSchemaToJsonSchema,
+    TOOL_RESULT_FOREIGN_FAMILY_KEYS,
     UriTemplate,
     validateAndWarnToolName,
     validateStandardSchema
@@ -47,10 +50,76 @@ import {
 import type * as z from 'zod/v4';
 
 import { getCompleter, isCompletable } from './completable';
+import type { ServerExtension } from './extension';
+import { installServerExtensions } from './extension';
 import type { ScopeChallengeHandler } from './scopeChallenge';
 import { supportsScopeChallengeResolver } from './scopeChallenge';
 import type { ServerOptions } from './server';
 import { Server } from './server';
+
+// Counts array elements and object members in `value`, stopping once the running total passes `max`.
+function toolInputElementCount(value: unknown, max: number): number {
+    let count = 0;
+    const stack: unknown[] = [value];
+    while (stack.length > 0) {
+        const node = stack.pop();
+        if (node === null || typeof node !== 'object') continue;
+        if (Array.isArray(node)) {
+            for (const child of node) {
+                if (++count > max) return count;
+                if (child !== null && typeof child === 'object') stack.push(child);
+            }
+        } else {
+            for (const key in node) {
+                if (!Object.prototype.hasOwnProperty.call(node, key)) continue;
+                if (++count > max) return count;
+                const child = (node as Record<string, unknown>)[key];
+                if (child !== null && typeof child === 'object') stack.push(child);
+            }
+        }
+    }
+    return count;
+}
+
+// Resolves the configured element ceiling: no limit when unset or Infinity, else a number of at least 1.
+function resolveMaxToolInputElements(value: number | undefined): number | undefined {
+    if (value === undefined || value === Infinity) return undefined;
+    if (typeof value !== 'number' || Number.isNaN(value) || value < 1) {
+        throw new RangeError(`maxToolInputElements must be a number of at least 1, or Infinity, got ${String(value)}`);
+    }
+    return value;
+}
+
+/**
+ * Options for {@linkcode McpServer}: everything {@linkcode ServerOptions} accepts, plus `extensions`, `maxToolInputElements` and `logger`.
+ */
+export type McpServerOptions = ServerOptions & {
+    /**
+     * Extensions to set up at construction, in order. Each is advertised under
+     * `capabilities.extensions[id]` as `{}`, then its `setup` runs with a
+     * `ServerExtensionContext`. A duplicate id fails construction before any
+     * extension is set up.
+     *
+     * Experimental: may change in a minor release while the extensions SEPs settle.
+     *
+     * @experimental
+     */
+    extensions?: readonly ServerExtension[];
+
+    /**
+     * Console-compatible sink for local SDK diagnostics. This does not affect MCP protocol
+     * logging (`notifications/message`). Omitted methods discard diagnostics at that level.
+     *
+     * @default console
+     */
+    logger?: SdkLogger;
+
+    /**
+     * Largest combined number of array elements and object members a single `tools/call` `arguments` payload may contain.
+     * A number of at least 1; unset or `Infinity` means no limit.
+     */
+    maxToolInputElements?: number;
+};
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -71,18 +140,17 @@ export class McpServer {
      */
     public readonly server: Server;
 
+    private readonly _maxToolInputElements: number | undefined;
+
     private _registeredResources: { [uri: string]: RegisteredResource } = {};
     private _registeredResourceTemplates: {
         [name: string]: RegisteredResourceTemplate;
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
-    /**
-     * Per-tool JSON-converted `inputSchema`, memoized so the SEP-2243
-     * registration-time scan and the pre-dispatch validation step share one
-     * conversion instead of paying it twice per request under the
-     * per-request-factory `createMcpHandler` model.
-     */
+    private readonly _logger: SdkLogger;
+
+    /** Per-tool JSON-converted `inputSchema`, filled on first use by `toolInputSchemaJson()`. */
     private _toolInputSchemaJson: { [name: string]: Record<string, unknown> } = {};
 
     /**
@@ -98,17 +166,9 @@ export class McpServer {
         if (tool === undefined || !tool.enabled) return undefined;
         if (Object.hasOwn(this._toolInputSchemaJson, name)) return this._toolInputSchemaJson[name];
         if (tool.inputSchema === undefined) return EMPTY_OBJECT_JSON_SCHEMA;
-        // Lazy path: the memo slot is unset because `registerTool`'s eager
-        // conversion threw (and was swallowed per its "warn, never throw"
-        // contract) or `update({paramsSchema})`/rename invalidated it. The
-        // pre-dispatch SEP-2243 caller must not turn that into a 500 for a
-        // `tools/call` whose body-authoritative dispatch would otherwise
-        // succeed — return `undefined` so validation is skipped and the
-        // conversion failure stays where it always surfaced (`tools/list`).
-        // A successful re-derive is memoized so the per-request-factory
-        // `createMcpHandler` model does not re-convert on every call.
+        // A conversion failure returns `undefined` so it surfaces where it always has (`tools/list`).
         try {
-            const json = standardSchemaToJsonSchema(tool.inputSchema, 'input');
+            const json = standardSchemaToJsonSchema(tool.inputSchema, 'input', this._logger);
             this._toolInputSchemaJson[name] = json;
             return json;
         } catch {
@@ -116,8 +176,12 @@ export class McpServer {
         }
     }
 
-    constructor(serverInfo: Implementation, options?: ServerOptions) {
-        this.server = new Server(serverInfo, options);
+    constructor(serverInfo: Implementation, options?: McpServerOptions) {
+        this._logger = guardLogger(options?.logger);
+        // Extensions are set up at the end of the constructor, where this McpServer exists to hand to them.
+        const { extensions, ...serverOptions } = options ?? {};
+        this.server = new Server(serverInfo, serverOptions);
+        this._maxToolInputElements = resolveMaxToolInputElements(options?.maxToolInputElements);
 
         // Per the MCP spec, a server that declares a primitive capability MUST respond to its
         // list method (potentially with an empty result) rather than "Method not found" — even
@@ -133,6 +197,8 @@ export class McpServer {
         if (options?.capabilities?.prompts) {
             this.setPromptRequestHandlers();
         }
+
+        installServerExtensions(this, extensions ?? []);
     }
 
     /**
@@ -238,7 +304,7 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: tool.inputSchema
-                                ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
+                                ? (convertListedInputSchema(name, tool.inputSchema, this._logger) as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
                             icons: tool.icons,
@@ -251,7 +317,11 @@ export class McpServer {
                             // `{type:'object',properties:{result:<natural>},required:['result']}` toward
                             // 2025-era clients) lives in the 2025 wire codec's `encodeResult('tools/list', …)`
                             // — this handler is era-blind and emits the natural converted schema.
-                            toolDefinition.outputSchema = standardSchemaToJsonSchema(tool.outputSchema, 'output') as Tool['outputSchema'];
+                            toolDefinition.outputSchema = standardSchemaToJsonSchema(
+                                tool.outputSchema,
+                                'output',
+                                this._logger
+                            ) as Tool['outputSchema'];
                         }
 
                         return toolDefinition;
@@ -273,12 +343,13 @@ export class McpServer {
                 const result = await this.executeToolHandler(tool, args, ctx);
                 await this.validateToolOutput(tool, result, request.params.name);
                 if (isInputRequiredResult(result)) return result;
+                const completed = withStructuredContentText(result);
                 // SEP-2106 result-side projection (the era-agnostic TextContent auto-append; the
                 // `{result:…}` wrap on the 2025 era) lives behind the wire codec's
                 // `projectCallToolResult`. The codec receives the SAME advertised JSON Schema
                 // `tools/list` emits (and that the codec's `encodeResult('tools/list', …)` may have
                 // wrapped) so the listing and the call cannot diverge.
-                return this.server.projectCallToolResult(result, tool.outputSchemaJson);
+                return this.server.projectCallToolResult(completed, tool.outputSchemaJson);
             } catch (error) {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult
@@ -319,6 +390,16 @@ export class McpServer {
                 : undefined
             : undefined
     >(tool: ToolType, args: Args, toolName: string): Promise<Args> {
+        if (
+            this._maxToolInputElements !== undefined &&
+            toolInputElementCount(args, this._maxToolInputElements) > this._maxToolInputElements
+        ) {
+            throw new ProtocolError(
+                ProtocolErrorCode.InvalidParams,
+                `Invalid arguments for tool ${toolName}: arguments contain more than the maximum of ${this._maxToolInputElements} elements`
+            );
+        }
+
         if (!tool.inputSchema) {
             return undefined as Args;
         }
@@ -599,7 +680,7 @@ export class McpServer {
                             name,
                             title: prompt.title,
                             description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined,
+                            arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema, this._logger) : undefined,
                             icons: prompt.icons,
                             _meta: prompt._meta
                         };
@@ -736,8 +817,11 @@ export class McpServer {
                     if (updates.uri) this._registeredResources[updates.uri] = registeredResource;
                 }
                 if (updates.name !== undefined) registeredResource.name = updates.name;
-                if (updates.title !== undefined) registeredResource.title = updates.title;
                 if (updates.metadata !== undefined) registeredResource.metadata = updates.metadata;
+                if (updates.title !== undefined) {
+                    registeredResource.title = updates.title;
+                    registeredResource.metadata = { ...registeredResource.metadata, title: updates.title };
+                }
                 if (updates.callback !== undefined) registeredResource.readCallback = updates.callback;
                 if (updates.scopeChallenge !== undefined) {
                     registeredResource.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
@@ -773,9 +857,12 @@ export class McpServer {
                     delete this._registeredResourceTemplates[name];
                     if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
                 }
-                if (updates.title !== undefined) registeredResourceTemplate.title = updates.title;
                 if (updates.template !== undefined) registeredResourceTemplate.resourceTemplate = updates.template;
                 if (updates.metadata !== undefined) registeredResourceTemplate.metadata = updates.metadata;
+                if (updates.title !== undefined) {
+                    registeredResourceTemplate.title = updates.title;
+                    registeredResourceTemplate.metadata = { ...registeredResourceTemplate.metadata, title: updates.title };
+                }
                 if (updates.callback !== undefined) registeredResourceTemplate.readCallback = updates.callback;
                 if (updates.scopeChallenge !== undefined) {
                     registeredResourceTemplate.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
@@ -887,44 +974,24 @@ export class McpServer {
         handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool {
         // Validate tool name according to SEP specification
-        validateAndWarnToolName(name);
-
-        // SEP-2243 registration-time declaration-validity check (additive: warn,
-        // never throw — clients enforce by exclusion, servers by header
-        // validation; a malformed declaration here should not block local
-        // development against a stdio client that ignores it). The conversion
-        // is memoized so the pre-dispatch validation step in `createMcpHandler`
-        // (and `toolInputSchemaJson()`) does not repeat it for the same tool.
-        // `standardSchemaToJsonSchema` can throw for schemas it cannot convert
-        // (e.g. a vendor without `~standard.jsonSchema`); the try/catch keeps
-        // the "warn, never throw" contract.
-        if (inputSchema !== undefined) {
-            try {
-                const json = standardSchemaToJsonSchema(inputSchema, 'input');
-                this._toolInputSchemaJson[name] = json;
-                const scan = scanXMcpHeaderDeclarations(json);
-                if (!scan.valid) {
-                    console.warn(
-                        `[mcp-sdk] tool '${name}' carries an invalid x-mcp-header declaration and will be excluded by ` +
-                            `conforming Streamable HTTP clients: ${scan.reason}`
-                    );
-                }
-            } catch {
-                // Conversion failure: leave the cache slot unset so the lazy
-                // path in `toolInputSchemaJson()` (and `tools/list`) surfaces
-                // the failure where it always has.
-            }
-        }
+        validateAndWarnToolName(name, this._logger);
 
         // Track current handler for executor regeneration
         let currentHandler = handler;
 
+        let outputSchemaJson: Record<string, unknown> | undefined;
+        const logger = this._logger;
         const registeredTool: RegisteredTool = {
             title,
             description,
             inputSchema,
             outputSchema,
-            outputSchemaJson: convertOutputSchemaJson(outputSchema),
+            get outputSchemaJson() {
+                return (outputSchemaJson ??= convertOutputSchemaJson(registeredTool.outputSchema, logger));
+            },
+            set outputSchemaJson(value) {
+                outputSchemaJson = value;
+            },
             annotations,
             icons,
             execution,
@@ -943,7 +1010,7 @@ export class McpServer {
                 // `_toolInputSchemaJson` slot rather than the original.
                 if (updates.name !== undefined && updates.name !== name) {
                     if (typeof updates.name === 'string') {
-                        validateAndWarnToolName(updates.name);
+                        validateAndWarnToolName(updates.name, this._logger);
                     }
                     delete this._registeredTools[name];
                     delete this._toolInputSchemaJson[name];
@@ -970,8 +1037,8 @@ export class McpServer {
                     needsExecutorRegen = true;
                 }
                 if (updates.callback !== undefined) {
-                    registeredTool.handler = updates.callback;
                     currentHandler = updates.callback as AnyToolHandler<StandardSchemaWithJSON | undefined>;
+                    registeredTool.handler = currentHandler;
                     needsExecutorRegen = true;
                 }
                 if (needsExecutorRegen) {
@@ -980,7 +1047,7 @@ export class McpServer {
 
                 if (updates.outputSchema !== undefined) {
                     registeredTool.outputSchema = updates.outputSchema;
-                    registeredTool.outputSchemaJson = convertOutputSchemaJson(updates.outputSchema);
+                    registeredTool.outputSchemaJson = convertOutputSchemaJson(updates.outputSchema, this._logger);
                 }
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
                 if (updates.icons !== undefined) registeredTool.icons = updates.icons;
@@ -1000,6 +1067,21 @@ export class McpServer {
         return registeredTool;
     }
 
+    /** @deprecated Wrap with `z.object({...})` instead. Raw-shape form: `inputSchema`/`outputSchema` may be a plain `{ field: z.string() }` record; it is auto-wrapped with `z.object()`. */
+    registerTool<InputArgs extends ZodRawShape = never, OutputArgs extends ZodRawShape | StandardSchemaWithJSON | undefined = undefined>(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            inputSchema?: InputArgs;
+            outputSchema?: OutputArgs;
+            annotations?: ToolAnnotations;
+            icons?: Icon[];
+            scopeChallenge?: ScopeChallengeHandler;
+            _meta?: Record<string, unknown>;
+        } & RawShapeOverloadGate<InputArgs, OutputArgs>,
+        cb: LegacyToolCallback<[InputArgs] extends [never] ? undefined : InputArgs, OutputArgs>
+    ): RegisteredTool;
     /**
      * Registers a tool with a config object and callback.
      *
@@ -1026,7 +1108,10 @@ export class McpServer {
      * );
      * ```
      */
-    registerTool<OutputArgs extends StandardSchemaWithJSON, InputArgs extends StandardSchemaWithJSON | undefined = undefined>(
+    registerTool<
+        OutputArgs extends StandardSchemaWithJSON | undefined = undefined,
+        InputArgs extends StandardSchemaWithJSON | undefined = undefined
+    >(
         name: string,
         config: {
             title?: string;
@@ -1039,22 +1124,7 @@ export class McpServer {
             scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
-        cb: ToolCallback<InputArgs>
-    ): RegisteredTool;
-    /** @deprecated Wrap with `z.object({...})` instead. Raw-shape form: `inputSchema`/`outputSchema` may be a plain `{ field: z.string() }` record; it is auto-wrapped with `z.object()`. */
-    registerTool<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape | StandardSchemaWithJSON | undefined = undefined>(
-        name: string,
-        config: {
-            title?: string;
-            description?: string;
-            inputSchema?: InputArgs;
-            outputSchema?: OutputArgs;
-            annotations?: ToolAnnotations;
-            icons?: Icon[];
-            scopeChallenge?: ScopeChallengeHandler;
-            _meta?: Record<string, unknown>;
-        },
-        cb: LegacyToolCallback<InputArgs>
+        cb: ToolCallback<InputArgs, OutputArgs>
     ): RegisteredTool;
     registerTool(
         name: string,
@@ -1068,7 +1138,7 @@ export class McpServer {
             scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
-        cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
+        cb: ToolCallbackImplementation
     ): RegisteredTool {
         if (this._registeredTools[name]) {
             throw new Error(`Tool ${name} is already registered`);
@@ -1086,7 +1156,7 @@ export class McpServer {
             undefined,
             scopeChallenge,
             _meta,
-            cb as ToolCallback<StandardSchemaWithJSON | undefined>
+            cb as AnyToolHandler<StandardSchemaWithJSON | undefined>
         );
     }
 
@@ -1116,6 +1186,19 @@ export class McpServer {
      * );
      * ```
      */
+    registerPrompt(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            argsSchema?: undefined;
+            icons?: Icon[];
+            /** Determines whether this prompt retrieval needs an OAuth scope challenge. */
+            scopeChallenge?: ScopeChallengeHandler;
+            _meta?: Record<string, unknown>;
+        },
+        cb: PromptCallback
+    ): RegisteredPrompt;
     registerPrompt<Args extends StandardSchemaWithJSON>(
         name: string,
         config: {
@@ -1152,7 +1235,7 @@ export class McpServer {
             scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
-        cb: PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
+        cb: PromptCallback | PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
     ): RegisteredPrompt {
         if (this._registeredPrompts[name]) {
             throw new Error(`Prompt ${name} is already registered`);
@@ -1293,6 +1376,18 @@ export class ResourceTemplate {
     }
 }
 
+// Mirrors `structuredContent` as JSON text when a tool result omits `content`; other result families are left to fail validation.
+function withStructuredContentText(result: CallToolResult): CallToolResult {
+    if (
+        (result as { content?: unknown }).content !== undefined ||
+        result.structuredContent === undefined ||
+        TOOL_RESULT_FOREIGN_FAMILY_KEYS.some(key => key in result)
+    ) {
+        return result;
+    }
+    return { ...result, content: [{ type: 'text', text: JSON.stringify(result.structuredContent) }] };
+}
+
 /**
  * A plain record of Zod field schemas, e.g. `{ name: z.string() }`. Accepted by
  * `registerTool`/`registerPrompt` as a shorthand; auto-wrapped with `z.object()`.
@@ -1303,13 +1398,95 @@ export type ZodRawShape = Record<string, z.ZodType>;
 /** Infers the parsed-output type of a {@linkcode ZodRawShape}. */
 export type InferRawShape<S extends ZodRawShape> = z.infer<z.ZodObject<S>>;
 
+/**
+ * The `structuredContent` value a tool handler must return for a given `outputSchema`.
+ *
+ * The SDK validates the handler's value against `outputSchema` and then sends **that value**
+ * (not the parsed result), while `tools/list` advertises the schema's output-side JSON Schema.
+ * The value therefore has to satisfy both sides of the schema: it is the schema's output type
+ * when that type is also a valid input (the common case, including defaults and coercion), and
+ * the intersection of input and output otherwise — so a transforming schema whose output is not
+ * a valid input cannot be satisfied by accident. `undefined` is excluded because the runtime
+ * treats `structuredContent: undefined` as absent; `null` is kept when the schema allows it.
+ * A branded output (Zod `.brand()`) requires a branded value, as brands are meant to.
+ * For a schema whose output type is `unknown` this is `unknown`, and `registerTool` does not
+ * check the result at compile time (see {@linkcode ToolResultFor}).
+ *
+ * @typeParam Output - the tool's `outputSchema`: a Standard Schema or a {@linkcode ZodRawShape}.
+ */
+export type ToolStructuredContent<Output extends StandardSchemaWithJSON | ZodRawShape> = Output extends StandardSchemaWithJSON
+    ? unknown extends StandardSchemaWithJSON.InferOutput<Output>
+        ? unknown
+        : ([StandardSchemaWithJSON.InferOutput<Output>] extends [StandardSchemaWithJSON.InferInput<Output>]
+              ? StandardSchemaWithJSON.InferOutput<Output>
+              : StandardSchemaWithJSON.InferInput<Output> & StandardSchemaWithJSON.InferOutput<Output>) &
+              (NonNullable<unknown> | null)
+    : Output extends ZodRawShape
+      ? [z.output<z.ZodObject<Output>>] extends [z.input<z.ZodObject<Output>>]
+          ? z.output<z.ZodObject<Output>>
+          : z.input<z.ZodObject<Output>> & z.output<z.ZodObject<Output>>
+      : never;
+
+/**
+ * The successful result of a tool that declares a typed `outputSchema`: `structuredContent` is
+ * required and typed by {@linkcode ToolStructuredContent}.
+ *
+ * `content` is optional here: when it is omitted, the server sends the JSON of
+ * `structuredContent` as a single text block. Supply your own `content` to control what
+ * clients that ignore `structuredContent` see.
+ */
+export type ToolResultWithStructuredContent<T> = {
+    // `Omit` would collapse CallToolResult's known keys into its index signature; key remapping keeps them.
+    [K in keyof CallToolResult as K extends 'content' | 'structuredContent' | 'isError' ? never : K]: CallToolResult[K];
+} & {
+    content?: CallToolResult['content'];
+    structuredContent: T;
+    isError?: false;
+};
+
+/** A tool error result. Exempt from `outputSchema` validation, so `structuredContent` is unconstrained. */
+export type ToolErrorResult = CallToolResult & { isError: true };
+
+/**
+ * Maps a tool's declared `outputSchema` to the {@link CallToolResult} its handler may return.
+ *
+ * With a typed `outputSchema`, a successful result must carry matching `structuredContent`
+ * ({@linkcode ToolResultWithStructuredContent}); `isError: true` results are unconstrained.
+ * Without one, or with one whose output type is `unknown` (such as an untyped
+ * `fromJsonSchema(...)`), any {@link CallToolResult} is allowed. A schema typed `S | undefined`
+ * also allows any result here, but `registerTool`'s optional `outputSchema` property drops the
+ * `undefined` when inferring, so a forwarded optional typed schema is checked as if present.
+ * Input-required results are added by {@linkcode ToolCallback} and are never constrained.
+ *
+ * @typeParam Output - the tool's `outputSchema`: a Standard Schema, a {@linkcode ZodRawShape}, or `undefined`.
+ */
+export type ToolResultFor<Output extends StandardSchemaWithJSON | ZodRawShape | undefined> = [Output] extends [
+    StandardSchemaWithJSON | ZodRawShape
+]
+    ? unknown extends ToolStructuredContent<Output>
+        ? CallToolResult
+        : ToolResultWithStructuredContent<ToolStructuredContent<Output>> | ToolErrorResult
+    : CallToolResult;
+
 /** {@linkcode ToolCallback} variant used when `inputSchema` is a {@linkcode ZodRawShape}. */
-export type LegacyToolCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
+export type LegacyToolCallback<
+    Args extends ZodRawShape | undefined,
+    Output extends StandardSchemaWithJSON | ZodRawShape | undefined = undefined
+> = Args extends ZodRawShape
     ? (
           args: InferRawShape<Args>,
           ctx: ServerContext
-      ) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>
-    : (ctx: ServerContext) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>;
+      ) => ToolResultFor<Output> | InputRequiredResult | Promise<ToolResultFor<Output> | InputRequiredResult>
+    : (ctx: ServerContext) => ToolResultFor<Output> | InputRequiredResult | Promise<ToolResultFor<Output> | InputRequiredResult>;
+
+/** Lets the deprecated raw-shape `registerTool` overload match only configs that use a raw shape; others fall through to the Standard Schema overload. */
+export type RawShapeOverloadGate<InputArgs, OutputArgs> = 0 extends (1 & InputArgs) | (1 & OutputArgs)
+    ? { readonly __standardSchemaOverload: never }
+    : [InputArgs] extends [never]
+      ? [OutputArgs] extends [StandardSchemaWithJSON | undefined]
+          ? { readonly __standardSchemaOverload: never }
+          : unknown
+      : unknown;
 
 /** {@linkcode PromptCallback} variant used when `argsSchema` is a {@linkcode ZodRawShape}. */
 export type LegacyPromptCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
@@ -1329,12 +1506,21 @@ export type BaseToolCallback<
 
 /**
  * Callback for a tool handler registered with {@linkcode McpServer.registerTool}.
+ *
+ * `registerTool` passes the tool's `outputSchema` as `Output`, so for a typed schema a successful
+ * result's `structuredContent` is checked at compile time (see {@linkcode ToolResultFor}).
+ * Runtime validation still runs and remains authoritative.
  */
-export type ToolCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = BaseToolCallback<
-    CallToolResult | InputRequiredResult,
-    ServerContext,
-    Args
->;
+export type ToolCallback<
+    Args extends StandardSchemaWithJSON | undefined = undefined,
+    Output extends StandardSchemaWithJSON | ZodRawShape | undefined = undefined
+> = BaseToolCallback<ToolResultFor<Output> | InputRequiredResult, ServerContext, Args>;
+
+type ToolCallbackImplementation =
+    | ToolCallback<StandardSchemaWithJSON | undefined, StandardSchemaWithJSON | undefined>
+    | ToolCallback<StandardSchemaWithJSON | undefined, StandardSchemaWithJSON>
+    | LegacyToolCallback<ZodRawShape | undefined, StandardSchemaWithJSON | ZodRawShape | undefined>
+    | LegacyToolCallback<ZodRawShape | undefined, StandardSchemaWithJSON | ZodRawShape>;
 
 /**
  * Tool handler callback type.
@@ -1353,7 +1539,7 @@ export type RegisteredTool = {
     outputSchema?: StandardSchemaWithJSON;
     /**
      * @hidden
-     * The converted JSON Schema of `outputSchema`, memoised at registration (and on
+     * The converted JSON Schema of `outputSchema`, memoised on first use (and on
      * `update({outputSchema})`) so the `tools/call` handler passes the SAME advertised schema
      * `tools/list` emits to the wire codec's `projectCallToolResult` — the SEP-2106 `{result:…}`
      * wrap predicate follows the schema's root, never the runtime value shape. `undefined` when
@@ -1381,7 +1567,11 @@ export type RegisteredTool = {
         icons?: Icon[];
         scopeChallenge?: ScopeChallengeHandler | null;
         _meta?: Record<string, unknown>;
-        callback?: ToolCallback<StandardSchemaWithJSON>;
+        callback?: BaseToolCallback<
+            CallToolResult | ToolResultWithStructuredContent<unknown> | InputRequiredResult,
+            ServerContext,
+            StandardSchemaWithJSON
+        >;
         enabled?: boolean;
     }): void;
     remove(): void;
@@ -1413,16 +1603,29 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
     properties: {}
 };
 
+/** Converts a tool's `inputSchema` for `tools/list` and warns on an invalid SEP-2243 `x-mcp-header` declaration. */
+function convertListedInputSchema(name: string, inputSchema: StandardSchemaWithJSON, logger: SdkLogger): Record<string, unknown> {
+    const json = standardSchemaToJsonSchema(inputSchema, 'input', logger);
+    const scan = scanXMcpHeaderDeclarations(json);
+    if (!scan.valid) {
+        logger.warn?.(
+            `[mcp-sdk] tool '${name}' carries an invalid x-mcp-header declaration and will be excluded by ` +
+                `conforming Streamable HTTP clients: ${scan.reason}`
+        );
+    }
+    return json;
+}
+
 /**
  * Convert a registered `outputSchema` to JSON Schema, memoised on {@link RegisteredTool.outputSchemaJson}
  * so `tools/call` passes the SAME advertised schema to the wire codec's `projectCallToolResult` that
  * `tools/list` emits (and that the 2025 codec's `encodeResult('tools/list', …)` may wrap). A conversion
  * failure yields `undefined` so the failure surfaces where it always has (`tools/list`).
  */
-function convertOutputSchemaJson(outputSchema: StandardSchemaWithJSON | undefined): Record<string, unknown> | undefined {
+function convertOutputSchemaJson(outputSchema: StandardSchemaWithJSON | undefined, logger: SdkLogger): Record<string, unknown> | undefined {
     if (outputSchema === undefined) return undefined;
     try {
-        return standardSchemaToJsonSchema(outputSchema, 'output');
+        return standardSchemaToJsonSchema(outputSchema, 'output', logger);
     } catch {
         return undefined;
     }
@@ -1561,7 +1764,7 @@ function createPromptHandler(
         ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
 
         return async (args, ctx) => {
-            const parseResult = await validateStandardSchema(argsSchema, args);
+            const parseResult = await validateStandardSchema(argsSchema, args ?? {});
             if (!parseResult.success) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid arguments for prompt ${name}: ${parseResult.error}`);
             }

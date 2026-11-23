@@ -953,6 +953,115 @@ describe('_resetConnectionState() clears connection-scoped debounce timers (fake
     });
 });
 
+describe('Client.listen() — settle while the send is still in flight (unhandled-rejection regression)', () => {
+    const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+    /**
+     * Capture process-level unhandledRejection events for the duration of a
+     * test body. Every settle() path that rejects the `opening` promise while
+     * `transport.send()` is still pending (a stdio send parked on 'drain', a
+     * slow HTTP send) used to escape here — caller-side handling cannot
+     * prevent it because the rejection fires before `await opening` attaches.
+     */
+    async function withUnhandledCapture(run: () => Promise<void>): Promise<unknown[]> {
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown): void => {
+            unhandled.push(reason);
+        };
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            await run();
+            // Let any escaped rejection surface before uninstalling.
+            await sleep(30);
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+        }
+        return unhandled;
+    }
+
+    /** A scripted modern connection whose `subscriptions/listen` send never settles. */
+    async function parkedSendClient() {
+        const { clientTx, serverTx } = await scriptedModernNoAck();
+        const realSend = clientTx.send.bind(clientTx);
+        clientTx.send = (m, opts) => {
+            if ((m as { method?: string }).method === 'subscriptions/listen') {
+                // Models a stdio send parked forever on 'drain' (stdio ignores
+                // TransportSendOptions.requestSignal) or any send that outlives
+                // the subscription.
+                return new Promise<void>(() => {});
+            }
+            return realSend(m, opts);
+        };
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        return { client, clientTx, serverTx };
+    }
+
+    it('ack timeout during a parked send: listen() rejects with RequestTimeout instead of hanging; nothing escapes', async () => {
+        let outcome: unknown;
+        const unhandled = await withUnhandledCapture(async () => {
+            const { client } = await parkedSendClient();
+            const settled = client.listen({ toolsListChanged: true }, { timeout: 50 }).then(
+                () => 'resolved',
+                e => e
+            );
+            outcome = await Promise.race([settled, sleep(1000).then(() => 'listen() hung')]);
+            expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        });
+        expect(outcome).toBeInstanceOf(SdkError);
+        expect((outcome as SdkError).code).toBe(SdkErrorCode.RequestTimeout);
+        expect(unhandled).toEqual([]);
+    });
+
+    it('transport close during a parked send: listen() rejects instead of hanging; nothing escapes', async () => {
+        let outcome: unknown;
+        const unhandled = await withUnhandledCapture(async () => {
+            const { client, serverTx } = await parkedSendClient();
+            const settled = client.listen({ toolsListChanged: true }, { timeout: 60_000 }).then(
+                () => 'resolved',
+                e => e
+            );
+            await flush();
+            await serverTx.close();
+            outcome = await Promise.race([settled, sleep(1000).then(() => 'listen() hung')]);
+        });
+        expect(outcome).toBeInstanceOf(Error);
+        expect(outcome).not.toBe('listen() hung');
+        expect(unhandled).toEqual([]);
+    });
+
+    it('caller-signal abort during a parked send: listen() rejects with the signal reason; nothing escapes', async () => {
+        let outcome: unknown;
+        const unhandled = await withUnhandledCapture(async () => {
+            const { client } = await parkedSendClient();
+            const ac = new AbortController();
+            const settled = client.listen({ toolsListChanged: true }, { timeout: 60_000, signal: ac.signal }).then(
+                () => 'resolved',
+                e => e
+            );
+            await flush();
+            ac.abort(new Error('caller gave up'));
+            outcome = await Promise.race([settled, sleep(1000).then(() => 'listen() hung')]);
+        });
+        expect(outcome).toBeInstanceOf(Error);
+        expect((outcome as Error).message).toContain('caller gave up');
+        expect(unhandled).toEqual([]);
+    });
+
+    it('an asynchronously-rejected send still rejects listen() with the send failure', async () => {
+        const unhandled = await withUnhandledCapture(async () => {
+            const { clientTx } = await scriptedModernNoAck();
+            const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+            await client.connect(clientTx);
+            clientTx.send = () => Promise.reject(new Error('wire dropped'));
+            const error = await client.listen({ toolsListChanged: true }).catch(e => e as Error);
+            expect((error as Error).message).toContain('wire dropped');
+            expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        });
+        expect(unhandled).toEqual([]);
+    });
+});
+
 describe('Client.listen() — ack timeout (fake timers)', () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());

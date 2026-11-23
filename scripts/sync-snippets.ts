@@ -1,8 +1,8 @@
 /**
  * Code Snippet Sync Script
  *
- * This script syncs code snippets into JSDoc comments and markdown files
- * containing labeled code fences.
+ * This script syncs code snippets into JSDoc comments and into markdown files
+ * (under docs/ and skills/) containing labeled code fences.
  *
  * ## Supported Source Files
  *
@@ -55,6 +55,7 @@ const __dirname = dirname(__filename);
 const PROJECT_ROOT = join(__dirname, '..');
 const PACKAGES_DIR = join(PROJECT_ROOT, 'packages');
 const DOCS_DIR = join(PROJECT_ROOT, 'docs');
+const SKILLS_DIR = join(PROJECT_ROOT, 'skills');
 
 /** Processing mode based on file type */
 type FileMode = 'jsdoc' | 'markdown';
@@ -577,8 +578,8 @@ async function main() {
     }
   }
 
-  // Process markdown documentation files
-  const markdownFiles = findMarkdownFiles(DOCS_DIR);
+  // Process markdown files: the docs and the agent skills
+  const markdownFiles = [...findMarkdownFiles(DOCS_DIR), ...findMarkdownFiles(SKILLS_DIR)];
   for (const filePath of markdownFiles) {
     const result = processFile(filePath, cache, 'markdown', { check: checkMode });
     results.push(result);

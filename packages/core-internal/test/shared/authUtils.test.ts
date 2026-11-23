@@ -1,4 +1,4 @@
-import { checkResourceAllowed, resourceUrlFromServerUrl } from '../../src/shared/authUtils';
+import { checkResourceAllowed, resourceUrlFromServerUrl, withoutIssuer } from '../../src/shared/authUtils';
 
 describe('auth-utils', () => {
     describe('resourceUrlFromServerUrl', () => {
@@ -85,6 +85,27 @@ describe('auth-utils', () => {
             expect(
                 checkResourceAllowed({ requestedResource: 'https://example.com/folder', configuredResource: 'https://example.com/folder/' })
             ).toBe(false);
+        });
+    });
+
+    describe('withoutIssuer', () => {
+        it('should drop issuer and keep everything else', () => {
+            const body = { access_token: 'at', token_type: 'Bearer', issuer: 'https://as.example.com', extra: 1 };
+            expect(withoutIssuer(body)).toEqual({ access_token: 'at', token_type: 'Bearer', extra: 1 });
+            expect(withoutIssuer(body)).not.toHaveProperty('issuer');
+            expect(body.issuer).toBe('https://as.example.com');
+        });
+
+        it('should drop an issuer that is not an own property', () => {
+            expect((withoutIssuer(Object.create({ issuer: 'https://as.example.com' })) as { issuer?: unknown }).issuer).toBeUndefined();
+        });
+
+        it('should return anything that is not a plain object unchanged', () => {
+            const list = [{ issuer: 'https://as.example.com' }];
+            expect(withoutIssuer(list)).toBe(list);
+            expect(withoutIssuer('issuer')).toBe('issuer');
+            expect(withoutIssuer(null)).toBeNull();
+            expect(withoutIssuer(undefined)).toBeUndefined();
         });
     });
 });

@@ -116,7 +116,13 @@ server.registerTool(
 );
 ```
 
-The SDK validates `structuredContent` against `outputSchema` before the result leaves your server, and advertises the derived JSON Schema in `tools/list` so clients can validate it too.
+TypeScript checks the callback against `outputSchema`: in this example, returning a string, leaving out `price`, or returning `price: '24'` is a compile error, and so is a successful result with no `structuredContent`. Results with `isError: true` and [input-required results](input-required.md) are exempt. `structuredContent: undefined` counts as missing; `null` is fine when the schema allows it. A schema with no static output type, such as an untyped `fromJsonSchema(...)`, is not checked at compile time.
+
+The SDK validates the value you return and sends it as is, without the parsed result. So the type TypeScript asks for is one that satisfies both the input and the output side of the schema: fields with a `.default()` must be supplied, coerced fields must already have the output type, and a `.transform()` whose output is not a valid input cannot be satisfied at all. Values built from wider types, such as a `string` that should be one of an enum's members, need narrowing or a `satisfies` annotation before you return them.
+
+The SDK also validates `structuredContent` against `outputSchema` at runtime before the result leaves your server, and advertises the derived JSON Schema in `tools/list` so clients can validate it too. The runtime check is still the one that counts: it covers JavaScript callers, values cast with `as`, and constraints TypeScript cannot express, such as `.min()`, `.email()` or `.refine()`.
+
+With a typed `outputSchema` you may leave out `content`; the server then sends the JSON of `structuredContent` as a single text block, so clients that ignore `structuredContent` still see the result. Supply your own `content` to control that text.
 
 Calling `product-details` with `{ name: 'Travel mug' }` returns both renderings:
 
@@ -213,6 +219,16 @@ server.registerTool(
 
 A tool that takes no arguments omits `inputSchema`. Annotations never change how the SDK runs the tool — clients use them to decide what to put in front of the end user: a host can auto-approve a read-only tool and require confirmation before a destructive one.
 
+## Limit the number of elements in tool arguments
+
+A `tools/call` request can carry very large arrays and objects in its `arguments`. `McpServer` can limit the number of elements it accepts. Pass `maxToolInputElements` to the constructor: the largest number of array elements and object members, combined, that a single call's `arguments` may contain. It must be a number of at least 1, or `Infinity` for no limit.
+
+```ts source="../../examples/guides/servers/tools.examples.ts#McpServer_maxToolInputElements"
+const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { maxToolInputElements: 10_000 });
+```
+
+It is off by default — leave it unset and behavior is unchanged. When it is set and a call exceeds it, that call comes back as an `isError: true` tool result naming the limit, before the schema runs, and the server keeps handling other calls. Choose a value above the largest arguments your tools legitimately accept. The transport's `maxRequestBodySize` (4 MiB by default) is the primary limit on request size; `maxToolInputElements` is a finer limit on the number of elements for servers that may receive large payloads.
+
 ## Recap
 
 - `registerTool(name, config, handler)` registers a tool; `inputSchema` is a Zod object schema.
@@ -221,3 +237,4 @@ A tool that takes no arguments omits `inputSchema`. Annotations never change how
 - `outputSchema` plus `structuredContent` add machine-readable results, validated before they leave the server.
 - `content` blocks are `text`, `image`, `audio`, `resource_link`, or an embedded `resource`; one result can mix them.
 - `title` and `annotations` describe the tool to clients and never change execution.
+- `maxToolInputElements` (off by default) limits the number of elements (array elements and object members, combined) one call's `arguments` may contain.

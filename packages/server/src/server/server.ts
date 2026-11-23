@@ -35,13 +35,17 @@ import type {
     ServerCapabilities,
     ServerContext,
     ToolResultContent,
-    ToolUseContent
+    ToolUseContent,
+    Transport
 } from '@modelcontextprotocol/core-internal';
 import {
+    assertExtensionCapabilitiesUnowned,
     assertValidCacheHint,
+    assertWrappable,
     attachCacheHintFallback,
     CLIENT_CAPABILITIES_META_KEY,
     codecForVersion,
+    extensionStateOf,
     isInputRequiredResult,
     isModernProtocolVersion,
     LATEST_PROTOCOL_VERSION,
@@ -59,11 +63,15 @@ import {
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode,
+    setProtocolInstrumentation,
+    SUPPORTED_MODERN_PROTOCOL_VERSIONS,
     withRequestStateValue
 } from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
 import { coerceEmbeddedInputRequest, LegacyInputRequiredShim, resolveLegacyShimOptions } from './legacyInputRequiredShim';
+import { defaultInstrumentation } from './openTelemetry';
+import { perRequestClassificationOf } from './perRequestTransport';
 
 /**
  * The request methods whose 2026-07-28 result vocabulary includes
@@ -244,7 +252,7 @@ export function installModernOnlyHandlers(server: Server, servedModernVersions: 
  * Package-internal: the instance's implementation identity, for the serving
  * entries to stamp onto entry-built results (the `subscriptions/listen`
  * graceful-close result — built outside the encode seam, but the spec's
- * `SubscriptionsListenResultMeta` extends `ResultMetaObject`, so it carries
+ * `SubscriptionsListenResultMetaObject` extends `ResultMetaObject`, so it carries
  * the serverInfo SHOULD like every other result). Not public API.
  */
 export function serverIdentityOf(server: Server): Implementation {
@@ -289,6 +297,7 @@ export class Server extends Protocol<ServerContext> {
     private _requestStateVerify?: (state: string, ctx: ServerContext) => unknown | Promise<unknown>;
     private _inputRequiredServing: { maxRounds: number; roundTimeoutMs: number; legacyShim: boolean };
     private _legacyShim?: LegacyInputRequiredShim;
+    private _boundFromTransport = false;
 
     /** Lazily-built legacy shim; the loop lives in legacyInputRequiredShim.ts behind a narrow host contract. */
     private _legacyInputRequiredShim(): LegacyInputRequiredShim {
@@ -316,6 +325,7 @@ export class Server extends Protocol<ServerContext> {
         options?: ServerOptions
     ) {
         super(options);
+        if (options?.openTelemetry !== false) setProtocolInstrumentation(this, defaultInstrumentation());
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
@@ -339,9 +349,7 @@ export class Server extends Protocol<ServerContext> {
 
         // server/discover is installed only when the supported-versions list
         // carries a modern revision: a legacy-only server keeps answering -32601.
-        // A hand-constructed instance is never era-bound, so the handler stays
-        // unreachable behind the era gate until a serving entry (createMcpHandler,
-        // serveStdio) marks the instance as serving the 2026-07-28 era.
+        // The handler becomes reachable when a serving entry or connect() binds a modern revision.
         if (modernProtocolVersions(this._supportedProtocolVersions).length > 0) {
             this.setRequestHandler('server/discover', () => this._ondiscover());
         }
@@ -349,6 +357,36 @@ export class Server extends Protocol<ServerContext> {
         if (this._capabilities.logging) {
             this._registerLoggingHandler();
         }
+    }
+
+    /** Attaches to the given transport; rejects while this instance is connected to another one. */
+    override async connect(transport: Transport): Promise<void> {
+        // Waited for here, before the one-connection check, so that check and the attach below stay synchronous.
+        const extensionsReady = extensionStateOf(this)?.ready;
+        if (extensionsReady !== undefined) await extensionsReady;
+        if (this.transport !== undefined) {
+            throw new SdkError(
+                SdkErrorCode.AlreadyConnected,
+                'Use a separate Server instance per connection: this instance is already connected to a transport. To connect it to a new transport, call close() first.'
+            );
+        }
+        // A new connection never inherits a binding taken from an earlier per-request transport.
+        if (this._boundFromTransport) {
+            this._boundFromTransport = false;
+            this._negotiatedProtocolVersion = undefined;
+        }
+        // A per-request transport classified at a modern revision this instance lists and the SDK implements binds that revision.
+        const revision = perRequestClassificationOf(transport)?.revision;
+        if (
+            revision !== undefined &&
+            !this._servedModernEra() &&
+            SUPPORTED_MODERN_PROTOCOL_VERSIONS.includes(revision) &&
+            modernProtocolVersions(this._supportedProtocolVersions).includes(revision)
+        ) {
+            this._negotiatedProtocolVersion = revision;
+            this._boundFromTransport = true;
+        }
+        await super.connect(transport);
     }
 
     /**
@@ -449,6 +487,7 @@ export class Server extends Protocol<ServerContext> {
         if (this.transport) {
             throw new SdkError(SdkErrorCode.AlreadyConnected, 'Cannot register capabilities after connecting to transport');
         }
+        assertExtensionCapabilitiesUnowned(this, capabilities);
         const hadLogging = !!this._capabilities.logging;
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
         if (!hadLogging && this._capabilities.logging) {
@@ -846,6 +885,10 @@ export class Server extends Protocol<ServerContext> {
         }
     }
 
+    protected override assertMiddlewareMethod(method: string): void {
+        assertWrappable('server', method);
+    }
+
     protected assertRequestHandlerCapability(method: string): void {
         switch (method) {
             case 'completion/complete': {
@@ -954,8 +997,8 @@ export class Server extends Protocol<ServerContext> {
      * @deprecated Read client identity from the per-request handler context instead: on
      * 2026-07-28 (per-request envelope) requests `ctx.mcpReq.envelope` carries the client's
      * declared capabilities, while on 2025-era connections this accessor keeps returning the
-     * `initialize`-scoped value. The accessor remains functional — instances serving the
-     * 2026-07-28 era are backfilled per request from the validated envelope.
+     * `initialize`-scoped value. The accessor remains functional where `createMcpHandler`
+     * serves the 2026-07-28 era: it backfills it per request from the validated envelope.
      */
     getClientCapabilities(): ClientCapabilities | undefined {
         return this._clientCapabilities;
@@ -967,8 +1010,8 @@ export class Server extends Protocol<ServerContext> {
      * @deprecated Read client identity from the per-request handler context instead: on
      * 2026-07-28 (per-request envelope) requests `ctx.mcpReq.envelope` carries the client's
      * name and version, while on 2025-era connections this accessor keeps returning the
-     * `initialize`-scoped value. The accessor remains functional — instances serving the
-     * 2026-07-28 era are backfilled per request from the validated envelope.
+     * `initialize`-scoped value. The accessor remains functional where `createMcpHandler`
+     * serves the 2026-07-28 era: it backfills it per request from the validated envelope.
      */
     getClientVersion(): Implementation | undefined {
         return this._clientVersion;
