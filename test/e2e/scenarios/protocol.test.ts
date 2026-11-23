@@ -660,14 +660,21 @@ verifies('protocol:timeout:basic', async ({ transport }: TestArgs) => {
 });
 
 verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
+    // Captured before faking: the wait for the call below needs a deadline the
+    // frozen fake clock cannot hold back.
+    const realSetTimeout = globalThis.setTimeout;
+    const realClearTimeout = globalThis.clearTimeout;
     vi.useFakeTimers();
     try {
+        let markCallReceived!: () => void;
+        const callReceived = new Promise<void>(resolve => (markCallReceived = resolve));
         const makeServer = () => {
             const s = new McpServer({ name: 's', version: '0' });
             s.registerTool(
                 'slow-progress',
                 { inputSchema: z.object({ delayMs: z.number(), steps: z.number() }) },
                 async ({ delayMs, steps }, ctx) => {
+                    markCallReceived();
                     const token = ctx.mcpReq._meta?.progressToken;
                     if (token !== undefined) {
                         for (let i = 1; i <= steps; i++) {
@@ -702,6 +709,28 @@ verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
             }
         );
         call.catch(() => {});
+
+        // Over SSE the tools/call POST is real I/O that fake timers do not wait for.
+        // Advancing before it lands lets the per-request timeout fire before any
+        // progress is sent, so maxTotalTimeout is never exercised (#3045). Awaiting a
+        // promise, unlike vi.waitFor, does not move the fake clock. If the call settles
+        // without reaching the handler (e.g. its arguments are rejected), fail with
+        // that reason instead of waiting on callReceived until the test times out.
+        // If nothing comes back at all, the frozen clock also holds back the
+        // per-request timeout, so bound the wait in real time.
+        const settledFirst = call.then(() => {
+            throw new Error('tools/call settled before the tool handler ran');
+        });
+        settledFirst.catch(() => {});
+        let deadline: ReturnType<typeof realSetTimeout> | undefined;
+        const neverArrived = new Promise<never>((_, reject) => {
+            deadline = realSetTimeout(() => reject(new Error('tools/call did not reach the tool handler within 5s')), 5000);
+        });
+        try {
+            await Promise.race([callReceived, settledFirst, neverArrived]);
+        } finally {
+            realClearTimeout(deadline);
+        }
 
         for (let elapsed = 0; elapsed < maxTotal + perChunk; elapsed += delayMs) {
             await vi.advanceTimersByTimeAsync(delayMs);
