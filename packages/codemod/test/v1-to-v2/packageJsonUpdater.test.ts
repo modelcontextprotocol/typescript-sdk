@@ -108,6 +108,30 @@ describe('updatePackageJson', () => {
         expect(deps['@modelcontextprotocol/server']).toBeUndefined();
     });
 
+    it('writes a member manifest when included in writableManifestPaths', () => {
+        writeJson('package.json', { name: 'mono', workspaces: ['packages/*'] });
+        const member = writeJson('packages/a/package.json', {
+            name: 'a',
+            dependencies: { '@modelcontextprotocol/sdk': '^1.29.0' }
+        });
+        const manifests = discoverManifests(dir);
+        const changes = updatePackageJson(
+            manifests,
+            new Map([[member, new Set(['@modelcontextprotocol/server'])]]),
+            false,
+            new Map(),
+            new Set([member])
+        );
+        expect(changes).toHaveLength(1);
+        expect(changes[0]!.packageJsonPath).toBe(member);
+        expect(changes[0]!.applied).toBe(true);
+        expect(changes[0]!.removed).toEqual(['@modelcontextprotocol/sdk']);
+        expect(changes[0]!.added).toEqual(['@modelcontextprotocol/server']);
+        const deps = readJson(member).dependencies as Record<string, string>;
+        expect(deps['@modelcontextprotocol/sdk']).toBeUndefined();
+        expect(deps['@modelcontextprotocol/server']).toBeDefined();
+    });
+
     it('writes the nearest manifest and reports a member that also declares v1', () => {
         const root = writeJson('package.json', {
             name: 'mono',
@@ -222,6 +246,33 @@ describe('run() manifest integration', () => {
         const deps = readJson(member).dependencies as Record<string, string>;
         expect(deps['@modelcontextprotocol/sdk']).toBe('^1.29.0');
         expect(deps['@modelcontextprotocol/client']).toBeUndefined();
+    });
+
+    it('applies manifest changes to workspace members whose source files were rewritten by the run', () => {
+        writeJson('package.json', { name: 'mono', workspaces: ['packages/*'] });
+        const member = writeJson('packages/a/package.json', {
+            name: 'a',
+            dependencies: { '@modelcontextprotocol/sdk': '^1.29.0' }
+        });
+        mkdirSync(path.join(dir, 'packages/a/src'), { recursive: true });
+        // Source uses v1 SDK import — will be rewritten by the run
+        writeFileSync(
+            path.join(dir, 'packages/a/src/index.ts'),
+            "import { Client } from '@modelcontextprotocol/sdk/client/index.js';\\nexport const c = new Client({ name: 'x', version: '1' });\\n"
+        );
+
+        const result = run(v1ToV2Migration, { targetDir: dir, dryRun: false });
+
+        const change = result.packageJsonChanges?.find(c => c.packageJsonPath === member);
+        expect(change).toBeDefined();
+        expect(change!.applied).toBe(true);
+        expect(change!.removed).toEqual(['@modelcontextprotocol/sdk']);
+        expect(change!.added).toContain('@modelcontextprotocol/client');
+
+        // The member manifest was rewritten because its source files were migrated in this run.
+        const deps = readJson(member).dependencies as Record<string, string>;
+        expect(deps['@modelcontextprotocol/sdk']).toBeUndefined();
+        expect(deps['@modelcontextprotocol/client']).toBeDefined();
     });
 
     it('survives a directory symlink cycle without following it', () => {

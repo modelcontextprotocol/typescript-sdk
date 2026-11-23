@@ -290,7 +290,21 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
             files.push(fileResult.filePath);
         }
 
-        const changes = updatePackageJson(manifests, usedByManifest, (options.dryRun ?? false) || targetIsFile, zodInjectedByManifest);
+        const rewrittenManifestPaths = new Set<string>();
+        for (const fileResult of fileResults) {
+            if (fileResult.changes > 0) {
+                const owner = ownerManifest(fileResult.filePath, manifests);
+                if (owner) rewrittenManifestPaths.add(owner.path);
+            }
+        }
+
+        const changes = updatePackageJson(
+            manifests,
+            usedByManifest,
+            (options.dryRun ?? false) || targetIsFile,
+            zodInjectedByManifest,
+            rewrittenManifestPaths
+        );
         packageJsonChanges = changes.length > 0 ? changes : undefined;
     }
 

@@ -240,9 +240,10 @@ function parseManifest(manifestPath: string): ParsedManifest | undefined {
 
 /**
  * Swap the v1 SDK dependency for the v2 packages in the **nearest** manifest (the
- * first entry of `manifests`), and report — without modifying — the same edit for
- * every other manifest that declares the v1 SDK, so workspace members never receive
- * writes the user did not point the codemod at.
+ * first entry of `manifests`) and any manifest whose files were rewritten in this run,
+ * and report — without modifying — the same edit for every other manifest that declares
+ * the v1 SDK, so un-migrated workspace members never receive writes the user did not point
+ * the codemod at.
  *
  * The v2 additions come from the **post-transform** import state of the files each
  * manifest owns (`usedByManifest`), not from what was rewritten in this run — so a
@@ -263,7 +264,8 @@ export function updatePackageJson(
     manifests: readonly ManifestInfo[],
     usedByManifest: ReadonlyMap<string, ReadonlySet<string>>,
     dryRun: boolean,
-    zodInjectedByManifest: ReadonlyMap<string, readonly string[]> = new Map()
+    zodInjectedByManifest: ReadonlyMap<string, readonly string[]> = new Map(),
+    writableManifestPaths?: ReadonlySet<string>
 ): PackageJsonChange[] {
     const changes: PackageJsonChange[] = [];
     const nearestPath = manifests[0]?.path;
@@ -339,6 +341,7 @@ export function updatePackageJson(
         const declaresAnyV2 = Object.keys({ ...deps, ...devDeps }).some(dep => dep in V2_PACKAGE_VERSIONS);
         const usesV2 = (effectiveUsed.get(manifest.path)?.size ?? 0) > 0;
         const isNearest = manifest.path === nearestPath;
+        const isWritable = isNearest || (writableManifestPaths !== undefined && writableManifestPaths.has(manifest.path));
 
         // The file-level `import { z } from 'zod'` injection promises a manifest edit;
         // it must land even when this manifest never declared the v1 SDK (a member
@@ -364,10 +367,10 @@ export function updatePackageJson(
         if (!inDeps && !inDevDeps) {
             if (needsInjectedZod) {
                 addInjectedZod('dependencies');
-                if (isNearest && !dryRun) {
+                if (isWritable && !dryRun) {
                     writeManifest(manifest.path, raw, pkgJson);
                 }
-                changes.push({ added: ['zod'], removed: [], packageJsonPath: manifest.path, applied: isNearest });
+                changes.push({ added: ['zod'], removed: [], packageJsonPath: manifest.path, applied: isWritable });
                 continue;
             }
             // The zod note only matters for manifests that take part in the migration:
@@ -410,9 +413,10 @@ export function updatePackageJson(
         if (inDeps) delete deps![V1_PACKAGE];
         if (inDevDeps) delete devDeps![V1_PACKAGE];
 
-        // Only the nearest manifest is written; the others are reported so the user
-        // applies (or deliberately skips) each workspace-member edit themselves.
-        if (isNearest && !dryRun) {
+        // Only the nearest manifest or manifests whose source files were rewritten
+        // in this run are written; others are reported so the user applies
+        // (or deliberately skips) each un-migrated workspace-member edit themselves.
+        if (isWritable && !dryRun) {
             writeManifest(manifest.path, raw, pkgJson);
         }
 
@@ -421,7 +425,7 @@ export function updatePackageJson(
             added: added.toSorted(),
             removed: [V1_PACKAGE],
             packageJsonPath: manifest.path,
-            applied: isNearest,
+            applied: isWritable,
             ...(notes !== undefined && { notes }),
             ...(warning !== undefined && (added.length > 0 || declaresAnyV2 || usesV2) && { warnings: [warning] })
         });
