@@ -85,7 +85,11 @@ export function normalizeToRoot(pkg: string): string {
 
 /** ts-morph standardizes file paths to forward slashes on every platform; manifests must compare the same way. */
 function toPosix(p: string): string {
-    return p.replaceAll('\\', '/');
+    let posix = p.replaceAll('\\', '/');
+    if (/^[a-zA-Z]:\//.test(posix)) {
+        posix = posix[0]!.toUpperCase() + posix.slice(1);
+    }
+    return posix;
 }
 
 function detectIndent(text: string): string {
@@ -108,7 +112,8 @@ function pnpmWorkspaceGlobs(rootDir: string): string[] {
     if (!existsSync(p)) return [];
     const globs: string[] = [];
     let inPackages = false;
-    for (const line of readFileSync(p, 'utf8').split('\n')) {
+    for (const rawLine of readFileSync(p, 'utf8').split('\n')) {
+        const line = rawLine.replace(/\r$/, '');
         if (/^packages\s*:/.test(line)) {
             inPackages = true;
             continue;
@@ -164,7 +169,8 @@ export function discoverManifests(targetDir: string): ManifestInfo[] {
     // run's scope and is not reported.
     const resolvedRoot = path.resolve(rootDir);
     for (const dir of memberDirs) {
-        if (!path.resolve(dir).startsWith(resolvedRoot + path.sep)) continue;
+        const rel = path.relative(resolvedRoot, path.resolve(dir));
+        if (rel.startsWith('..') || path.isAbsolute(rel) || rel === '') continue;
         const manifest = path.join(dir, 'package.json');
         if (existsSync(manifest) && manifest !== rootManifest) {
             manifests.push({ dir: toPosix(dir), path: manifest });
@@ -240,9 +246,10 @@ function parseManifest(manifestPath: string): ParsedManifest | undefined {
 
 /**
  * Swap the v1 SDK dependency for the v2 packages in the **nearest** manifest (the
- * first entry of `manifests`), and report — without modifying — the same edit for
- * every other manifest that declares the v1 SDK, so workspace members never receive
- * writes the user did not point the codemod at.
+ * first entry of `manifests`) and any manifest whose files were rewritten in this run,
+ * and report — without modifying — the same edit for every other manifest that declares
+ * the v1 SDK, so un-migrated workspace members never receive writes the user did not point
+ * the codemod at.
  *
  * The v2 additions come from the **post-transform** import state of the files each
  * manifest owns (`usedByManifest`), not from what was rewritten in this run — so a
@@ -252,10 +259,30 @@ function parseManifest(manifestPath: string): ParsedManifest | undefined {
 const ZOD_RANGE = '^4.2.0';
 const TEST_PATH_RE = /(^|\/)(test|tests|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?$/;
 
+function sortDependencies(pkgJson: Record<string, unknown>): void {
+    const depSections = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'] as const;
+    for (const section of depSections) {
+        const obj = pkgJson[section];
+        if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+            const sorted: Record<string, unknown> = {};
+            for (const key of Object.keys(obj as Record<string, unknown>).toSorted()) {
+                sorted[key] = (obj as Record<string, unknown>)[key];
+            }
+            pkgJson[section] = sorted;
+        }
+    }
+}
+
 function writeManifest(manifestPath: string, raw: string, pkgJson: Record<string, unknown>): void {
+    sortDependencies(pkgJson);
     const indent = detectIndent(raw);
     let output = JSON.stringify(pkgJson, null, indent);
-    if (raw.endsWith('\n')) output += '\n';
+    if (raw.endsWith('\r\n') || raw.endsWith('\n')) {
+        output += raw.includes('\r\n') ? '\r\n' : '\n';
+    }
+    if (raw.includes('\r\n')) {
+        output = output.replaceAll('\n', '\r\n');
+    }
     writeFileSync(manifestPath, output);
 }
 
@@ -263,7 +290,8 @@ export function updatePackageJson(
     manifests: readonly ManifestInfo[],
     usedByManifest: ReadonlyMap<string, ReadonlySet<string>>,
     dryRun: boolean,
-    zodInjectedByManifest: ReadonlyMap<string, readonly string[]> = new Map()
+    zodInjectedByManifest: ReadonlyMap<string, readonly string[]> = new Map(),
+    writableManifestPaths?: ReadonlySet<string>
 ): PackageJsonChange[] {
     const changes: PackageJsonChange[] = [];
     const nearestPath = manifests[0]?.path;
@@ -339,6 +367,7 @@ export function updatePackageJson(
         const declaresAnyV2 = Object.keys({ ...deps, ...devDeps }).some(dep => dep in V2_PACKAGE_VERSIONS);
         const usesV2 = (effectiveUsed.get(manifest.path)?.size ?? 0) > 0;
         const isNearest = manifest.path === nearestPath;
+        const isWritable = isNearest || (writableManifestPaths !== undefined && writableManifestPaths.has(manifest.path));
 
         // The file-level `import { z } from 'zod'` injection promises a manifest edit;
         // it must land even when this manifest never declared the v1 SDK (a member
@@ -364,10 +393,10 @@ export function updatePackageJson(
         if (!inDeps && !inDevDeps) {
             if (needsInjectedZod) {
                 addInjectedZod('dependencies');
-                if (isNearest && !dryRun) {
+                if (isWritable && !dryRun) {
                     writeManifest(manifest.path, raw, pkgJson);
                 }
-                changes.push({ added: ['zod'], removed: [], packageJsonPath: manifest.path, applied: isNearest });
+                changes.push({ added: ['zod'], removed: [], packageJsonPath: manifest.path, applied: isWritable });
                 continue;
             }
             // The zod note only matters for manifests that take part in the migration:
@@ -410,9 +439,10 @@ export function updatePackageJson(
         if (inDeps) delete deps![V1_PACKAGE];
         if (inDevDeps) delete devDeps![V1_PACKAGE];
 
-        // Only the nearest manifest is written; the others are reported so the user
-        // applies (or deliberately skips) each workspace-member edit themselves.
-        if (isNearest && !dryRun) {
+        // Only the nearest manifest or manifests whose source files were rewritten
+        // in this run are written; others are reported so the user applies
+        // (or deliberately skips) each un-migrated workspace-member edit themselves.
+        if (isWritable && !dryRun) {
             writeManifest(manifest.path, raw, pkgJson);
         }
 
@@ -421,7 +451,7 @@ export function updatePackageJson(
             added: added.toSorted(),
             removed: [V1_PACKAGE],
             packageJsonPath: manifest.path,
-            applied: isNearest,
+            applied: isWritable,
             ...(notes !== undefined && { notes }),
             ...(warning !== undefined && (added.length > 0 || declaresAnyV2 || usesV2) && { warnings: [warning] })
         });

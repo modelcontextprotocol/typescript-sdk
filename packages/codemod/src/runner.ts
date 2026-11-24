@@ -125,10 +125,11 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         // User ignores are PATTERNS, not paths: convertPathToPattern would escape
         // their glob metacharacters (`**` → `\*\*`) and they would match nothing.
         // fast-glob needs forward slashes, so Windows separators are normalized.
-        if (pattern.startsWith('**') || path.isAbsolute(pattern)) {
-            return path.sep === '\\' ? pattern.replaceAll('\\', '/') : pattern;
+        const normalized = path.sep === '\\' ? pattern.replaceAll('\\', '/') : pattern;
+        if (normalized.startsWith('**') || path.isAbsolute(normalized)) {
+            return normalized;
         }
-        return `${targetBase}/${pattern}`;
+        return `${targetBase}/${normalized}`;
     });
     const ignorePatterns = [
         '**/node_modules/**',
@@ -238,14 +239,49 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         }
     }
 
+    const mcpImportFiles = sourceFiles.filter(sf =>
+        sf.getImportDeclarations().some(decl => isV2Specifier(decl.getModuleSpecifierValue()))
+    ).length;
+    const v1ImportFiles = sourceFiles.filter(sf =>
+        sf.getImportDeclarations().some(decl => isSdkSpecifier(decl.getModuleSpecifierValue()))
+    ).length;
+
+    // Per-file mutations are atomic: if any transform fails, the file is rolled back to its
+    // original state and an error diagnostic is emitted.
+    let commentCount = 0;
+    if (!options.dryRun) {
+        commentCount = insertDiagnosticComments(project, fileResults);
+        // Restore any shebang a transform dropped. Done after comment insertion so the inserted
+        // comments (positioned against the post-transform text) shift down with the code uniformly.
+        for (const [filePath, shebang] of shebangs) {
+            const sf = project.getSourceFile(filePath);
+            if (sf && !sf.getFullText().startsWith('#!')) {
+                sf.insertText(0, shebang);
+                // Diagnostic lines were resolved against the post-transform, shebang-stripped text;
+                // re-inserting the shebang pushes every line down by its line count, so bump the reported
+                // lines to stay aligned with the saved file. (Comment insertion above already ran against
+                // the stripped text, so its placement is unaffected.) These Diagnostic objects are shared
+                // with the returned `diagnostics` array, so the fix reaches the CLI output and report too.
+                const lineShift = (shebang.match(/\n/g) ?? []).length;
+                const fileResult = fileResults.find(fr => fr.filePath === filePath);
+                if (fileResult) {
+                    for (const d of fileResult.diagnostics) d.line += lineShift;
+                }
+            }
+        }
+        project.saveSync();
+    }
+
     // The v2 dependency set for each manifest is derived from the POST-transform
     // import state of the files it owns (longest-prefix match against the
     // discovered manifests). Reading the final state — rather than what this run
     // rewrote — means an already-migrated package whose v1 dependency is being
     // removed still gets the v2 packages its imports need.
     const hasImportsTransform = enabledTransforms.some(t => t.id === 'imports');
+    const hasZodInjections = fileResults.some(fr => fr.diagnostics.some(d => d.tag === 'zod-injected'));
+    const shouldUpdateManifests = hasImportsTransform || hasZodInjections;
     let packageJsonChanges: PackageJsonChange[] | undefined;
-    if (hasImportsTransform) {
+    if (shouldUpdateManifests) {
         const manifests = discoverManifests(options.targetDir);
         const usedByManifest = new Map<string, Set<string>>();
         for (const sourceFile of sourceFiles) {
@@ -290,41 +326,22 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
             files.push(fileResult.filePath);
         }
 
-        const changes = updatePackageJson(manifests, usedByManifest, (options.dryRun ?? false) || targetIsFile, zodInjectedByManifest);
-        packageJsonChanges = changes.length > 0 ? changes : undefined;
-    }
-
-    const mcpImportFiles = sourceFiles.filter(sf =>
-        sf.getImportDeclarations().some(decl => isV2Specifier(decl.getModuleSpecifierValue()))
-    ).length;
-    const v1ImportFiles = sourceFiles.filter(sf =>
-        sf.getImportDeclarations().some(decl => isSdkSpecifier(decl.getModuleSpecifierValue()))
-    ).length;
-
-    // Per-file mutations are atomic: if any transform fails, the file is rolled back to its
-    // original state and an error diagnostic is emitted.
-    let commentCount = 0;
-    if (!options.dryRun) {
-        commentCount = insertDiagnosticComments(project, fileResults);
-        // Restore any shebang a transform dropped. Done after comment insertion so the inserted
-        // comments (positioned against the post-transform text) shift down with the code uniformly.
-        for (const [filePath, shebang] of shebangs) {
-            const sf = project.getSourceFile(filePath);
-            if (sf && !sf.getFullText().startsWith('#!')) {
-                sf.insertText(0, shebang);
-                // Diagnostic lines were resolved against the post-transform, shebang-stripped text;
-                // re-inserting the shebang pushes every line down by its line count, so bump the reported
-                // lines to stay aligned with the saved file. (Comment insertion above already ran against
-                // the stripped text, so its placement is unaffected.) These Diagnostic objects are shared
-                // with the returned `diagnostics` array, so the fix reaches the CLI output and report too.
-                const lineShift = (shebang.match(/\n/g) ?? []).length;
-                const fileResult = fileResults.find(fr => fr.filePath === filePath);
-                if (fileResult) {
-                    for (const d of fileResult.diagnostics) d.line += lineShift;
-                }
+        const rewrittenManifestPaths = new Set<string>();
+        for (const fileResult of fileResults) {
+            if (fileResult.changes > 0) {
+                const owner = ownerManifest(fileResult.filePath, manifests);
+                if (owner) rewrittenManifestPaths.add(owner.path);
             }
         }
-        project.saveSync();
+
+        const changes = updatePackageJson(
+            manifests,
+            usedByManifest,
+            (options.dryRun ?? false) || targetIsFile,
+            zodInjectedByManifest,
+            rewrittenManifestPaths
+        );
+        packageJsonChanges = changes.length > 0 ? changes : undefined;
     }
 
     return {
