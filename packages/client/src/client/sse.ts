@@ -313,9 +313,6 @@ export class SSEClientTransport implements Transport {
                             : new UnauthorizedError()
                     );
                     this._last401Response = undefined;
-                    if (!this._endpoint) {
-                        this._eventSource?.close();
-                    }
                     reject(error);
                     this.onerror?.(error);
                     return;
@@ -324,9 +321,6 @@ export class SSEClientTransport implements Transport {
                 // A retry that failed for another reason is over: a later 401 may refresh again.
                 this._connectAuthRetried = false;
                 const error = new SseError(event.code, redirect ?? event.message, event);
-                if (!this._endpoint) {
-                    this._eventSource?.close();
-                }
                 reject(error);
                 this.onerror?.(error);
             };
@@ -375,7 +369,10 @@ export class SSEClientTransport implements Transport {
             throw new Error('SSEClientTransport already started! If using Client class, note that connect() calls start() automatically.');
         }
 
-        return await this._startOrAuth();
+        return await this._startOrAuth().catch((error: unknown) => {
+            this._eventSource?.close();
+            throw error;
+        });
     }
 
     /**
