@@ -179,3 +179,39 @@ HTTP SSE streams emit a `: keepalive` comment every 15 seconds by default so cli
 <!-- maintainers: an entry on this page lives only as long as the surface that
 produces it. When an era, package, or supported Node.js version is removed,
 delete its entries in the same change — this page never accretes. -->
+
+## `MCP error -32603: Cannot read properties of null (reading '_def')`
+
+On v1, passing a `ZodObject` (`z.object({...})`) where the API expects a **Zod raw shape** (`{ field: z.string() }`) crashes `tools/list` with this error on SDK versions 1.12.0–1.21.0 when using `registerTool`. The error comes from internal schema introspection (`_def` is Zod's internal type descriptor) and does not mention the actual mistake.
+
+**Fix:** pass a raw shape, not a `ZodObject`:
+
+```ts
+// Wrong on v1 (crashes tools/list on 1.12.0–1.21.0)
+server.registerTool('greet', { inputSchema: z.object({ name: z.string() }) }, handler);
+
+// Correct on v1 — raw shape
+server.registerTool('greet', { inputSchema: { name: z.string() } }, handler);
+```
+
+On v1.22.0+ the SDK normalizes `z.object()` automatically, so the same call works. On v1.28.0+ passing `z.object()` to the legacy `server.tool()` positional API throws a clear error at registration instead of failing silently.
+
+If you are migrating to v2, the direction flips: v2 expects schema objects (`z.object(...)`) and raw shapes are deprecated (auto-wrapped with `z.object()`). See [Upgrading from v1.x to v2](./migration/upgrade-to-v2.md#types--schemas).
+
+## My tool's `inputSchema` is empty / clients don't send arguments
+
+On v1, passing a `ZodObject` (`z.object({...})`) to the legacy `server.tool()` positional API on versions 1.12.0–1.26.0 silently publishes an empty schema (`{"type":"object"}` with no `properties`). Clients see no arguments and strip them; the handler receives nothing and no error is raised.
+
+**Fix:** pass a raw shape, not a `ZodObject`:
+
+```ts
+// Wrong on v1 (silent empty schema through 1.26.0)
+server.tool('greet', 'desc', z.object({ name: z.string() }), handler);
+
+// Correct on v1 — raw shape
+server.tool('greet', 'desc', { name: z.string() }, handler);
+```
+
+This only affects the legacy `server.tool()` positional API. `registerTool` normalizes `z.object()` from v1.22.0 onward. The symptom (empty `inputSchema`, clients stripping arguments) is not a client bug — it is the schema never having been populated.
+
+If you are migrating to v2, the direction flips: v2 expects schema objects (`z.object(...)`) and raw shapes are deprecated (auto-wrapped with `z.object()`). See [Upgrading from v1.x to v2](./migration/upgrade-to-v2.md#types--schemas).

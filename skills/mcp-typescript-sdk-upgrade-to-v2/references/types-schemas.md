@@ -193,3 +193,18 @@ handling (no `additionalProperties: false` by default; passthrough objects emit
 `"additionalProperties": {}` instead of `true`), and no `execution.taskSupport` member.
 Golden tests, transcript pins, and strict client-side validators of your advertised
 tool list need re-baselining — the new shapes are spec-conformant.
+
+#### v1 raw-shape vs v2 `z.object()` — doing it backwards
+
+v1 expects **raw shapes** (`{ field: z.string() }`); v2 expects **schema objects** (`z.object({ field: z.string() })`).
+Doing it backwards on v1 has two failure modes that never mention the cause:
+
+- **v1 ≤ 1.21 with `registerTool` + `z.object()`**: `tools/list` crashes with
+  `MCP error -32603: Cannot read properties of null (reading '_def')`.
+- **v1 ≤ 1.26 with `server.tool()` (positional) + `z.object()`**: silently publishes an
+  empty schema (`{"type":"object"}` with no `properties`); clients strip all arguments and
+  the handler receives nothing — no error anywhere.
+
+Raw shapes work on every v1 version. v2 deprecates raw shapes (auto-wrapped with `z.object()`)
+and prefers explicit `z.object()`. If you are on v1 and see an empty `inputSchema` or a
+`reading '_def'` crash, check whether you passed `z.object()` where a raw shape was expected.
