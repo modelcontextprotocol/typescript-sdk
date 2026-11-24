@@ -369,7 +369,10 @@ export class SSEClientTransport implements Transport {
             throw new Error('SSEClientTransport already started! If using Client class, note that connect() calls start() automatically.');
         }
 
-        return await this._startOrAuth();
+        return await this._startOrAuth().catch((error: unknown) => {
+            this._eventSource?.close();
+            throw error;
+        });
     }
 
     /**

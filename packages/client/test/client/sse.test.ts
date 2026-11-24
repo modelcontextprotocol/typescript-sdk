@@ -150,6 +150,26 @@ describe('SSEClientTransport', () => {
             await transport.close();
             await closePromise;
         });
+
+        it('closes EventSource and stops reconnecting when start() rejects', async () => {
+            vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+            try {
+                let attempts = 0;
+                transport = new SSEClientTransport(resourceBaseUrl, {
+                    fetch: async () => {
+                        attempts++;
+                        throw new TypeError('fetch failed');
+                    }
+                });
+                await expect(transport.start()).rejects.toThrow();
+                expect(vi.getTimerCount()).toBe(0);
+
+                await vi.advanceTimersByTimeAsync(10_000);
+                expect(attempts).toBe(1);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
     });
 
     describe('message handling', () => {
