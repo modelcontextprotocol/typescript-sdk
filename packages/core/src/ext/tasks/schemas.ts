@@ -1,6 +1,6 @@
 /*
  * Zod schemas for the MCP Tasks extension wire types, written against
- * modelcontextprotocol/ext-tasks at dcc8d2b (SEP-2663 Final). Objects are loose
+ * modelcontextprotocol/ext-tasks `schema/2026-07-28` at cc9aaac (SEP-2663 Final). Objects are loose
  * and `resultType` literals are required on results.
  * https://github.com/modelcontextprotocol/ext-tasks
  *
@@ -129,7 +129,7 @@ export const completedTaskSchema = z.looseObject({
 export const failedTaskSchema = z.looseObject({
     ...taskShape,
     status: z.literal('failed'),
-    error: z.record(z.string(), z.unknown())
+    error: z.looseObject({ code: z.number(), message: z.string(), data: z.unknown().optional() })
 });
 
 /**

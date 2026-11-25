@@ -60,6 +60,20 @@ describe('InMemoryTaskStore', () => {
         store.close();
     });
 
+    it('refuses an input request key the task has already used', async () => {
+        const store = new InMemoryTaskStore();
+        const ask = {
+            a: { method: 'elicitation/create', params: { message: 'q', mode: 'form', requestedSchema: { type: 'object', properties: {} } } }
+        } as const;
+        const { taskId } = await store.create({ ttlMs: null });
+        const handle = store.handle(taskId);
+        const first = handle.requireInput(ask);
+        await store.update(taskId, { a: { action: 'accept', content: {} } });
+        await first;
+        await expect(handle.requireInput(ask)).rejects.toThrow('already used the input request key "a"');
+        store.close();
+    });
+
     it('settles a pending input wait when the task completes or fails, and refuses a second wait', async () => {
         const store = new InMemoryTaskStore();
         const ask = {

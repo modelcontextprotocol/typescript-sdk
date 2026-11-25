@@ -40,6 +40,8 @@ interface TaskRecord {
     result?: CallToolResult;
     error?: { code: number; message: string; data?: unknown };
     pendingInput?: PendingInput;
+    /** Every input request key the task has used; a key is never reused over its lifetime. */
+    usedInputKeys: Set<string>;
     abort: AbortController;
     ttlTimer?: ReturnType<typeof setTimeout>;
 }
@@ -67,11 +69,14 @@ export interface TaskHandle {
      * Moves the task to `input_required` with `requests` outstanding and
      * resolves once `tasks/update` has answered every key (partial updates
      * accumulate). Rejects if the task is cancelled, purged or settled while
-     * waiting, when another `requireInput` is already outstanding, and when
-     * a request needs a client capability the creating request did not declare.
+     * waiting, when another `requireInput` is already outstanding, when a
+     * key was used earlier in the task, and when a request needs a client
+     * capability the creating request did not declare.
      */
     requireInput(requests: InputRequests): Promise<InputResponses>;
+    /** Settles the task `completed` with the tool's result; a tool-level failure is a result with `isError: true`. */
     complete(result: CallToolResult): Promise<void>;
+    /** Settles the task `failed` with a JSON-RPC error; not for tool-level failures, which `complete`. */
     fail(error: { code: number; message: string; data?: unknown }): Promise<void>;
 }
 
@@ -131,6 +136,7 @@ export class InMemoryTaskStore implements TaskStore {
             lastUpdatedAt: now,
             ttlMs: params.ttlMs,
             ...(params.pollIntervalMs !== undefined && { pollIntervalMs: params.pollIntervalMs }),
+            usedInputKeys: new Set(),
             abort: new AbortController()
         };
         if (record.ttlMs !== null) this.#schedulePurge(record, record.ttlMs);
@@ -208,6 +214,12 @@ export class InMemoryTaskStore implements TaskStore {
                 if (current.pendingInput !== undefined) {
                     return Promise.reject(new Error(`Task "${taskId}" is already waiting for input`));
                 }
+                const reused = Object.keys(requests).find(key => current.usedInputKeys.has(key));
+                if (reused !== undefined) {
+                    return Promise.reject(
+                        new Error(`Task "${taskId}" already used the input request key "${reused}"; keys are unique per task`)
+                    );
+                }
                 // The creating request's capabilities bound what the task may ask for, as on an in-band input request.
                 if (current.clientCapabilities !== undefined) {
                     for (const [key, request] of Object.entries(requests)) {
@@ -237,6 +249,7 @@ export class InMemoryTaskStore implements TaskStore {
                             reject(error);
                         }
                     };
+                    for (const key of Object.keys(requests)) current.usedInputKeys.add(key);
                     current.status = 'input_required';
                     this.#touch(current);
                 });
