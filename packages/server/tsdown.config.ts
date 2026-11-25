@@ -5,6 +5,7 @@ export default defineConfig({
     entry: [
         'src/index.ts',
         'src/stdio.ts',
+        'src/ext/tasks/index.ts',
         'src/shimsNode.ts',
         'src/shimsWorkerd.ts',
         'src/shimsBrowser.ts',
@@ -29,6 +30,7 @@ export default defineConfig({
             paths: {
                 'fast-uri': ['../core-internal/src/validators/fastUriShim.d.ts'],
                 '@modelcontextprotocol/core/ext/skills': ['../core/src/ext/skills/index.ts'],
+                '@modelcontextprotocol/core/ext/tasks': ['../core/src/ext/tasks/index.ts'],
                 '@modelcontextprotocol/core-internal': ['../core-internal/src/index.ts'],
                 '@modelcontextprotocol/core-internal/public': ['../core-internal/src/exports/public/index.ts'],
                 '@modelcontextprotocol/core-internal/ext/skills': ['../core-internal/src/ext/skills/index.ts'],
@@ -41,5 +43,10 @@ export default defineConfig({
     // The schema modules live in @modelcontextprotocol/core (a real runtime dependency); the
     // bundled core-internal shims import them via the './internal' subpath, which must stay an
     // external import (explicit entry — the tsconfig paths alias would otherwise inline it).
-    external: ['@modelcontextprotocol/server/_shims', '@modelcontextprotocol/core/internal', '@modelcontextprotocol/core/ext/skills']
+    external: [
+        '@modelcontextprotocol/server/_shims',
+        '@modelcontextprotocol/core/internal',
+        '@modelcontextprotocol/core/ext/skills',
+        '@modelcontextprotocol/core/ext/tasks'
+    ]
 });

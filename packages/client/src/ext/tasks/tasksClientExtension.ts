@@ -1,0 +1,195 @@
+/**
+ * `TasksClientExtension` — the client side of the MCP Tasks extension
+ * (`io.modelcontextprotocol/tasks`) as a {@linkcode ClientExtension}. On a
+ * 2026-07-28 connection, which the extension needs, it advertises the
+ * capability on every request, lets `tools/call` answer with a
+ * task handle, and wraps the extension's methods: `get`, `update`, `cancel`,
+ * and a `waitFor` that polls at the server's suggested interval until the
+ * task is terminal.
+ *
+ * ```ts
+ * const tasks = new TasksClientExtension();
+ * const client = new Client(info, { versionNegotiation: { mode: 'auto' }, extensions: [tasks] });
+ * await client.connect(transport);
+ *
+ * const outcome = await tasks.callTool({ name: 'send_report', arguments: { to: 'ops' } });
+ * if (outcome.kind === 'task') {
+ *     const done = await tasks.waitFor(outcome.task.taskId);
+ *     if (done.status === 'completed') console.log(done.result);
+ * }
+ * ```
+ *
+ * One extension instance serves one client: `setup` binds it.
+ */
+
+import type { CreateTaskResult, DetailedTask } from '@modelcontextprotocol/core/ext/tasks';
+import { createTaskResultSchema, detailedTaskSchema, TASKS_EXTENSION_ID } from '@modelcontextprotocol/core/ext/tasks';
+import type { CallToolRequestParams, CallToolResult, InputResponses, RequestOptions } from '@modelcontextprotocol/core-internal';
+import { CallToolResultSchema, CompatibilityCallToolResultSchema, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
+import * as z from 'zod/v4';
+
+import type { CallToolRequestOptions, Client } from '../../client/client';
+import { callToolWith } from '../../client/client';
+import type { ClientExtension, ClientExtensionContext } from '../../client/extension';
+
+/**
+ * How a task-capable `tools/call` settled: a task handle to follow, or the ordinary result.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
+export type CallToolOutcome = { kind: 'task'; task: CreateTaskResult } | { kind: 'result'; result: CallToolResult };
+
+/**
+ * Options for {@link TasksClientExtension.waitFor}.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
+export interface WaitForOptions {
+    /** Aborting stops polling; the task itself is untouched. */
+    signal?: AbortSignal;
+    /** Overrides the server's `pollIntervalMs` hint, ms. */
+    pollIntervalMs?: number;
+    /** Fallback when the task carries no `pollIntervalMs`, ms. Default 1_000. */
+    defaultPollIntervalMs?: number;
+    /** Called with every snapshot, terminal one included; polling waits for a returned promise. */
+    onUpdate?: (task: DetailedTask) => void | Promise<void>;
+}
+
+/**
+ * A task in a terminal status.
+ *
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
+export type TerminalTask = Extract<DetailedTask, { status: 'completed' | 'failed' | 'cancelled' }>;
+
+const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+
+/**
+ * The `Client` consumes `resultType` before a caller schema runs for every
+ * kind it knows, so the neutral `DetailedTask` shape is what `tasks/get`
+ * answers arrive as; a task handle arrives raw, discriminator included.
+ */
+const callToolOutcomeSchema = z.union([createTaskResultSchema, CompatibilityCallToolResultSchema]);
+const ackSchema = z.looseObject({});
+
+/**
+ * Experimental: may change in a minor release while the extensions SEPs settle.
+ *
+ * @experimental
+ */
+export class TasksClientExtension implements ClientExtension {
+    readonly id = TASKS_EXTENSION_ID;
+    #client: Client | undefined;
+    // The output check of the tool behind each task this instance started, applied to the task's final result.
+    readonly #outputChecks = new Map<string, (result: CallToolResult) => void>();
+
+    /**
+     * Binds this instance to the client and lets `tools/call` answer with a
+     * task handle. The client calls this for each entry in `extensions`.
+     *
+     * Experimental: may change in a minor release while the extensions SEPs settle.
+     *
+     * @experimental
+     */
+    setup(ctx: ClientExtensionContext): void {
+        if (this.#client !== undefined) throw new Error('TasksClientExtension is already set up on a client');
+        this.#client = ctx.client;
+        ctx.acceptResultType('tools/call', 'task');
+    }
+
+    get client(): Client {
+        if (this.#client === undefined) throw new SdkError(SdkErrorCode.NotConnected, 'TasksClientExtension is not set up on a client');
+        return this.#client;
+    }
+
+    /**
+     * Calls a tool that may answer with a task handle. The ordinary result
+     * comes back as `{ kind: 'result' }` for tools that answer synchronously.
+     * It does what `client.callTool` does around the request: it mirrors
+     * `x-mcp-header` arguments into `Mcp-Param-*` headers, and checks an
+     * ordinary result's `structuredContent` against the tool's `outputSchema`.
+     * For a task, that check runs on the final result, when {@link get} or
+     * {@link waitFor} on this instance sees it completed.
+     */
+    async callTool(params: CallToolRequestParams, options?: CallToolRequestOptions): Promise<CallToolOutcome> {
+        const { result: raw, validateOutput } = await callToolWith(this.client, params, options, sendOptions =>
+            this.client.request({ method: 'tools/call', params }, callToolOutcomeSchema, sendOptions)
+        );
+        if ((raw as { resultType?: unknown }).resultType === 'task') {
+            const task = createTaskResultSchema.parse(raw);
+            this.#outputChecks.set(task.taskId, validateOutput);
+            return { kind: 'task', task };
+        }
+        const result = raw as CallToolResult;
+        validateOutput(result);
+        return { kind: 'result', result };
+    }
+
+    /**
+     * `tasks/get`: the task's current snapshot, results and input requests
+     * inlined. A completed task this instance started through {@link callTool}
+     * has its result checked against the tool's `outputSchema`; a mismatch
+     * throws, as it does from `client.callTool`.
+     */
+    async get(taskId: string, options?: RequestOptions): Promise<DetailedTask> {
+        const task: DetailedTask = await this.client.request({ method: 'tasks/get', params: { taskId } }, detailedTaskSchema, options);
+        const check = this.#outputChecks.get(taskId);
+        if (task.status === 'completed' && check !== undefined) {
+            const result = CallToolResultSchema.safeParse(task.result);
+            if (!result.success)
+                throw new SdkError(SdkErrorCode.InvalidResult, `Task "${taskId}" completed with a result that is not a tool result`);
+            check(result.data);
+        }
+        if (TERMINAL.has(task.status)) this.#outputChecks.delete(taskId);
+        return task;
+    }
+
+    /** `tasks/update`: answers outstanding input requests. Partial answers are accepted. */
+    async update(taskId: string, inputResponses: InputResponses, options?: RequestOptions): Promise<void> {
+        await this.client.request({ method: 'tasks/update', params: { taskId, inputResponses } }, ackSchema, options);
+    }
+
+    /** `tasks/cancel`: cooperative; resolves on acknowledgement, the task may still settle. */
+    async cancel(taskId: string, options?: RequestOptions): Promise<void> {
+        await this.client.request({ method: 'tasks/cancel', params: { taskId } }, ackSchema, options);
+        this.#outputChecks.delete(taskId);
+    }
+
+    /**
+     * Polls `tasks/get` at the task's suggested interval until the task is
+     * terminal. `input_required` snapshots are reported through `onUpdate`,
+     * and polling resumes once it settles; answer them with {@link update}
+     * there. A rejection from `onUpdate` rejects `waitFor`.
+     */
+    async waitFor(taskId: string, options?: WaitForOptions): Promise<TerminalTask> {
+        for (;;) {
+            options?.signal?.throwIfAborted();
+            const task = await this.get(taskId, { signal: options?.signal });
+            await options?.onUpdate?.(task);
+            if (TERMINAL.has(task.status)) return task as TerminalTask;
+            const delay = options?.pollIntervalMs ?? task.pollIntervalMs ?? options?.defaultPollIntervalMs ?? 1000;
+            await sleep(delay, options?.signal);
+        }
+    }
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+        if (signal?.aborted) return reject(signal.reason);
+        const timer = setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort);
+            resolve();
+        }, ms);
+        const onAbort = () => {
+            clearTimeout(timer);
+            reject(signal?.reason);
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+    });
+}

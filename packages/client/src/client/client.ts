@@ -572,7 +572,33 @@ type OutputSchemaCompileResult =
  * });
  * ```
  */
+let callToolSteps: <R>(
+    client: Client,
+    params: CallToolRequest['params'],
+    options: CallToolRequestOptions | undefined,
+    send: (options: CallToolRequestOptions | undefined) => Promise<R>
+) => Promise<{ result: R; validateOutput: (result: CallToolResult) => void }>;
+
+/**
+ * Package-internal: `Client.callTool`'s steps around a caller's own
+ * `tools/call` send, for an extension that receives another result kind. The
+ * caller applies `validateOutput` to the result that is the tool's output.
+ */
+export function callToolWith<R>(
+    client: Client,
+    params: CallToolRequest['params'],
+    options: CallToolRequestOptions | undefined,
+    send: (options: CallToolRequestOptions | undefined) => Promise<R>
+): Promise<{ result: R; validateOutput: (result: CallToolResult) => void }> {
+    return callToolSteps(client, params, options, send);
+}
+
 export class Client extends Protocol<ClientContext> {
+    static {
+        // Reaches the private steps for `callToolWith`, so no public method is needed.
+        callToolSteps = (client, params, options, send) => client._callToolSteps(params, options, send);
+    }
+
     private _serverCapabilities?: ServerCapabilities;
     private _serverVersion?: Implementation;
     private _capabilities: ClientCapabilities;
@@ -2410,6 +2436,24 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     async callTool(params: CallToolRequest['params'], options?: CallToolRequestOptions): Promise<CallToolResult> {
+        const { result, validateOutput } = await this._callToolSteps(params, options, sendOptions =>
+            this.request({ method: 'tools/call', params }, sendOptions)
+        );
+        validateOutput(result);
+        return result;
+    }
+
+    /**
+     * What `callTool` does around its one `tools/call` send: `Mcp-Param-*`
+     * header mirroring, the one-refresh retry on `HEADER_MISMATCH`, and the
+     * tool's output validator, returned for the caller to apply to the
+     * result that is the tool's output.
+     */
+    private async _callToolSteps<R>(
+        params: CallToolRequest['params'],
+        options: CallToolRequestOptions | undefined,
+        send: (options: CallToolRequestOptions | undefined) => Promise<R>
+    ): Promise<{ result: R; validateOutput: (result: CallToolResult) => void }> {
         // SEP-2243 `Mcp-Param-*` mirroring (protocol revision 2026-07-28; the
         // 5-step client algorithm, steps 3–5). Modern-era only — the legacy
         // `callTool` path is byte-untouched. Transports that share a single
@@ -2480,9 +2524,9 @@ export class Client extends Protocol<ClientContext> {
         // The method-keyed request() path validates the era registry's plain
         // CallToolResult schema — with the result map aligned to the typed
         // map there is no wider union to narrow away.
-        let result: CallToolResult;
+        let result: R;
         try {
-            result = await this.request({ method: 'tools/call', params }, await buildSendOptions());
+            result = await send(await buildSendOptions());
         } catch (error) {
             // SEP-2243 one-refresh-on-miss: a `HEADER_MISMATCH` rejection on a
             // modern connection means the server enforced an `Mcp-Param-*`
@@ -2523,10 +2567,15 @@ export class Client extends Protocol<ClientContext> {
                 .outputValidator(params.name, tool => this._compileOutputValidator(tool))
                 .catch(error_ => void this._reportStoreError(error_));
             assertCompiled();
-            result = await this.request({ method: 'tools/call', params }, await buildSendOptions());
+            result = await send(await buildSendOptions());
         }
 
         const validator = compiled !== undefined && compiled.ok ? compiled.validator : undefined;
+        return { result, validateOutput: result => this._assertToolOutput(params.name, validator, result) };
+    }
+
+    /** Throws when `result` does not satisfy the tool's output schema; `validator` is `undefined` for a tool without one. */
+    private _assertToolOutput(toolName: string, validator: JsonSchemaValidator<unknown> | undefined, result: CallToolResult): void {
         if (validator) {
             // If tool has outputSchema, it MUST return structuredContent (unless it's an error).
             // SEP-2106: presence is `=== undefined`, not falsy — `null`/`0`/`false`/`""` are legal
@@ -2535,7 +2584,7 @@ export class Client extends Protocol<ClientContext> {
             if (result.structuredContent === undefined && !result.isError) {
                 throw new ProtocolError(
                     ProtocolErrorCode.InvalidRequest,
-                    `Tool ${params.name} has an output schema but did not return structured content`
+                    `Tool ${toolName} has an output schema but did not return structured content`
                 );
             }
 
@@ -2562,8 +2611,6 @@ export class Client extends Protocol<ClientContext> {
                 }
             }
         }
-
-        return result;
     }
 
     /**
