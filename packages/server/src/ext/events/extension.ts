@@ -254,8 +254,8 @@ export class EventsExtension implements ServerExtension {
      */
     setup(ctx: ServerExtensionContext): void {
         const server = ctx.mcp.server;
-        ctx.setRequestHandler(EVENTS_LIST_METHOD, { params: ListEventsRequestParamsSchema }, () =>
-            this.#modernOnly(server, () => this.#list())
+        ctx.setRequestHandler(EVENTS_LIST_METHOD, { params: ListEventsRequestParamsSchema }, (_params, requestCtx) =>
+            this.#modernOnly(server, () => this.#list(requestCtx))
         );
         ctx.setRequestHandler(EVENTS_POLL_METHOD, { params: PollEventsRequestParamsSchema }, (params, requestCtx) =>
             this.#modernOnly(server, () => this.#poll.handlePoll(params, requestCtx))
@@ -358,16 +358,23 @@ export class EventsExtension implements ServerExtension {
         throw new TypeError('webhook mode is off, yet validate() accepted a webhook request');
     }
 
-    #list(): ListEventsResult {
-        return { events: this.#registry.list().map(entry => this.#describe(entry)) };
+    // Webhook is listed only to a caller with a principal, who can use it; a type left without a mode is left out.
+    async #list(ctx: ServerContext): Promise<ListEventsResult> {
+        const webhook = this.#webhookEnabled && (await this.#validator.principalOf(ctx)) !== null;
+        return {
+            events: this.#registry
+                .list()
+                .map(entry => this.#describe(entry, webhook))
+                .filter(descriptor => descriptor.delivery.length > 0)
+        };
     }
 
-    #describe(entry: RegisteredEvent): EventDescriptor {
+    #describe(entry: RegisteredEvent, webhook: boolean): EventDescriptor {
         const { description, _meta } = entry.definition;
         return {
             name: entry.name,
             ...(description === undefined ? {} : { description }),
-            delivery: entry.modes(this.#webhookEnabled),
+            delivery: entry.modes(webhook),
             inputSchema: entry.inputJson,
             payloadSchema: entry.payloadJson,
             ...(_meta === undefined ? {} : { _meta })

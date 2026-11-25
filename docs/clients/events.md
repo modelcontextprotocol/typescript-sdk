@@ -35,6 +35,8 @@ Pass the extension in the client's `extensions` option: the client calls its `se
 
 Each subscription takes the first delivery mode the event type offers out of webhook (when you configure it), push and poll; `delivery` forces one, and `subscription.deliveryMode` says which it got. Without `delivery`, when a push subscription's first stream fails before its first `notifications/events/active` with anything but an `EventsError` (no valid `active` within the request timeout, say, behind a host that buffers whole responses, or a stream that ends before one), the client reports the failure to its `onerror` and subscribes by poll instead, if the event type offers poll. The loop is the same in every mode, drops a repeated `eventId`, and leaving it cancels the subscription.
 
+When 1 000 events wait for your loop, delivery pauses. Until the loop has taken half of them, poll sends no `events/poll`, and push closes its stream at the next event that moves the cursor, to reopen it from there. The webhook receiver answers `503` to each event while 1 000 wait, and the server retries it; a loop that stays behind longer than the server retries gets those events as a gap, through `onGap`, and identical webhook subscriptions, which share one server subscription, pause together. On push, an event type that cannot resume keeps its stream open, and a loop that falls behind on it loses its oldest queued events, reported through `onGap` (with `null`).
+
 ::: info
 Events is used on protocol 2026-07-28 only, so create the client with `versionNegotiation: { mode: 'auto' }` or a pin — see [Protocol versions](../protocol-versions.md).
 :::
@@ -64,9 +66,9 @@ ticket.updated { ticketId: 'T-7', status: 'closed' }
 
 The cursor covers the events the loop finished with, and the loop finishes with an event when it asks for the next one, so a resumed subscription can repeat the last event: handle events idempotently, or skip an `eventId` you have handled. An event type that cannot resume has a `null` cursor, and there is nothing to save.
 
-Pass `maxAgeMs` with a `cursor` that may be old: no event older than `maxAgeMs` before `subscribe()` is delivered, for the life of the subscription, and the server reports the events it skips as a gap.
+Pass `maxAgeMs` with a `cursor` that may be old: no event older than `maxAgeMs` before `subscribe()` is delivered, for the life of the subscription, and the server reports the events it skips as a gap. The server judges a `check` event's age by its `timestamp`, and an emitted event's by when `emit()` ran, so for a `check` type this holds only as far as its events carry the time they happened.
 
-`onGap` receives the cursor delivery continues from when events may have been skipped: the server reported `truncated`, or delivery started again from now after a schema change made the server refuse your cursor. Closing the client, or connecting it again, ends every subscription, and the loop rejects with an `SdkError` (`ConnectionClosed`). After reconnecting, subscribe again and pass the cursor you saved.
+`onGap` receives the cursor delivery continues from when events may have been skipped: the server reported `truncated`, delivery started again from now after a schema change made the server refuse your cursor, or a push loop fell 1 000 events behind on a type that cannot resume (`null`). Closing the client, or connecting it again, ends every subscription, and the loop rejects with an `SdkError` (`ConnectionClosed`). After reconnecting, subscribe again and pass the cursor you saved.
 
 ## Receive events by webhook
 
@@ -85,7 +87,7 @@ app.post('/mcp/events', c => handleWebhook(c.req.raw));
 
 With `webhook` set, a subscription prefers webhook wherever the event type offers it: the server POSTs each event to the URL, and the receiver checks the signature and routes the event into its subscription's loop. The client makes a `whsec_` secret for each server subscription (or takes one from `secretProvider`), answers the server's verification challenge, and refreshes the subscription before it expires. `subscription.deliveryStatus` holds the delivery health the server last reported.
 
-Webhook subscriptions with the same name and arguments share one server subscription, and cancelling the last of them sends `events/unsubscribe`. The SDK's server accepts a webhook subscription only from an authenticated principal and answers `forbidden` otherwise. The receiver answers `503` to a subscription it does not know yet, and the server retries.
+Webhook subscriptions with the same name and arguments share one server subscription, pause together while any of their loops is 1 000 events behind, and cancelling the last of them sends `events/unsubscribe`. The SDK's server accepts a webhook subscription only from an authenticated principal: it does not list webhook to a caller without one, so that client subscribes by push or poll. The receiver answers `503` to a subscription it does not know yet, and the server retries.
 
 The receiver answers `2xx` once it has queued an event in memory, so events queued but not yet read by your loop are lost if the process exits. Subscribing again within the grant, while the server still delivers to the subscription, continues from the server's position rather than from your saved cursor.
 

@@ -18,6 +18,8 @@ export interface RegisteredEvent {
     readonly definition: AnyEventDefinition;
     readonly inputJson: Record<string, unknown>;
     readonly payloadJson: Record<string, unknown>;
+    // When a `check` event without a timestamp under a `maxAgeMs` floor was last reported; an update() keeps it.
+    readonly untimed: { reportedAt?: number };
     modes(webhookEnabled: boolean): DeliveryMode[];
     parseArguments(args: unknown): Promise<Record<string, unknown>>;
     parsePayload(data: unknown): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; error: string }>;
@@ -54,7 +56,7 @@ function payloadJsonOf(name: string, payloadSchema: AnyEventDefinition['payloadS
     return json;
 }
 
-function createEntry(name: string, definition: AnyEventDefinition): RegisteredEvent {
+function createEntry(name: string, definition: AnyEventDefinition, untimed: RegisteredEvent['untimed'] = {}): RegisteredEvent {
     const { inputSchema, payloadSchema } = definition;
     const entry: RegisteredEvent = {
         name,
@@ -62,6 +64,7 @@ function createEntry(name: string, definition: AnyEventDefinition): RegisteredEv
         definition,
         inputJson: inputSchema === undefined ? { type: 'object' } : standardSchemaToJsonSchema(inputSchema, 'input'),
         payloadJson: payloadJsonOf(name, payloadSchema),
+        untimed,
         modes: webhookEnabled => deliveryModes(definition.delivery, webhookEnabled),
         parseArguments: async args => {
             const value = args ?? {};
@@ -98,7 +101,7 @@ export class EventRegistry {
     // Rebuilds a registered event type with the defined updatable fields of `changes` replaced.
     update(entry: RegisteredEvent, changes: EventChanges): RegisteredEvent {
         const defined = Object.fromEntries(UPDATABLE.filter(key => changes[key] !== undefined).map(key => [key, changes[key]]));
-        const next = createEntry(entry.name, { ...entry.definition, ...defined });
+        const next = createEntry(entry.name, { ...entry.definition, ...defined }, entry.untimed);
         this.#entries.set(entry.name, next);
         return next;
     }

@@ -10,9 +10,9 @@ import { canonicalJson, EventsError, parseWebhookSecret } from '@modelcontextpro
 import { makeContext } from './context';
 import type { BufferedEvent, EmitBuffer } from './emitBuffer';
 import type { SubscriptionSource } from './extension';
-import { checkedSelection, selectEvent } from './poll';
+import { checkedSelection, DEFAULT_MAX_EVENTS, selectEvent } from './poll';
 import type { Batch } from './push';
-import { checkedBatch, errorObject, floorOf, maxAgeSince, replayBuffer, startCheck, TERMINAL_KINDS } from './push';
+import { checkedBatch, errorObject, floorOf, maxAgeSince, pagesOn, replayBuffer, startCheck, TERMINAL_KINDS } from './push';
 import type { EventRegistry, RegisteredEvent } from './registry';
 import type { CheckContext, WebhookSender, WebhookSubscriptionRecord, WebhookSubscriptionStore } from './types';
 import type { SubscriptionValidator, ValidSubscription } from './validation';
@@ -28,6 +28,8 @@ const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 const FAN_OUT_RETRY_DELAYS_MS = [100, 200];
 // Emits a pending fan-out pass dropped are reported at once, then counted and reported together at most this often per event type.
 const DROP_REPORT_INTERVAL_MS = 60_000;
+// The longest `delivery.url` accepted, which bounds what the verification limits and the records hold per subscription.
+const MAX_CALLBACK_URL_LENGTH = 2048;
 
 const encoder = new TextEncoder();
 let unwatched: AbortSignal | undefined;
@@ -68,6 +70,8 @@ interface Watched {
     checkTimer?: ReturnType<typeof setTimeout>;
     // The request that started the watch here carried a cursor and `maxAgeMs`: its receipt time less `maxAgeMs`, before which no run of a check type's loop delivers an event.
     floor?: number;
+    // The pages being read continue a run of truncated ones the subscriber was already told of, by the subscribe answer or a gap envelope.
+    skipping?: boolean;
 }
 
 // A subscribe request in flight for one id, from the id's derivation until it answers.
@@ -299,8 +303,11 @@ export class WebhookSubscriptions implements SubscriptionSource {
         this.#engine.clear();
     }
 
-    // An absolute `https` URL, or one whose exact origin is trusted.
+    // An absolute `https` URL, or one whose exact origin is trusted, of at most MAX_CALLBACK_URL_LENGTH characters.
     #assertCallback(url: string): void {
+        if (url.length > MAX_CALLBACK_URL_LENGTH) {
+            throw new EventsError('invalidParams', `delivery.url must be at most ${MAX_CALLBACK_URL_LENGTH} characters`);
+        }
         let parsed: URL | undefined;
         try {
             parsed = new URL(url);
@@ -374,7 +381,9 @@ export class WebhookSubscriptions implements SubscriptionSource {
             if (entry.kind === 'check') {
                 watched.position = start.position;
                 watched.floor = floor;
-                this.#schedule(watched);
+                const more = pagesOn(start, from);
+                watched.skipping = start.truncated && more;
+                this.#schedule(watched, more);
             }
             return { id, refreshBefore: new Date(record.expiresAt).toISOString(), cursor: start.cursor, truncated: start.truncated };
         } finally {
@@ -389,7 +398,8 @@ export class WebhookSubscriptions implements SubscriptionSource {
         maxAgeMs: number | undefined,
         subscribing: Subscribing
     ): Promise<Batch> {
-        const start = await startCheck(watched.entry, watched.ctx, watched.args, from, maxAgeMs, this.#deps.report);
+        const ctx = makeContext({ ...watched.ctx, maxEvents: DEFAULT_MAX_EVENTS });
+        const start = await startCheck(watched.entry, ctx, watched.args, from, maxAgeMs, this.#deps.report);
         const terminated = takeTermination(subscribing);
         if (terminated !== undefined) throw terminated;
         this.#engine.track(record.id, start.cursor);
@@ -677,14 +687,23 @@ export class WebhookSubscriptions implements SubscriptionSource {
         for (const event of batch.events) this.#engine.deliver(record, event, event.cursor ?? null, seed);
     }
 
-    #schedule(watched: Watched): void {
-        watched.checkTimer = unref(setTimeout(() => void this.#check(watched), this.#deps.checkIntervalMs));
+    // The next run of a check type's loop: after a page with more waiting that moved on, at once once the engine has delivered everything of the subscription; otherwise an interval later.
+    #schedule(watched: Watched, more = false): void {
+        if (!more) {
+            watched.checkTimer = unref(setTimeout(() => void this.#check(watched), this.#deps.checkIntervalMs));
+            return;
+        }
+        this.#engine.whenIdle(watched.id, () => {
+            if (this.#watched.get(watched.id) !== watched) return;
+            watched.checkTimer = unref(setTimeout(() => void this.#check(watched), 0));
+        });
     }
 
-    // One run of a check type's loop: the events since the last run, and a `gap` envelope for a truncated result.
+    // One run of a check type's loop, a page of at most DEFAULT_MAX_EVENTS events since the last run, and a `gap` envelope for a truncated result.
     async #check(watched: Watched): Promise<void> {
         const { id, entry } = watched;
         const from = watched.position;
+        let more = false;
         try {
             const record = await this.#deps.store.get(id);
             if (this.#watched.get(id) !== watched) return;
@@ -693,16 +712,18 @@ export class WebhookSubscriptions implements SubscriptionSource {
                 this.#later(id, () => this.#recheck(id));
             } else {
                 const maxAgeMs = maxAgeSince(watched.floor);
-                const ctx = maxAgeMs === undefined ? watched.ctx : makeContext({ ...watched.ctx, maxAgeMs });
+                const ctx = makeContext({ ...watched.ctx, maxEvents: DEFAULT_MAX_EVENTS, maxAgeMs });
                 const result = await entry.definition.check!(ctx, watched.args, from);
                 const batch = await checkedBatch(entry, from, result, maxAgeMs, this.#deps.report);
                 if (this.#watched.get(id) !== watched) return;
                 this.#send(record, batch, from);
                 // A quiet batch moves the watermark to the upstream cursor once nothing awaits an answer, so the refresh cursor advances.
                 if (batch.events.length === 0) this.#engine.advance(id, batch.position);
-                // The gap goes at the watermark of each attempt, as for abandoned events, or at the batch cursor when there is no watermark.
-                if (batch.truncated) void this.#engine.sendGap(record, batch.cursor);
+                // One gap per run of truncated pages, at the watermark of each attempt as for abandoned events (the batch cursor without one); a page continuing a run already told of sends none.
+                if (batch.truncated && watched.skipping !== true) void this.#engine.sendGap(record, batch.cursor);
                 watched.position = batch.position;
+                more = pagesOn(batch, from);
+                watched.skipping = batch.truncated && more;
             }
         } catch (error) {
             if (this.#watched.get(id) !== watched) return;
@@ -712,6 +733,6 @@ export class WebhookSubscriptions implements SubscriptionSource {
             }
             this.#deps.report(error);
         }
-        this.#schedule(watched);
+        this.#schedule(watched, more);
     }
 }

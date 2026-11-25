@@ -7,7 +7,7 @@ function serialize(json: unknown): string {
     return `{${members.join(',')}}`;
 }
 
-/** `JSON.stringify(value)` with object keys sorted by UTF-16 code unit at every depth; `TypeError` when there is no JSON text. */
+// `JSON.stringify(value)` with object keys sorted by UTF-16 code unit at every depth; `TypeError` when there is no JSON text.
 export function canonicalJson(value: unknown): string {
     const text = JSON.stringify(value) as string | undefined;
     if (text === undefined) throw new TypeError('canonicalJson: the value has no JSON text');

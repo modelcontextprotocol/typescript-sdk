@@ -252,6 +252,32 @@ describe('webhook delivery', () => {
         expect(sub.cursor).toBe('c2');
     });
 
+    it('answers 503 to an event once 1 000 wait for the loop, and takes its retry once the loop takes one, losing and repeating none', async () => {
+        const { handler, post, subscribes, subscribe } = await webhookWith(granting({ cursor: 'c0' }));
+        const sub = await subscribe();
+        for (let n = 1; n <= 1000; n++) expect(await post({ ...occurrence(`e${n}`), cursor: `c${n}` })).toBe(200);
+        const secret = secretOf(subscribes()[0]!);
+        const retry = async () => {
+            const request = await webhookPost({ ...occurrence('e1001'), cursor: 'c1001' }, secret, 'sub_1', { webhookId: 'msg_1001' });
+            return (await handler(request)).status;
+        };
+        expect(await retry()).toBe(503);
+        expect(await retry()).toBe(503);
+
+        const iterator = sub[Symbol.asyncIterator]();
+        expect(await nextEventId(iterator)).toBe('e1');
+        expect(await retry()).toBe(200);
+        expect(await retry()).toBe(200);
+        const ids = ['e1'];
+        while (ids.length < 1001) ids.push((await nextEventId(iterator))!);
+        expect(ids).toEqual(Array.from({ length: 1001 }, (_, n) => `e${n + 1}`));
+        let settled = false;
+        void iterator.next().then(() => (settled = true));
+        await settle();
+        expect(settled).toBe(false);
+        expect(sub.cursor).toBe('c1001');
+    }, 30_000);
+
     it('answers the verification challenge sent during events/subscribe and routes deliveries that precede the response', async () => {
         const challenges: unknown[] = [];
         const early: number[] = [];

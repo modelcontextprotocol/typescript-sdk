@@ -32,7 +32,7 @@ async function hmacSignatures(
     );
 }
 
-/** The bytes of a Standard Webhooks secret: `whsec_` and padded base64 of 24 to 64 bytes; otherwise `undefined`. */
+// The bytes of a Standard Webhooks secret: `whsec_` and padded base64 of 24 to 64 bytes; otherwise `undefined`.
 export function parseWebhookSecret(secret: string): Uint8Array | undefined {
     if (!secret.startsWith(SECRET_PREFIX)) return undefined;
     const encoded = secret.slice(SECRET_PREFIX.length);
@@ -41,18 +41,18 @@ export function parseWebhookSecret(secret: string): Uint8Array | undefined {
     return bytes.length >= 24 && bytes.length <= 64 ? bytes : undefined;
 }
 
-/** A new Standard Webhooks secret: `whsec_` and base64 of 32 random bytes. */
+// A new Standard Webhooks secret: `whsec_` and base64 of 32 random bytes.
 export function generateWebhookSecret(): string {
     return `${SECRET_PREFIX}${toBase64(randomBytes(32))}`;
 }
 
-/** A new `webhook-id`: `msg_` and base64url of 16 random bytes, or `msg_<type>_…` for a control body. */
+// A new `webhook-id`: `msg_` and base64url of 16 random bytes, or `msg_<type>_…` for a control body.
 export function generateWebhookId(controlType?: WebhookControlBody['type']): string {
     const random = toBase64(randomBytes(16)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
     return controlType === undefined ? `msg_${random}` : `msg_${controlType}_${random}`;
 }
 
-/** The `webhook-signature` header: `v1,<base64 HMAC-SHA256 of id.timestamp.body>` per secret, space-separated. */
+// The `webhook-signature` header: `v1,<base64 HMAC-SHA256 of id.timestamp.body>` per secret, space-separated.
 export async function signWebhook(
     secrets: readonly Uint8Array[],
     webhookId: string,
@@ -63,7 +63,7 @@ export async function signWebhook(
     return signatures.map(signature => `v1,${signature}`).join(' ');
 }
 
-/** Whether any `v1,` entry of a `webhook-signature` header matches the raw body under any of the secrets. */
+// Whether any `v1,` entry of a `webhook-signature` header matches the raw body under any of the secrets.
 export async function verifyWebhookSignature(
     secrets: readonly Uint8Array[],
     webhookId: string,
@@ -79,7 +79,7 @@ export async function verifyWebhookSignature(
     return received.some(signature => expected.some(candidate => timingSafeEqualString(signature, candidate)));
 }
 
-/** Whether two strings are equal, in time that does not depend on where they differ. */
+// Whether two strings are equal, in time that does not depend on where they differ.
 export function timingSafeEqualString(a: string, b: string): boolean {
     if (a.length !== b.length) return false;
     let difference = 0;

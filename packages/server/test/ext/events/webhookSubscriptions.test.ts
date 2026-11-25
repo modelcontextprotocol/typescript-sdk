@@ -285,6 +285,39 @@ describe('events/subscribe: validation', () => {
         ]);
     });
 
+    it('lists webhook only to a caller with a principal, and leaves out for the others a type that offers nothing else', async () => {
+        const getPrincipalCalls = vi.fn(getPrincipal);
+        const { events } = replica({ getPrincipal: getPrincipalCalls });
+        events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        events.registerEvent('hook-only', { emitOnly: true, payloadSchema: P, delivery: { poll: false, push: false } });
+        const listed = async (principal: string | null) => {
+            const list = resultOf(await client(events, principal).rpc('events/list')) as ListEventsResult;
+            return list.events.map(descriptor => [descriptor.name, descriptor.delivery]);
+        };
+        expect(await listed('u1')).toEqual([
+            ['e', ['poll', 'push', 'webhook']],
+            ['hook-only', ['webhook']]
+        ]);
+        expect(await listed(null)).toEqual([['e', ['poll', 'push']]]);
+        expect(getPrincipalCalls).toHaveBeenCalledTimes(2);
+    });
+
+    it('refuses a delivery.url longer than 2 048 characters before any POST', async () => {
+        const { events, post } = replica();
+        events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const alice = client(events);
+        const prefix = `${HOOK}?pad=`;
+        const long = prefix + 'x'.repeat(2049 - prefix.length);
+        expect(long).toHaveLength(2049);
+        expect(errorOf(await alice.subscribe({ url: long }))).toMatchObject({
+            code: -32_602,
+            message: 'delivery.url must be at most 2048 characters'
+        });
+        expect(post.requests).toHaveLength(0);
+        subscribed(await alice.subscribe({ url: long.slice(0, 2048) }));
+        expect(post.requests.map(request => request.url)).toEqual([long.slice(0, 2048)]);
+    });
+
     it('validates the secret', async () => {
         const { events, post } = replica();
         events.registerEvent('e', { emitOnly: true, payloadSchema: P });
@@ -1646,6 +1679,9 @@ describe('check-kind webhook subscriptions', () => {
         a.events.registerEvent('t', { payloadSchema: P, check: checkA });
         b.events.registerEvent('t', { payloadSchema: P, check: checkB });
         subscribed(await client(a.events).subscribe({ name: 't', cursor: 'c0', maxAgeMs: 300_000 }));
+        // The verification and evt_1, then their answers: A's second page runs at the subscribe's moment.
+        await a.post.until(2);
+        await settle();
         await vi.advanceTimersByTimeAsync(1000);
         // A client whose subscribe() put the floor at the same moment refreshes on B a second later, from c1.
         subscribed(await client(b.events).subscribe({ name: 't', cursor: 'c1', maxAgeMs: 301_000 }));
@@ -1654,9 +1690,10 @@ describe('check-kind webhook subscriptions', () => {
         await b.post.until(2);
         await settle();
 
-        expect(checkA.mock.calls.map(([ctx, , cursor]) => [cursor, ctx.maxAgeMs])).toEqual([
+        // A's first page left more waiting, so its second run followed as soon as evt_1 was delivered.
+        expect(checkA.mock.calls.slice(0, 2).map(([ctx, , cursor]) => [cursor, ctx.maxAgeMs])).toEqual([
             ['c0', 300_000],
-            ['c1', 305_000]
+            ['c1', 300_000]
         ]);
         expect(checkB.mock.calls.map(([ctx, , cursor]) => [cursor, ctx.maxAgeMs])).toEqual([['c1', 306_000]]);
         // Neither replica delivers `old`; each tells of the skip with a gap at the watermark past evt_3.
@@ -1671,6 +1708,63 @@ describe('check-kind webhook subscriptions', () => {
         expect(gaps(a.post)).toEqual([{ type: 'gap', cursor: 'c3' }]);
         expect(gaps(b.post)).toEqual([{ type: 'gap', cursor: 'c3' }]);
     });
+
+    it('tells of a maxAgeMs catch-up over many pages of old events once, in the subscribe answer, and of a later, separate gap by one envelope', async () => {
+        vi.useRealTimers();
+        const old = new Date(Date.now() - 7 * 86_400_000).toISOString();
+        const upstream = [
+            ...Array.from({ length: 1000 }, (_, n) => ({ eventId: `old${n}`, timestamp: old, data: { n } })),
+            { eventId: 'fresh', data: { n: 1000 } }
+        ];
+        let lose = false;
+        const check: Check = (ctx, _args, cursor) => {
+            if (lose) {
+                lose = false;
+                return { events: [], cursor: String(upstream.length), truncated: true };
+            }
+            const from = cursor === null ? upstream.length : Number(cursor);
+            const to = Math.min(upstream.length, from + (ctx.maxEvents ?? upstream.length));
+            return { events: upstream.slice(from, to), cursor: String(to), hasMore: to < upstream.length };
+        };
+        const { events, post } = replica({ checkIntervalMs: 100 });
+        events.registerEvent('t', { payloadSchema: P, check });
+        const answer = subscribed(await client(events).subscribe({ name: 't', cursor: '0', maxAgeMs: 300_000 }));
+        expect(answer.truncated).toBe(true);
+        const bodies = () => post.deliveries().map(request => bodyOf(request));
+        await vi.waitFor(() => expect(bodies().map(body => body.eventId)).toContain('fresh'), { timeout: 5000 });
+        expect(bodies().filter(body => body.type === 'gap')).toEqual([]);
+
+        lose = true;
+        await vi.waitFor(() => expect(bodies().filter(body => body.type === 'gap')).toHaveLength(1), { timeout: 5000 });
+        await new Promise(resolve => setTimeout(resolve, 300));
+        expect(bodies().filter(body => body.type === 'gap')).toEqual([{ type: 'gap', cursor: '1001' }]);
+    });
+
+    it('pages a check backlog larger than the engine holds through to the receiver, 100 at a time, with no gap', async () => {
+        // Real timers: each page follows the delivery of the last, which signing paces off any fake clock.
+        vi.useRealTimers();
+        const upstream = Array.from({ length: 10_500 }, (_, n) => ({ eventId: `u${n}`, data: { n } }));
+        const check = vi.fn<Check>((ctx, _args, cursor) => {
+            const from = cursor === null ? upstream.length : Number(cursor);
+            const to = Math.min(upstream.length, from + (ctx.maxEvents ?? upstream.length));
+            return { events: upstream.slice(from, to), cursor: String(to), hasMore: to < upstream.length };
+        });
+        const onerror = vi.fn();
+        const { events, post } = replica({ onerror });
+        events.registerEvent('t', { payloadSchema: P, check });
+        subscribed(await client(events).subscribe({ name: 't', cursor: '0' }));
+        // The verification, then every event.
+        await post.until(10_501);
+
+        const delivered = post.deliveries().map(request => bodyOf(request));
+        expect(delivered.filter(body => body.type !== undefined)).toEqual([]);
+        expect(new Set(delivered.map(body => body.eventId)).size).toBe(10_500);
+        // 105 pages, each read once the last was delivered (and, on a slow machine, the interval run after the last page).
+        expect(check.mock.calls.slice(0, 105).map(([ctx, , cursor]) => [cursor, ctx.maxEvents])).toEqual(
+            Array.from({ length: 105 }, (_, page) => [String(page * 100), 100])
+        );
+        expect(onerror).not.toHaveBeenCalled();
+    }, 60_000);
 
     it('sends the gap envelope of a truncated check at the watermark, behind an event still unacknowledged, once no POST is in flight', async () => {
         // `a` fails, so it stays unacknowledged until its retry 5 s later, outside this test's 2 s.

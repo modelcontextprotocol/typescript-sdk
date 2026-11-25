@@ -3,7 +3,6 @@
 '@modelcontextprotocol/core-internal': minor
 '@modelcontextprotocol/client': minor
 '@modelcontextprotocol/server': minor
-'@modelcontextprotocol/node': patch
 ---
 
 author: @KKonstantinov
@@ -16,7 +15,5 @@ Add the Events extension (SEP-3415), reachable through new `ext/events` subpaths
 - `@modelcontextprotocol/core/ext/events`: the wire constants, a Zod schema and inferred type for every Events wire shape, and `EventsCapabilitySchema`, `EventsCapability` and `eventsCapabilityOf`.
 
 Clients now send `Mcp-Name` on `events/poll`, `events/stream`, `events/subscribe` and `events/unsubscribe`, and `createMcpHandler` requires it on 2026-07-28 (`400` / `-32020` when it is missing or does not match `params.name`), whether or not the server serves Events.
-
-`toNodeHandler` (`@modelcontextprotocol/node`) now destroys the response and its socket when the response body errors, where it used to end the response as if it were complete, or, while it waited for the socket to drain, stay parked until the client read or went away. A push stream whose client stops reading is ended this way.
 
 Events is served and used on protocol 2026-07-28 only. Not included: `notifications/events/list_changed`, and webhook grants without expiry (`refreshBefore: null`). With several replicas sharing a `WebhookSubscriptionStore`, `emit()` reaches push streams and the poll buffer only on the emitting process, and the `check` loop of a webhook subscription may run on more than one replica.

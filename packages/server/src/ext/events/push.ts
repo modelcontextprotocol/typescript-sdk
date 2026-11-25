@@ -20,7 +20,7 @@ import type { ResponseFlow } from '../../server/perRequestTransport';
 import { makeContext } from './context';
 import type { BufferedEvent, EmitBuffer } from './emitBuffer';
 import type { SubscriptionSource } from './extension';
-import { checkedEvents, checkedSelection, selectEvent } from './poll';
+import { checkedEvents, checkedSelection, DEFAULT_MAX_EVENTS, selectEvent } from './poll';
 import type { RegisteredEvent } from './registry';
 import type { CheckContext, EventContext, EventResult } from './types';
 import type { SubscriptionValidator } from './validation';
@@ -74,14 +74,17 @@ interface PushStream {
     queue: Promise<void>;
     heartbeat?: ReturnType<typeof setTimeout>;
     checkTimer?: ReturnType<typeof setTimeout>;
+    // The pages being read continue a run of truncated ones the client was already told of.
+    skipping: boolean;
 }
 
-// What a subscription sends next: its start or gap at `cursor` when one is due, then `events`, after which it is at `position`.
+// What a subscription sends next: its start or gap at `cursor` when one is due, then `events`, after which it is at `position`; `hasMore` when the `check` page left more waiting.
 export interface Batch {
     readonly cursor: string | null;
     readonly truncated: boolean;
     readonly events: readonly EventOccurrence[];
     readonly position: string | null;
+    readonly hasMore?: boolean;
 }
 
 // Timers never keep the process alive on their own.
@@ -135,8 +138,14 @@ export async function checkedBatch(
         cursor: cursorAt(-1),
         truncated,
         events: events.map((occurrence, index) => ({ ...occurrence, cursor: cursorAt(index) })),
-        position: result.cursor
+        position: result.cursor,
+        hasMore: result.hasMore === true
     };
+}
+
+// A page that left more waiting and moved on (events, or a new cursor) is followed by the next `check` at once; one that made no progress waits the interval.
+export function pagesOn(batch: Batch, from: string | null): boolean {
+    return batch.hasMore === true && (batch.events.length > 0 || batch.position !== from);
 }
 
 // The `maxAgeMs` of a check run against a fixed `floor`: the time since it.
@@ -231,7 +240,8 @@ export class StreamSet implements SubscriptionSource {
         let checked: Batch | undefined;
         try {
             if (entry.kind === 'check' && stream.stopped === undefined) {
-                checked = await startCheck(entry, stream.ctx, args, params.cursor ?? null, maxAgeSince(floor), this.#deps.report);
+                const ctx = makeContext({ ...stream.ctx, maxEvents: DEFAULT_MAX_EVENTS });
+                checked = await startCheck(entry, ctx, args, params.cursor ?? null, maxAgeSince(floor), this.#deps.report);
             }
         } catch (error) {
             await this.#abandon(stream);
@@ -254,7 +264,10 @@ export class StreamSet implements SubscriptionSource {
             true,
             false
         );
-        this.#scheduleCheck(stream);
+        const more = checked !== undefined && pagesOn(checked, from);
+        // The start's `active` told of its truncation, so the pages that continue the run do not again.
+        stream.skipping = checked?.truncated === true && more;
+        this.#scheduleCheck(stream, more);
         await stream.done;
         return result;
     }
@@ -323,7 +336,8 @@ export class StreamSet implements SubscriptionSource {
             live: false,
             position: null,
             queue: Promise.resolve(),
-            waiting: 0
+            waiting: 0,
+            skipping: false
         };
         this.#streams.add(stream);
         // The client went away: an HTTP abort or `notifications/cancelled`.
@@ -350,24 +364,29 @@ export class StreamSet implements SubscriptionSource {
         this.#write(stream, EVENTS_EVENT_NOTIFICATION, checkedSelection(stream.entry, event, this.#deps.report), counted);
     }
 
-    // The next check runs an interval after this one's frames reached the transport, so a client that reads slowly holds one batch at most.
-    #scheduleCheck(stream: PushStream): void {
+    // The next check runs once this one's frames reached the transport, so a client that reads slowly holds one batch at most: at once after a page with more waiting, otherwise an interval later.
+    #scheduleCheck(stream: PushStream, now = false): void {
         if (!stream.live || stream.entry.kind !== 'check') return;
         void stream.queue.then(() => {
             if (!stream.live) return;
-            stream.checkTimer = unref(setTimeout(() => void this.#check(stream), this.#deps.checkIntervalMs));
+            stream.checkTimer = unref(setTimeout(() => void this.#check(stream), now ? 0 : this.#deps.checkIntervalMs));
         });
     }
 
+    // Each run reads at most DEFAULT_MAX_EVENTS events, as a poll page does.
     async #check(stream: PushStream): Promise<void> {
         const from = stream.position;
         const maxAgeMs = maxAgeSince(stream.floor);
-        const ctx = maxAgeMs === undefined ? stream.ctx : makeContext({ ...stream.ctx, maxAgeMs });
+        const ctx = makeContext({ ...stream.ctx, maxEvents: DEFAULT_MAX_EVENTS, maxAgeMs });
+        let more = false;
         try {
             const result = await stream.entry.definition.check!(ctx, stream.args, from);
             const batch = await checkedBatch(stream.entry, from, result, maxAgeMs, this.#deps.report);
             if (!stream.live) return;
-            this.#send(stream, batch, batch.truncated);
+            // One `active { truncated: true }` per run of truncated pages (a stale cursor's catch-up under `maxAgeMs`, say).
+            this.#send(stream, batch, batch.truncated && !stream.skipping);
+            more = pagesOn(batch, from);
+            stream.skipping = batch.truncated && more;
         } catch (error) {
             if (!stream.live) return;
             if (error instanceof EventsError && TERMINAL_KINDS.has(error.kind)) {
@@ -376,7 +395,7 @@ export class StreamSet implements SubscriptionSource {
             }
             this.#write(stream, EVENTS_ERROR_NOTIFICATION, { error: errorObject(error) });
         }
-        this.#scheduleCheck(stream);
+        this.#scheduleCheck(stream, more);
     }
 
     // Params that resolve to `undefined` (a dropped event) send nothing; an event's own `_meta` keys stay beside the stream's id.
@@ -388,8 +407,13 @@ export class StreamSet implements SubscriptionSource {
     ): void {
         const { flow } = stream;
         if (event) {
-            // An emit-only stream whose client falls more live events behind than the emit buffer holds is abandoned as a stalled one is; with its replay that is at most twice as many frames.
-            if (flow !== undefined && stream.entry.kind === 'emitOnly' && stream.waiting >= this.#deps.buffer.maxEvents) {
+            // An emit-only stream whose client is over the bound with more live events waiting than the emit buffer holds is abandoned as a stalled one is; a burst queued while it reads goes out at its pace.
+            if (
+                flow !== undefined &&
+                stream.entry.kind === 'emitOnly' &&
+                stream.waiting >= this.#deps.buffer.maxEvents &&
+                flow.backlog() > MAX_STREAM_BACKLOG_BYTES
+            ) {
                 this.#dropStalled(stream, flow);
                 return;
             }
@@ -437,7 +461,7 @@ export class StreamSet implements SubscriptionSource {
         return true;
     }
 
-    // A client that stopped reading: its unread bytes are dropped with the response, and the subscription ends; it reconnects from its cursor.
+    // A client that stopped reading: the response body errors, which drops its unread bytes, and the subscription ends; the SDK's client reconnects from its cursor.
     #dropStalled(stream: PushStream, flow: ResponseFlow): void {
         void this.#end(stream);
         flow.abort();

@@ -197,6 +197,41 @@ describe('events/poll for a check type', () => {
         expect(unbounded.truncated).toBe(false);
     });
 
+    it('delivers check events without a timestamp under a maxAgeMs floor, and reports them at once, then at most once a minute', async () => {
+        vi.useFakeTimers();
+        const onerror = vi.fn();
+        const events = new EventsExtension({ onerror });
+        const old = new Date(Date.now() - 600_000).toISOString();
+        events.registerEvent('t', {
+            payloadSchema: P,
+            check: () => ({
+                events: [
+                    { eventId: 'untimed-1', data: { n: 1 } },
+                    { eventId: 'old', timestamp: old, data: { n: 2 } },
+                    { eventId: 'untimed-2', data: { n: 3 } }
+                ],
+                cursor: 'h2'
+            })
+        });
+        const { poll } = poller(events);
+        const reported = "event 't': check returned an event without a timestamp, so maxAgeMs cannot skip it; it is delivered";
+
+        const bounded = await poll({ name: 't', cursor: 'h1', maxAgeMs: 300_000 });
+        expect(bounded.events.map(event => event.eventId)).toEqual(['untimed-1', 'untimed-2']);
+        expect(bounded.truncated).toBe(true);
+        expect(onerror.mock.calls.map(([error]) => (error as Error).message)).toEqual([reported]);
+
+        await vi.advanceTimersByTimeAsync(59_000);
+        await poll({ name: 't', cursor: 'h1', maxAgeMs: 300_000 });
+        expect(onerror).toHaveBeenCalledOnce();
+        // Without a floor nothing is reported.
+        await vi.advanceTimersByTimeAsync(1000);
+        await poll({ name: 't', cursor: 'h1' });
+        expect(onerror).toHaveBeenCalledOnce();
+        await poll({ name: 't', cursor: 'h1', maxAgeMs: 300_000 });
+        expect(onerror).toHaveBeenCalledTimes(2);
+    });
+
     it('drops a check event without an eventId and reports it', async () => {
         const onerror = vi.fn();
         const events = new EventsExtension({ onerror });

@@ -6,12 +6,14 @@ import type { Driver, DriverContext } from './subscription';
 
 const MAX_RETRY_DELAY_MS = 60_000;
 
-// Poll delivery (spec §6.3): one `events/poll` loop, again at once on a `hasMore` page that made progress, otherwise after `nextPollMs` (the floor on `hasMore` without progress) but never sooner than the floor.
+// Poll delivery (spec §6.3): one `events/poll` loop, again at once on a `hasMore` page that made progress, otherwise after `nextPollMs` (the floor on `hasMore` without progress) but never sooner than the floor; no poll goes out while the queue is full.
 export class PollDriver<T> implements Driver {
     readonly #context: DriverContext<T>;
     readonly #loop: DriverLoop<T>;
     readonly #floorMs: number;
     #nextPollMs: number | undefined;
+    // The last result was `truncated`: the results that continue that run report no further gap.
+    #truncating = false;
 
     constructor(context: DriverContext<T>, floorMs: number) {
         this.#context = context;
@@ -32,6 +34,8 @@ export class PollDriver<T> implements Driver {
         const loop = this.#loop;
         let failures = 0;
         while (!loop.ended) {
+            await loop.room();
+            if (loop.ended) return;
             const sent = loop.cursor;
             let result: PollEventsResult;
             try {
@@ -66,7 +70,10 @@ export class PollDriver<T> implements Driver {
     #deliver(result: PollEventsResult): void {
         const cursor = result.cursor ?? null;
         this.#nextPollMs = result.nextPollMs;
-        this.#loop.succeeded(cursor, result.truncated === true);
+        const truncated = result.truncated === true;
+        // One `onGap` per run of truncated results (a stale cursor's catch-up under `maxAgeMs`, say); a clean result ends the run.
+        this.#loop.succeeded(cursor, truncated && !this.#truncating);
+        this.#truncating = truncated;
         for (const event of result.events) this.#context.queue.push(event);
         this.#loop.setCursor(cursor);
     }

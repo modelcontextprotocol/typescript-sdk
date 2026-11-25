@@ -51,7 +51,7 @@ export class SubscriptionValidator {
     ): Promise<ValidSubscription> {
         const webhook = mode === 'webhook';
         if (webhook && !this.#deps.webhookEnabled) throw notOffered('This server does not offer webhook delivery', mode);
-        const principal = (await this.#deps.getPrincipal?.(ctx)) ?? null;
+        const principal = await this.principalOf(ctx);
         if (webhook && principal === null) throw new EventsError('forbidden', 'Webhook subscriptions need an authenticated principal');
         const entry = this.#deps.registry.require(params.name);
         if (!entry.modes(this.#deps.webhookEnabled).includes(mode)) {
@@ -61,6 +61,11 @@ export class SubscriptionValidator {
         beforeParse?.(principal, rawArgs);
         const args = await entry.parseArguments(rawArgs);
         return { entry, principal, args };
+    }
+
+    // Who the request is from, by `getPrincipal`; `null` without one.
+    async principalOf(ctx: ServerContext): Promise<string | null> {
+        return (await this.#deps.getPrincipal?.(ctx)) ?? null;
     }
 
     // The `maxSubscriptions` quota and, with `getPrincipal`, the principal's share of it; call it before a new subscription's `onSubscribe`.

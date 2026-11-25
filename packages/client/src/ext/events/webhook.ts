@@ -103,6 +103,9 @@ class SharedWebhook {
             fail: error => {
                 close();
                 for (const member of members) member.queue.fail(error);
+            },
+            get full() {
+                return [...members].some(member => member.queue.full);
             }
         };
         const onGap = (cursor: string | null): void => {
@@ -179,6 +182,7 @@ class WebhookDriver implements Driver {
         this.#secret = secret;
         this.#mirror = { name, ...(args !== undefined && { arguments: args }) };
         this.#sink = {
+            full: () => context.queue.full,
             event: occurrence => {
                 if (this.#loop.ended) return;
                 context.queue.push(occurrence);

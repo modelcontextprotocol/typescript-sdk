@@ -2,11 +2,13 @@ import type { EventOccurrence, EventsActiveNotificationParams } from '@modelcont
 import {
     EventNotificationParamsSchema,
     EVENTS_ACTIVE_NOTIFICATION,
+    EVENTS_ERROR_NOTIFICATION,
     EVENTS_EVENT_NOTIFICATION,
     EVENTS_HEARTBEAT_NOTIFICATION,
     EVENTS_STREAM_METHOD,
     EVENTS_TERMINATED_NOTIFICATION,
     EventsActiveNotificationParamsSchema,
+    EventsErrorNotificationParamsSchema,
     EventsHeartbeatNotificationParamsSchema,
     EventsTerminatedNotificationParamsSchema
 } from '@modelcontextprotocol/core/ext/events';
@@ -19,7 +21,7 @@ import type * as z from 'zod/v4';
 import { isAuthSeamEscape } from '../../client/authSeam';
 import type { StreamEnd, StreamHandle } from '../../client/client';
 import { clientInternals } from '../../client/client';
-import { connectionClosed, DriverLoop, endsSubscription, isHeaderMismatch, jitteredDelay, MAX_TIMER_DELAY_MS } from './recovery';
+import { connectionClosed, DriverLoop, endsSubscription, isHeaderMismatch, jitteredDelay, MAX_TIMER_DELAY_MS, reportGap } from './recovery';
 import { asEventsError } from './request';
 import type { Driver, DriverContext } from './subscription';
 
@@ -52,7 +54,7 @@ function withoutStreamId(event: EventOccurrence): EventOccurrence {
     return Object.keys(rest).length === 0 ? occurrence : { ...occurrence, _meta: rest };
 }
 
-// Push delivery (spec §6.3): one `events/stream` at a time, reopened from the last cursor after a jittered delay whenever it ends.
+// Push delivery (spec §6.3): one `events/stream` at a time, reopened from the last cursor after a jittered delay whenever it ends, or once the loop has taken half of a full queue after the driver closed it.
 export class PushDriver<T> implements Driver {
     readonly #context: DriverContext<T>;
     readonly #loop: DriverLoop<T>;
@@ -70,6 +72,10 @@ export class PushDriver<T> implements Driver {
     #grantMs: number | undefined;
     // Until the first valid `active`, the wait for it; from then on, the countdown to declaring the stream dead.
     #dead: ReturnType<typeof setTimeout> | undefined;
+    // The driver closed the stream because the queue is full; it reopens once the queue has room.
+    #paused = false;
+    // A type that cannot resume has dropped events since the loop last took the queue down to half the limit.
+    #dropping = false;
 
     constructor(context: DriverContext<T>, fallback = false) {
         this.#context = context;
@@ -93,6 +99,12 @@ export class PushDriver<T> implements Driver {
         while (!loop.ended) {
             const { error } = await this.#open();
             if (loop.ended) return;
+            if (this.#paused) {
+                this.#paused = false;
+                // Even when the loop has already taken a few, the reopen waits for half the queue to drain.
+                await this.#context.queue.room?.();
+                continue;
+            }
             // A stream that ends before its first valid `active` (no grant yet) failed, as one that times out waiting for it does.
             const failure =
                 error ??
@@ -185,7 +197,7 @@ export class PushDriver<T> implements Driver {
         });
     }
 
-    // One frame of the open stream. `terminated` ends it with the server's error; `notifications/events/error` changes nothing.
+    // One frame of the open stream. `terminated` ends it with the server's error; `notifications/events/error` is reported as a retried failure.
     #frame(notification: JSONRPCNotification, end: (ending: Ending) => void): void {
         switch (notification.method) {
             case EVENTS_ACTIVE_NOTIFICATION: {
@@ -200,14 +212,39 @@ export class PushDriver<T> implements Driver {
             case EVENTS_EVENT_NOTIFICATION: {
                 const params = this.#parse(EventNotificationParamsSchema, notification);
                 if (params === undefined) break;
-                this.#context.queue.push(withoutStreamId(params));
-                this.#loop.setCursor(params.cursor ?? null);
+                const { queue, subscription, connection } = this.#context;
+                const before = this.#loop.cursor;
+                const cursor = params.cursor ?? null;
+                queue.push(withoutStreamId(params));
+                this.#loop.setCursor(cursor);
+                // A type that cannot resume would lose events on a reopen too, so a full queue drops its oldest one instead: one gap per episode, which ends as the push pause does, at half the limit.
+                if (cursor === null) {
+                    if (queue.trim?.() === true && !this.#dropping) {
+                        this.#dropping = true;
+                        reportGap(subscription, connection, null);
+                        void queue.room?.().then(() => (this.#dropping = false));
+                    }
+                    break;
+                }
+                // A full queue closes the stream at an event that moved the cursor, so the reopen from it repeats nothing.
+                if (queue.full && cursor !== before) {
+                    this.#paused = true;
+                    this.#fault(end, undefined);
+                    return;
+                }
                 break;
             }
             case EVENTS_HEARTBEAT_NOTIFICATION: {
                 const params = this.#parse(EventsHeartbeatNotificationParamsSchema, notification);
                 if (params === undefined) break;
                 this.#loop.setCursor(params.cursor ?? null);
+                break;
+            }
+            case EVENTS_ERROR_NOTIFICATION: {
+                const params = this.#parse(EventsErrorNotificationParamsSchema, notification);
+                if (params === undefined) break;
+                const { code, message, data } = params.error;
+                this.#loop.retried(asEventsError(ProtocolError.fromError(code, message, data)));
                 break;
             }
             case EVENTS_TERMINATED_NOTIFICATION: {

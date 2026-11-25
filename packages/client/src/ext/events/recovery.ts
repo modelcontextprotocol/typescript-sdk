@@ -286,6 +286,17 @@ export class DriverLoop<T> {
         this.#wake?.();
     }
 
+    // While the queue is full, resolves once its loop has taken half of the events, or the subscription ends.
+    async room(): Promise<void> {
+        const { queue } = this.#context;
+        if (queue.full && !this.ended) await queue.room?.();
+    }
+
+    // A failure the server reports and retries itself (a push `notifications/events/error`): reported as the loop's own retries are.
+    retried(error: unknown): void {
+        this.#retrying(error);
+    }
+
     // After an exchange failed with `error` (spec §6.3): throws when that ends the subscription; `restarted` when the first exchange's stale cursor was dropped for now.
     async recover(error: unknown): Promise<'restarted' | 'retry'> {
         const { connection, subscription } = this.#context;

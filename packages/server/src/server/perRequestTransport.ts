@@ -118,13 +118,13 @@ interface SseSink {
 let readClassification: (transport: PerRequestHTTPServerTransport) => MessageClassification;
 let readFlow: (transport: PerRequestHTTPServerTransport) => ResponseFlow;
 
-/** Package-internal: how a per-request transport's response stream drains. Not public API. */
+// Package-internal, not public API: how a per-request transport's response stream drains.
 export interface ResponseFlow {
     // The bytes written to the response stream that the client has not read; 0 while it is not streaming.
     backlog(): number;
     // Resolves once the client asks for more with nothing left unread, or the stream ends; every call until then gets the same promise.
     drained(): Promise<void>;
-    // Errors the response stream, which drops its unread bytes and ends the HTTP response abnormally, and closes the exchange.
+    // Errors the response stream, which drops its unread bytes (how the HTTP response then ends is up to what serves it), and closes the exchange.
     abort(): void;
 }
 
@@ -486,7 +486,7 @@ export class PerRequestHTTPServerTransport implements Transport {
         drained?.resolve();
     }
 
-    // Errors the stream, so the unread bytes are dropped and the response ends abnormally, then closes the exchange.
+    // Errors the stream, so the unread bytes are dropped, then closes the exchange.
     private abortStream(): void {
         const sse = this._sse;
         if (sse !== undefined && !sse.closed) {
@@ -522,7 +522,7 @@ export function perRequestClassificationOf(transport: Transport): MessageClassif
     return transport instanceof PerRequestHTTPServerTransport ? readClassification(transport) : undefined;
 }
 
-/** Package-internal: how a per-request transport's response stream drains; `undefined` for any other transport. Not public API. */
+// Package-internal, not public API: how a per-request transport's response stream drains; `undefined` for any other transport.
 export function perRequestFlowOf(transport: Transport | undefined): ResponseFlow | undefined {
     return transport instanceof PerRequestHTTPServerTransport ? readFlow(transport) : undefined;
 }

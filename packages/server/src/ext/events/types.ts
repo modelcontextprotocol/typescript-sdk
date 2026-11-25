@@ -52,7 +52,11 @@ export interface CheckContext extends EventContext {
 export interface EventInput<P = Record<string, unknown>> {
     /** The upstream event's stable id, for deduplication: required in a `check` result; `emit()` generates one when absent. */
     eventId?: string;
-    /** ISO 8601 time of the occurrence; the SDK uses the current time when absent. */
+    /**
+     * ISO 8601 time the event happened, by which `maxAgeMs` judges a `check` event (an emitted event is aged from
+     * its `emit()` call). Without it the SDK uses the time it read the event (the `check` run that returned it, or
+     * the `emit()` call), so `maxAgeMs` cannot skip a `check` event without one.
+     */
     timestamp?: string;
     /** The payload, valid against the event type's `payloadSchema`. */
     data: P;
@@ -121,7 +125,11 @@ export interface CheckEventDefinition<I extends StandardSchemaWithJSON, P extend
      * arguments), so clients that share a lease, as every caller does on a server without `getPrincipal`,
      * split its events between them, and a client's first poll on an existing lease can return events from
      * before it subscribed. A poll client that waits longer than `pollSubscriptionTtlMs` between polls starts
-     * a new lease each time and gets nothing. Clients that need every event use push or webhook.
+     * a new lease each time and gets nothing. Clients that need every event use push or webhook. Every mode sets
+     * `ctx.maxEvents` (poll from the request, 100 by default; push and webhook to 100): return at most that many
+     * events and set `hasMore` when more are waiting. After a page with more waiting that moved on (had events or
+     * a new cursor), push runs the next `check` at once, and webhook once every event of that page has been
+     * acknowledged or abandoned.
      */
     check(ctx: CheckContext, args: InferOutput<I>, cursor: string | null): EventResult<InferInput<P>> | Promise<EventResult<InferInput<P>>>;
     match?: never;
@@ -185,8 +193,9 @@ export interface EventHandle {
     /**
      * Ends one subscription (`options.subscriptionId`), or every subscription of the type, with `error`. A push
      * stream whose client has more than 1 MiB unread, or reaches that while its last messages go out, gets no
-     * `terminated` notification: it is abandoned at once, its unread bytes dropped and its HTTP response ended
-     * abnormally.
+     * `terminated` notification: it is abandoned at once and its unread bytes dropped. Its response body errors, which
+     * a runtime serving the web `Response` turns into an aborted HTTP response; under `toNodeHandler` the response
+     * ends once the client reads what its socket already holds, or closes when the client disconnects.
      */
     terminate(error: EventsError, options?: { subscriptionId?: string }): Promise<void>;
 }

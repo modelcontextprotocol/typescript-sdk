@@ -315,12 +315,15 @@ describe('events/stream: a check type', () => {
         const stream = await open(serve(events), { name: 'tick', cursor: 'h0', maxAgeMs: 300_000 });
         expect(await next(stream)).toMatchObject({ method: ACTIVE, params: { cursor: 'h0', truncated: false } });
         expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'p1', cursor: 'h1' } });
-        await vi.advanceTimersByTimeAsync(5000);
+        // The page left more waiting, so the next check runs at once; the one after waits the interval.
+        await vi.advanceTimersByTimeAsync(0);
         expect(await next(stream)).toMatchObject({ method: ACTIVE, params: { cursor: 'h1', truncated: true } });
         expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'p2', cursor: 'h2' } });
+        await vi.advanceTimersByTimeAsync(5000);
         expect(check.mock.calls.map(([ctx, , cursor]) => [cursor, ctx.maxAgeMs])).toEqual([
             ['h0', 300_000],
-            ['h1', 305_000]
+            ['h1', 300_000],
+            ['h2', 305_000]
         ]);
     });
 
@@ -759,6 +762,97 @@ describe('events/stream: a client that stops reading', () => {
         // The frames that waited are gone with it: nothing waits on a timer any more.
         await vi.advanceTimersByTimeAsync(0);
         expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('delivers a burst of more emits than the buffer holds, started at once, in full to a client that reads', async () => {
+        const onUnsubscribe = vi.fn();
+        const events = new EventsExtension({ emitBuffer: { maxEvents: 10 } });
+        const handle = events.registerEvent('n', { emitOnly: true, payloadSchema: P, onUnsubscribe });
+        const stream = await open(serve(events), { name: 'n', cursor: null });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE });
+
+        await Promise.all(Array.from({ length: 25 }, (_, n) => handle.emit({ eventId: `e${n}`, data: { n } })));
+        const read: unknown[] = [];
+        for (let n = 0; n < 25; n++) read.push(paramsOf(await next(stream))['eventId']);
+        expect(read).toEqual(Array.from({ length: 25 }, (_, n) => `e${n}`));
+        expect(testHook(events).state().pushStreams).toBe(1);
+        expect(onUnsubscribe).not.toHaveBeenCalled();
+    });
+
+    it('pages a check stream by ctx.maxEvents 100, and follows a page with more waiting at once', async () => {
+        const upstream = Array.from({ length: 250 }, (_, n) => ({ eventId: `u${n}`, data: { n } }));
+        const check = vi.fn((ctx: CheckContext, _args: unknown, cursor: string | null) => {
+            if (cursor === null) return { events: [], cursor: '0' };
+            const from = Number(cursor);
+            const to = Math.min(upstream.length, from + (ctx.maxEvents ?? upstream.length));
+            return { events: upstream.slice(from, to), cursor: String(to), hasMore: to < upstream.length };
+        });
+        const events = new EventsExtension();
+        events.registerEvent('t', { payloadSchema: P, check });
+        const stream = await open(serve(events), { name: 't', cursor: '0' });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE, params: { cursor: '0' } });
+
+        // Well within the 5 s check interval: the pages after the first follow at once.
+        const read: unknown[] = [];
+        for (let n = 0; n < 250; n++) read.push(paramsOf(await next(stream))['eventId']);
+        expect(read).toEqual(upstream.map(event => event.eventId));
+        expect(check.mock.calls.map(([ctx, , cursor]) => [cursor, ctx.maxEvents])).toEqual([
+            ['0', 100],
+            ['100', 100],
+            ['200', 100]
+        ]);
+    });
+
+    it('sends one truncated active for a maxAgeMs catch-up over many pages of old events, and another for a later, separate gap', async () => {
+        const old = new Date(Date.now() - 7 * 86_400_000).toISOString();
+        // 1 000 week-old entries, then a fresh one; `lose` makes the next run report lost upstream history.
+        const upstream = [
+            ...Array.from({ length: 1000 }, (_, n) => ({ eventId: `old${n}`, timestamp: old, data: { n } })),
+            { eventId: 'fresh', data: { n: 1000 } }
+        ];
+        let lose = false;
+        const check = (ctx: CheckContext, _args: unknown, cursor: string | null) => {
+            if (lose) {
+                lose = false;
+                return { events: [], cursor: String(upstream.length), truncated: true };
+            }
+            const from = cursor === null ? upstream.length : Number(cursor);
+            const to = Math.min(upstream.length, from + (ctx.maxEvents ?? upstream.length));
+            return { events: upstream.slice(from, to), cursor: String(to), hasMore: to < upstream.length };
+        };
+        const events = new EventsExtension({ checkIntervalMs: 100 });
+        events.registerEvent('t', { payloadSchema: P, check });
+        const stream = await open(serve(events), { name: 't', cursor: '0', maxAgeMs: 300_000 });
+
+        // The start page told of the truncation; the nine pages after it that the floor empties tell nothing more.
+        expect(await next(stream)).toMatchObject({ method: ACTIVE, params: { truncated: true } });
+        expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'fresh', cursor: '1001' } });
+        lose = true;
+        expect(await next(stream)).toMatchObject({ method: ACTIVE, params: { cursor: '1001', truncated: true } });
+    });
+
+    it('runs the next page of a check stream only once its client has taken the last one', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const check = vi.fn((_ctx: CheckContext, _args: unknown, cursor: string | null) =>
+            cursor === null
+                ? { events: [], cursor: '0' }
+                : {
+                      events: Array.from({ length: 20 }, (_, n) => ({ ...big(n), eventId: `${cursor}.${n}` })),
+                      cursor: `${Number(cursor) + 1}`,
+                      hasMore: true
+                  }
+        );
+        const events = new EventsExtension();
+        events.registerEvent('t', { payloadSchema: BIG, check });
+        const stream = await open(serve(events), { name: 't', cursor: '0', heartbeatMs: 5000 });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE });
+
+        // The 2 MB start page waits for the client, so no other page is read meanwhile.
+        await vi.advanceTimersByTimeAsync(4000);
+        expect(check).toHaveBeenCalledOnce();
+        for (let n = 0; n < 20; n++) expect(await next(stream)).toMatchObject({ params: { eventId: `0.${n}` } });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(check).toHaveBeenCalledTimes(2);
     });
 
     it("runs a check stream's next check only once its client has taken the last batch", async () => {

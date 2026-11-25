@@ -11,7 +11,10 @@ import type { RegisteredEvent } from './registry';
 import type { EventContext, EventInput, EventResult } from './types';
 import type { SubscriptionValidator } from './validation';
 
-const DEFAULT_MAX_EVENTS = 100;
+// The page a poll gives when the client asks for none, and every push `check` run's `ctx.maxEvents`.
+export const DEFAULT_MAX_EVENTS = 100;
+// A `check` event without a timestamp under a `maxAgeMs` floor is reported at once, then at most this often per event type.
+const UNTIMED_REPORT_INTERVAL_MS = 60_000;
 
 // Carries the registration whose onSubscribe ran, so onUnsubscribe pairs with it after a removal or re-registration.
 interface PollLease extends Lease {
@@ -61,6 +64,15 @@ export async function toOccurrence(
     return serialisable(entry, occurrence, report);
 }
 
+// Without its own timestamp a `check` event carries the time it was read, which no floor skips, so it is delivered and reported.
+function reportUntimed(entry: RegisteredEvent, report: (error: unknown) => void): void {
+    const now = Date.now();
+    const { untimed } = entry;
+    if (untimed.reportedAt !== undefined && now - untimed.reportedAt < UNTIMED_REPORT_INTERVAL_MS) return;
+    untimed.reportedAt = now;
+    report(new Error(`event '${entry.name}': check returned an event without a timestamp, so maxAgeMs cannot skip it; it is delivered`));
+}
+
 // A check result's events to send, for every mode: ones without an eventId or off-schema dropped (reported), ones older than `maxAgeMs` skipped with `truncated` unless the result has no replay (`cursor: null`), which `maxAgeMs` does not apply to.
 export async function checkedEvents(
     entry: RegisteredEvent,
@@ -79,6 +91,7 @@ export async function checkedEvents(
         }
         const occurrence = await toOccurrence(entry, input, report);
         if (occurrence === undefined) continue;
+        if (floor !== undefined && input.timestamp === undefined) reportUntimed(entry, report);
         if (floor !== undefined && Date.parse(occurrence.timestamp) < floor) {
             truncated = true;
             continue;

@@ -588,6 +588,48 @@ describe('maxAgeMs over http', () => {
     });
 });
 
+describe('push backpressure over http', () => {
+    it('resumes a large check backlog by push a page at a time, holding about 1 000 events for a loop that does not read', async () => {
+        const upstream = Array.from({ length: 3000 }, (_, n) => ({ eventId: `u${n}`, data: { n } }));
+        const pageSizes: Array<number | undefined> = [];
+        const events = new EventsExtension();
+        events.registerEvent('backlog', {
+            payloadSchema: z.object({ n: z.number() }),
+            check: (ctx, _args, cursor) => {
+                pageSizes.push(ctx.maxEvents);
+                const from = cursor === null ? upstream.length : Number(cursor);
+                const to = Math.min(upstream.length, from + (ctx.maxEvents ?? upstream.length));
+                return { events: upstream.slice(from, to), cursor: String(to), hasMore: to < upstream.length };
+            }
+        });
+        const handler = createMcpHandler(() => new McpServer({ name: 'backlog', version: '1.0.0' }, { extensions: [events] }));
+        const connection = await overHttp(() => handler);
+        const delivered = () =>
+            connection.received.filter(message => isEventsFrame(message) && message.method === 'notifications/events/event').length;
+        const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+        try {
+            const subscription = await connection.events.subscribe<{ n: number }>({ name: 'backlog', delivery: 'push', cursor: '0' });
+            // The loop does not read: the client stops taking events at about 1 000 and closes its stream.
+            await vi.waitFor(() => expect(delivered()).toBeGreaterThanOrEqual(1000), { timeout: 5000 });
+            await wait(300);
+            const held = delivered();
+            expect(held).toBeLessThan(1500);
+            await wait(300);
+            expect(delivered()).toBe(held);
+
+            // Then the loop gets every event once, in order, and the stream reopened once per half of the queue it drained.
+            const data = await next(subscription, 3000);
+            expect(data.map(item => item.n)).toEqual(upstream.map(item => item.data.n));
+            expect(new Set(pageSizes)).toEqual(new Set([100]));
+            expect(connection.requests.filter(request => request.method === 'events/stream').length).toBeLessThanOrEqual(7);
+            await subscription.cancel();
+        } finally {
+            await connection.close();
+            await handler.close();
+        }
+    });
+});
+
 describe('webhook delivery over http', () => {
     // A client set up for webhook delivery to HOOK_URL, the server webhook-enabled with an in-process sender to its receiver.
     async function webhookPair(options: { ttlMs?: number; secret?: string; refuse?: (body: Record<string, unknown>) => boolean } = {}) {
@@ -661,6 +703,31 @@ describe('webhook delivery over http', () => {
             expect(pair.fixture.log.map(entry => entry.hook)).toEqual(['subscribe', 'unsubscribe']);
         } finally {
             await pair.close();
+        }
+    });
+
+    it('subscribes a client set up for webhook by push when it connects without a principal, as webhook is not listed to it', async () => {
+        const events = new EventsClientExtension({ ...CLIENT_OPTIONS, webhook: { url: HOOK_URL } });
+        const posts: Post[] = [];
+        const fixture = eventsFixture({
+            webhookTtlMs: 60_000,
+            webhookSender: inProcessSender(events.createWebhookHandler(), posts),
+            getPrincipal
+        });
+        const handler = handlerFor(fixture);
+        const connection = await overHttp(() => handler, { events });
+        try {
+            const listed = await events.list();
+            expect(listed.events.find(type => type.name === NOTE)?.delivery).toEqual(['poll', 'push']);
+            const subscription = await events.subscribe<Note>({ name: NOTE, arguments: { tag: 'anonymous' } });
+            expect(subscription.deliveryMode).toBe('push');
+            await emit(fixture, 'anonymous', 'pushed');
+            expect(texts(await next(subscription))).toEqual(['pushed']);
+            expect(posts).toEqual([]);
+            await subscription.cancel();
+        } finally {
+            await connection.close();
+            await handler.close();
         }
     });
 

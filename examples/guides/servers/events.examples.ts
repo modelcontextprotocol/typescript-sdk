@@ -15,8 +15,8 @@
 import { EventsExtension } from '@modelcontextprotocol/server/ext/events';
 import * as z from 'zod/v4';
 
-// Your upstream: here, a log of ticket changes, where a cursor is a position in the log.
-const changes: Array<{ changeId: string; queue: string; ticketId: string; status: string }> = [];
+// Your upstream: here, a log of ticket changes, each with the time it happened, where a cursor is a position in the log.
+const changes: Array<{ changeId: string; at: string; queue: string; ticketId: string; status: string }> = [];
 
 const events = new EventsExtension();
 
@@ -30,7 +30,7 @@ events.registerEvent('ticket.updated', {
         const to = Math.min(changes.length, from + (ctx.maxEvents ?? changes.length));
         const page = changes.slice(from, to).filter(change => change.queue === queue);
         return {
-            events: page.map(({ changeId, ticketId, status }) => ({ eventId: changeId, data: { ticketId, status } })),
+            events: page.map(({ changeId, at, ticketId, status }) => ({ eventId: changeId, timestamp: at, data: { ticketId, status } })),
             cursor: String(to),
             hasMore: to < changes.length
         };
@@ -105,10 +105,11 @@ async function take<T>(subscription: EventSubscription<T>, count: number): Promi
 }
 
 // The check type, by push and by poll: both replay the billing changes since cursor '0'.
+const happened = new Date().toISOString();
 changes.push(
-    { changeId: 'c1', queue: 'billing', ticketId: 'T-7', status: 'open' },
-    { changeId: 'c2', queue: 'shipping', ticketId: 'T-8', status: 'open' },
-    { changeId: 'c3', queue: 'billing', ticketId: 'T-7', status: 'closed' }
+    { changeId: 'c1', at: happened, queue: 'billing', ticketId: 'T-7', status: 'open' },
+    { changeId: 'c2', at: happened, queue: 'shipping', ticketId: 'T-8', status: 'open' },
+    { changeId: 'c3', at: happened, queue: 'billing', ticketId: 'T-7', status: 'closed' }
 );
 const BILLING = JSON.stringify([
     { ticketId: 'T-7', status: 'open' },

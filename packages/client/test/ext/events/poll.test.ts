@@ -153,6 +153,57 @@ describe('poll delivery', () => {
         ]);
     });
 
+    it('sends no poll while 1 000 events wait for the loop, and polls again once the loop has taken half of them, losing and repeating none', async () => {
+        let produced = 0;
+        const { polls, subscribe } = await pollWith(() => {
+            const events = Array.from({ length: 100 }, () => occurrence(`e${produced++}`));
+            return { events, cursor: `c${produced}`, hasMore: true, nextPollMs: 0 };
+        });
+        const sub = await subscribe();
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(polls()).toHaveLength(10);
+
+        const iterator = sub[Symbol.asyncIterator]();
+        const ids: string[] = [];
+        while (ids.length < 499) ids.push((await nextEventId(iterator))!);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(polls()).toHaveLength(10);
+        // The 500th event the loop takes leaves 500 waiting: polling resumes, until the pages fill the queue again.
+        ids.push((await nextEventId(iterator))!);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(polls()).toHaveLength(15);
+        expect(polls()[10]!.params['cursor']).toBe('c1000');
+
+        while (ids.length < 1500) ids.push((await nextEventId(iterator))!);
+        expect(ids).toEqual(Array.from({ length: 1500 }, (_, n) => `e${n}`));
+    });
+
+    it('reports one gap for a run of truncated results, and another for a truncated result after a clean one', async () => {
+        const onGap = vi.fn();
+        const pages = Array.from({ length: 10 }, (_, n) => ({
+            events: [occurrence(`e${n + 1}`)],
+            cursor: `c${n + 1}`,
+            truncated: true,
+            hasMore: true,
+            nextPollMs: 0
+        }));
+        const { polls, subscribe } = await pollWith(
+            script(
+                ...pages,
+                { events: [], cursor: 'c10', nextPollMs: 0 },
+                { events: [], cursor: 'c11', truncated: true, nextPollMs: 60_000 }
+            )
+        );
+        await subscribe({ cursor: 'c0', onGap });
+        expect(polls()).toHaveLength(11);
+        expect(onGap).toHaveBeenCalledExactlyOnceWith('c1');
+
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(polls()).toHaveLength(12);
+        expect(onGap).toHaveBeenCalledTimes(2);
+        expect(onGap).toHaveBeenLastCalledWith('c11');
+    });
+
     it('reports truncated through onGap and persists the fresh cursor', async () => {
         const onGap = vi.fn();
         const { polls, subscribe } = await pollWith(script({ events: [], cursor: 'c5', truncated: true, nextPollMs: 60_000 }));

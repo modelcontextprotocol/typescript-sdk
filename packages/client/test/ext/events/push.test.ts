@@ -7,6 +7,7 @@ import { UnauthorizedError } from '../../../src/client/auth';
 import { markAuthSeamEscape } from '../../../src/client/authSeam';
 import type { EventSubscription, SubscribeOptions } from '../../../src/ext/events/index';
 import { EventsError, NoCompatibleDeliveryModeError } from '../../../src/ext/events/index';
+import type { SubscriptionQueue } from '../../../src/ext/events/subscription';
 import type { Call, Handler } from './scripted';
 import { authFailure, callsTo, connectEvents, descriptor, failSends, listing, occurrence, RpcError, script } from './scripted';
 
@@ -217,6 +218,229 @@ describe('push delivery', () => {
             midStream: { timers: 0, streams: 1 },
             malformed: { timers: 0, streams: 1 }
         });
+    });
+
+    it('closes the stream quietly once 1 000 events wait for the loop, and reopens from the last cursor once the loop has taken half of them', async () => {
+        const { client, notifications, last, streams, subscribe } = await pushWith();
+        const errors: Error[] = [];
+        client.onerror = error => void errors.push(error);
+        const sub = await subscribe({}, s => s.active({ cursor: 'c0', heartbeatMs: 5000 }));
+        for (let n = 1; n <= 1000; n++) await last().frame('notifications/events/event', { ...occurrence(`e${n}`), cursor: `c${n}` });
+        expect(notifications).toContainEqual({
+            method: 'notifications/cancelled',
+            params: expect.objectContaining({ requestId: streams()[0]!.call.id })
+        });
+        // A frame sent before the server saw the cancellation goes nowhere, and no countdown or reopen runs while the loop is behind.
+        await streams()[0]!.frame('notifications/events/event', { ...occurrence('e1001'), cursor: 'c1001' });
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(streams()).toHaveLength(1);
+
+        // Taking 499 events reopens nothing; the 500th leaves 500 waiting, and the stream reopens from the last cursor.
+        const iterator = sub[Symbol.asyncIterator]();
+        const ids: string[] = [];
+        while (ids.length < 499) ids.push((await nextEventId(iterator))!);
+        await settle();
+        expect(streams()).toHaveLength(1);
+        ids.push((await nextEventId(iterator))!);
+        await settle();
+        expect(streams()).toHaveLength(2);
+        expect(last().call.params['cursor']).toBe('c1000');
+        await last().active({ cursor: 'c1000', heartbeatMs: 5000 });
+        await last().frame('notifications/events/event', { ...occurrence('e1001'), cursor: 'c1001' });
+
+        while (ids.length < 1001) ids.push((await nextEventId(iterator))!);
+        expect(ids).toEqual(Array.from({ length: 1001 }, (_, n) => `e${n + 1}`));
+        expect(errors).toEqual([]);
+        // The reopened stream counts its own silence: three grants after its last message, it reconnects.
+        await vi.advanceTimersByTimeAsync(15_499);
+        expect(streams()).toHaveLength(2);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(streams()).toHaveLength(3);
+        expect(last().call.params['cursor']).toBe('c1001');
+    });
+
+    it('keeps a full stream open inside a batch whose events share the cursor before it, and closes it at the batch end', async () => {
+        const { last, streams, subscribe } = await pushWith();
+        const sub = await subscribe({}, s => s.active({ cursor: 'c0' }));
+        // As the SDK server sends a check batch: every event at the batch's start cursor but the last.
+        for (let n = 1; n <= 1200; n++) {
+            await last().frame('notifications/events/event', { ...occurrence(`e${n}`), cursor: n === 1200 ? 'c1' : 'c0' });
+        }
+        expect(streams()).toHaveLength(1);
+        await settle();
+
+        // The stream closed at the batch end with 1 200 waiting; it reopens from there once 500 wait.
+        const iterator = sub[Symbol.asyncIterator]();
+        const ids: string[] = [];
+        while (ids.length < 699) ids.push((await nextEventId(iterator))!);
+        await settle();
+        expect(streams()).toHaveLength(1);
+        ids.push((await nextEventId(iterator))!);
+        await settle();
+        expect(streams()).toHaveLength(2);
+        expect(last().call.params['cursor']).toBe('c1');
+        while (ids.length < 1200) ids.push((await nextEventId(iterator))!);
+        expect(ids).toEqual(Array.from({ length: 1200 }, (_, n) => `e${n + 1}`));
+    });
+
+    it('reopens a stream once per half of the queue a slow loop drains, not once per event it takes', async () => {
+        const { streams, subscribe } = await pushWith();
+        // The server's side: every stream replays its log from the cursor it is opened at, 1 000 events at a time.
+        const feed = async (stream: ServerStream): Promise<void> => {
+            const from = Number(String(stream.call.params['cursor']).slice(1));
+            await stream.active({ cursor: `c${from}` });
+            for (let n = from + 1; n <= from + 1000; n++) {
+                await stream.frame('notifications/events/event', { ...occurrence(`e${n}`), cursor: `c${n}` });
+            }
+        };
+        const sub = await subscribe({ cursor: 'c0' }, feed);
+        let fed = 1;
+        const iterator = sub[Symbol.asyncIterator]();
+        const ids: string[] = [];
+        while (ids.length < 2000 && streams().length <= 10) {
+            ids.push((await nextEventId(iterator))!);
+            await settle();
+            while (streams().length > fed) await feed(streams()[fed++]!);
+        }
+        // Closed at 1 000 waiting, then reopened after each 500 the loop took: from c1000, c1500, c2000 and c2500.
+        expect(streams().map(stream => stream.call.params['cursor'])).toEqual(['c0', 'c1000', 'c1500', 'c2000', 'c2500']);
+        expect(ids).toEqual(Array.from({ length: 2000 }, (_, n) => `e${n + 1}`));
+    });
+
+    it('drops the oldest events of a type that cannot resume once 1 000 wait, keeps the stream, and reports one gap per run of drops', async () => {
+        const onGap = vi.fn();
+        const { last, notifications, streams, subscribe } = await pushWith();
+        const sub = await subscribe({ onGap }, s => s.active({ cursor: null }));
+        const send = async (from: number, to: number) => {
+            for (let n = from; n <= to; n++) await last().frame('notifications/events/event', { ...occurrence(`e${n}`), cursor: null });
+        };
+        await send(1, 1500);
+        expect(onGap).toHaveBeenCalledExactlyOnceWith(null);
+        expect(streams()).toHaveLength(1);
+        expect(notifications.filter(notification => notification.method === 'notifications/cancelled')).toEqual([]);
+
+        // The loop gets the newest 1 000, in order.
+        const iterator = sub[Symbol.asyncIterator]();
+        const ids: string[] = [];
+        while (ids.length < 1000) ids.push((await nextEventId(iterator))!);
+        expect(ids).toEqual(Array.from({ length: 1000 }, (_, n) => `e${n + 501}`));
+        expect(onGap).toHaveBeenCalledOnce();
+
+        // A later run of drops, after the queue was below the limit again, is another gap.
+        await send(1501, 2501);
+        expect(onGap).toHaveBeenCalledTimes(2);
+        expect(await nextEventId(iterator)).toBe('e1502');
+        expect(sub.cursor).toBeNull();
+    });
+
+    it('reports one gap for a sustained overload of a type that cannot resume, until the loop has taken half the queue', async () => {
+        const onGap = vi.fn();
+        const { last, subscribe } = await pushWith();
+        const sub = await subscribe({ onGap }, s => s.active({ cursor: null }));
+        let sent = 0;
+        const send = async (count: number) => {
+            for (let n = 0; n < count; n++) {
+                sent += 1;
+                await last().frame('notifications/events/event', { ...occurrence(`e${sent}`), cursor: null });
+            }
+        };
+        await send(1001);
+        expect(onGap).toHaveBeenCalledExactlyOnceWith(null);
+
+        // The server sends two events for each one the loop takes: still one episode.
+        const iterator = sub[Symbol.asyncIterator]();
+        for (let cycle = 0; cycle < 20; cycle++) {
+            await nextEventId(iterator);
+            await send(2);
+        }
+        expect(onGap).toHaveBeenCalledOnce();
+
+        // Once the loop has taken the queue down to 500, the next drop starts another episode.
+        for (let n = 0; n < 500; n++) await nextEventId(iterator);
+        await settle();
+        await send(501);
+        expect(onGap).toHaveBeenCalledTimes(2);
+    });
+
+    describe('leaving a pause', () => {
+        // A subscription whose queue filled with 1 000 events, so the driver closed its stream and waits for the loop.
+        async function paused() {
+            const push = await pushWith();
+            const sub = await push.subscribe({}, s => s.active({ cursor: 'c0', heartbeatMs: 5000 }));
+            for (let n = 1; n <= 1000; n++) {
+                await push.last().frame('notifications/events/event', { ...occurrence(`e${n}`), cursor: `c${n}` });
+            }
+            expect(push.notifications.filter(notification => notification.method === 'notifications/cancelled')).toHaveLength(1);
+            return { ...push, sub, iterator: sub[Symbol.asyncIterator]() };
+        }
+
+        it('ends on cancel(): cancel() resolves, and no reopen or timer follows', async () => {
+            const { sub, iterator, streams } = await paused();
+            for (let n = 0; n < 499; n++) await iterator.next();
+            await sub.cancel();
+            expect(await iterator.next()).toEqual({ done: true, value: undefined });
+            expect(vi.getTimerCount()).toBe(0);
+            await vi.advanceTimersByTimeAsync(120_000);
+            expect(streams()).toHaveLength(1);
+        });
+
+        it('ends on a closed connection: the loop gets what waited, then ConnectionClosed, and no reopen or timer follows', async () => {
+            const { client, sub, iterator, streams } = await paused();
+            // The wait the paused driver is in; a rejected loop never calls return(), so the close itself must release it.
+            let released = false;
+            void (sub as unknown as SubscriptionQueue<unknown>).room().then(() => (released = true));
+            await client.close();
+            await settle();
+            expect(released).toBe(true);
+            const ids: Array<string | undefined> = [];
+            for (let n = 0; n < 1000; n++) ids.push(await nextEventId(iterator));
+            expect(ids).toEqual(Array.from({ length: 1000 }, (_, n) => `e${n + 1}`));
+            await expect(iterator.next()).rejects.toMatchObject({ code: SdkErrorCode.ConnectionClosed });
+            await sub.cancel();
+            expect(vi.getTimerCount()).toBe(0);
+            await vi.advanceTimersByTimeAsync(120_000);
+            expect(streams()).toHaveLength(1);
+        });
+
+        it('ends when the loop is left: no reopen or timer follows', async () => {
+            const { sub, streams } = await paused();
+            let taken = 0;
+            for await (const _event of sub) {
+                taken += 1;
+                if (taken === 3) break;
+            }
+            await sub.cancel();
+            expect(vi.getTimerCount()).toBe(0);
+            await vi.advanceTimersByTimeAsync(120_000);
+            expect(streams()).toHaveLength(1);
+        });
+    });
+
+    it('reports notifications/events/error as a retried failure: at once, then counted once a minute, and keeps the stream', async () => {
+        const { client, last, streams, subscribe } = await pushWith();
+        const errors: Error[] = [];
+        client.onerror = error => void errors.push(error);
+        const sub = await subscribe({}, s => s.active({ cursor: 'c0', heartbeatMs: 30_000 }));
+        const failure = { error: { code: -32_603, message: 'upstream unavailable' } };
+
+        await last().frame('notifications/events/error', failure);
+        expect(errors).toEqual([
+            expect.objectContaining({ message: "push subscription to 'tick' failed and is retried: upstream unavailable" })
+        ]);
+        for (let second = 5; second < 60; second += 5) {
+            await vi.advanceTimersByTimeAsync(5000);
+            await last().frame('notifications/events/error', failure);
+        }
+        expect(errors).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(errors).toHaveLength(2);
+        expect(errors[1]!.message).toBe(
+            "push subscription to 'tick': 11 more retried failures since the last report, the latest: upstream unavailable"
+        );
+        expect(streams()).toHaveLength(1);
+        await last().frame('notifications/events/event', { ...occurrence('e1'), cursor: 'c1' });
+        expect(await nextEventId(sub[Symbol.asyncIterator]())).toBe('e1');
     });
 
     it('advances the cursor on heartbeats', async () => {

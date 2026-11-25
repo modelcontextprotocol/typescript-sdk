@@ -320,6 +320,22 @@ describe('endpoint verification', () => {
         expect(requests).toHaveLength(12);
     });
 
+    it('drops the failed pairs and idle hosts that expired as it remembers the next one, well below the cap', async () => {
+        const { engine } = setup(() => ({ error: 'timeout' }));
+        const timeout = { data: { reason: 'timeout' } };
+        await expect(engine.verify('u1', HOOK_URL, SECRET, 'sub_1')).rejects.toMatchObject(timeout);
+        await expect(engine.verify('u2', 'https://b.example.com/mcp', SECRET, 'sub_2')).rejects.toMatchObject(timeout);
+        expect(engine.remembered).toEqual({ failed: 2, hosts: 2 });
+        // The first host is used again later, so it outlives the second.
+        await vi.advanceTimersByTimeAsync(30_000);
+        await expect(engine.verify('u3', HOOK_URL, SECRET, 'sub_3')).rejects.toMatchObject(timeout);
+        expect(engine.remembered).toEqual({ failed: 3, hosts: 2 });
+
+        await vi.advanceTimersByTimeAsync(30_000);
+        await expect(engine.verify('u4', 'https://c.example.com/mcp', SECRET, 'sub_4')).rejects.toMatchObject(timeout);
+        expect(engine.remembered).toEqual({ failed: 2, hosts: 2 });
+    });
+
     it('fails verification when a 404 echoes the challenge', async () => {
         const { engine } = setup(request => ({ status: 404, body: JSON.stringify({ challenge: bodyOf(request).challenge }) }));
         await expect(engine.verify('u', HOOK_URL, SECRET, ID)).rejects.toMatchObject({ data: { reason: 'challenge_failed' } });
@@ -1417,5 +1433,28 @@ describe('forget and clear', () => {
         engine.track(ID, 'c7');
         expect(engine.watermark(ID)).toBe('c7');
         expect(engine.size).toBe(1);
+    });
+
+    it('whenIdle() calls back at once with nothing pending, once every pending message settles, and on a drop', async () => {
+        const { respond, answers } = held();
+        const { engine, record, until } = setup(respond);
+        const calls: string[] = [];
+        engine.whenIdle(ID, () => calls.push('untracked'));
+        engine.deliver(record, occurrence('evt_1'), 'p1', 'p0');
+        engine.deliver(record, occurrence('evt_2'), 'p2', 'p0');
+        engine.whenIdle(ID, () => calls.push('drained'));
+        await until(2);
+        answers.shift()!();
+        await settle();
+        expect(calls).toEqual(['untracked']);
+        answers.shift()!();
+        await settle();
+        expect(calls).toEqual(['untracked', 'drained']);
+
+        engine.deliver(record, occurrence('evt_3'), 'p3', 'p2');
+        engine.whenIdle(ID, () => calls.push('dropped'));
+        engine.forget(ID);
+        await settle();
+        expect(calls).toEqual(['untracked', 'drained', 'dropped']);
     });
 });

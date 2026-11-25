@@ -239,7 +239,10 @@ export class EventsClientExtension implements ClientExtension {
      * Answers: `405` to anything but POST, `413` to a body over 256 KiB,
      * `400` to a missing header, a timestamp more than 5 minutes off or a
      * malformed body, `401` to a bad signature, and `503` to a subscription
-     * id it does not route (yet), which the server retries.
+     * id it does not route (yet), or to an event for a subscription whose
+     * loop has 1 000 events it has not taken (identical webhook subscriptions
+     * share one server subscription, so they pause together), which the
+     * server retries.
      */
     createWebhookHandler(): (request: Request) => Promise<Response> {
         const receiver = this.#receiver;

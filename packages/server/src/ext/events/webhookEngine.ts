@@ -125,6 +125,8 @@ interface Tracked {
     advanceTo?: { readonly position: string | null };
     // Gap attempts waiting for the event POSTs in flight to settle.
     idle: Array<() => void>;
+    // Callers waiting for every message to settle (whenIdle).
+    drained: Array<() => void>;
 }
 
 // One `principal\0url` handshake in flight: the subscribes waiting for it, and the abort that pulls it from the host's queue once all of them were cancelled.
@@ -141,9 +143,13 @@ interface HostVerifications {
     readonly sent: number[];
 }
 
-// Adds `key` to `map`; at MAX_REMEMBERED it first drops the entries `stale` says are done, then the oldest.
+// Adds `key` to `map`, first dropping the entries `stale` says are done from its front, where the oldest are; at MAX_REMEMBERED it drops every such entry, then the oldest.
 function remember<V>(map: Map<string, V>, key: string, value: V, stale: (held: V) => boolean): void {
     map.delete(key);
+    for (const [held, entry] of map) {
+        if (!stale(entry)) break;
+        map.delete(held);
+    }
     if (map.size >= MAX_REMEMBERED) {
         for (const [held, entry] of map) if (stale(entry)) map.delete(held);
         if (map.size >= MAX_REMEMBERED) map.delete(map.keys().next().value!);
@@ -257,6 +263,11 @@ export class WebhookEngine {
         return this.#tracked.size;
     }
 
+    // The failed pairs and destination hosts the verification limits hold.
+    get remembered(): { readonly failed: number; readonly hosts: number } {
+        return { failed: this.#failed.size, hosts: this.#hosts.size };
+    }
+
     // One attempt, which the subscribe call waits for, after the host's verification in flight; throws `callbackEndpointError` with the failure category as `data.reason`, or `resourceExhausted` at the host's limit.
     async verify(principal: string, url: string, secret: string, subscriptionId: string, signal?: AbortSignal): Promise<void> {
         const key = `${principal}\u0000${url}`;
@@ -325,6 +336,13 @@ export class WebhookEngine {
         if (tracked === undefined) return;
         if (tracked.pending.length === 0) tracked.watermark = position;
         else tracked.advanceTo = { position };
+    }
+
+    // Calls `listener` once no message of the subscription awaits an answer: at once when none does or the id is untracked, and on a drop.
+    whenIdle(id: string, listener: () => void): void {
+        const tracked = this.#tracked.get(id);
+        if (tracked === undefined || tracked.pending.length === 0) listener();
+        else tracked.drained.push(listener);
     }
 
     status(id: string): DeliveryStatus | undefined {
@@ -429,12 +447,10 @@ export class WebhookEngine {
     // Waits for the host's one verification slot, leaving the queue when `abandoned` aborts, then counts the POST; throws `resourceExhausted` with a retry hint when the wait or the window is full.
     async #claimHost(url: string, abandoned: AbortSignal): Promise<HostVerifications> {
         const name = new URL(url).hostname.toLowerCase();
-        let host = this.#hosts.get(name);
-        if (host === undefined) {
-            host = { inFlight: false, waiting: [], sent: [] };
-            const start = this.#now() - VERIFICATION_WINDOW_MS;
-            remember(this.#hosts, name, host, held => !held.inFlight && (held.sent.at(-1) ?? start) <= start);
-        }
+        const host = this.#hosts.get(name) ?? { inFlight: false, waiting: [], sent: [] };
+        const windowStart = this.#now() - VERIFICATION_WINDOW_MS;
+        // Remembered again at every use, so the least recently used host, the first to go stale, is at the front.
+        remember(this.#hosts, name, host, held => !held.inFlight && (held.sent.at(-1) ?? windowStart) <= windowStart);
         if (host.inFlight) {
             if (host.waiting.length >= VERIFICATIONS_PER_WINDOW) throw verificationLimit(QUEUE_FULL_RETRY_MS);
             await this.#waitTurn(host, abandoned);
@@ -506,7 +522,8 @@ export class WebhookEngine {
             marked: 0,
             told: 0,
             signalling: false,
-            idle: []
+            idle: [],
+            drained: []
         };
         this.#tracked.set(id, tracked);
         return tracked;
@@ -551,6 +568,7 @@ export class WebhookEngine {
         clearTimeout(tracked.sweep);
         // Gap attempts that waited on this state try again once the caller is done, unless forget() or clear() stopped them.
         for (const attempt of tracked.idle.splice(0)) queueMicrotask(attempt);
+        for (const listener of tracked.drained.splice(0)) queueMicrotask(listener);
     }
 
     // Reads the record of a subscription this process does not watch again at its expiry, so its state goes once the subscription ends elsewhere.
@@ -762,6 +780,7 @@ export class WebhookEngine {
             tracked.advanceTo = undefined;
         }
         this.#release(tracked, message, 'done');
+        if (tracked.pending.length === 0) for (const listener of tracked.drained.splice(0)) listener();
     }
 
     // Records one outcome in the delivery status and returns whether to retry; 410 and 413 end the message, setting lastError only.

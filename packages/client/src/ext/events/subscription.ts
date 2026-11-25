@@ -28,9 +28,10 @@ export interface SubscribeOptions {
     maxAgeMs?: number;
     /**
      * Called with the cursor delivery continues from when events may have been
-     * skipped: the server reports `truncated`, or delivery started again from
-     * now after a schema change. An error it throws goes to the client's
-     * `onerror`, and delivery goes on.
+     * skipped: the server reports `truncated`, delivery started again from now
+     * after a schema change, or a push loop fell 1 000 events behind on an event
+     * type that cannot resume and its oldest queued events were dropped (`null`).
+     * An error it throws goes to the client's `onerror`, and delivery goes on.
      */
     onGap?: (cursor: string | null) => void;
 }
@@ -111,8 +112,9 @@ export interface Driver {
     stop(): Promise<void>;
 }
 
-// What a driver delivers into: one subscription's queue, or (webhook) one that passes everything on to identical subscriptions.
-export type DeliveryQueue<T> = Pick<SubscriptionQueue<T>, 'push' | 'setCursor' | 'setDeliveryStatus' | 'fail'>;
+// What a driver delivers into: one subscription's queue, or (webhook, which never waits for room or trims) one that passes everything on to identical subscriptions.
+export type DeliveryQueue<T> = Pick<SubscriptionQueue<T>, 'push' | 'setCursor' | 'setDeliveryStatus' | 'fail' | 'full'> &
+    Partial<Pick<SubscriptionQueue<T>, 'room' | 'trim'>>;
 
 // What a driver runs: the subscription, the queue its events go into, and the connection it requests through.
 export interface DriverContext<T> {
@@ -129,6 +131,9 @@ export type Item<T> = EventOccurrence & { data: T };
 type Entry<T> = { event: Item<T> } | { cursor: string | null };
 
 const DEDUPE_WINDOW = 1000;
+// The most events a subscription holds that its loop has not taken; its driver fetches no more until the loop has taken half of them.
+const MAX_QUEUED_EVENTS = 1000;
+const RESUME_QUEUED_EVENTS = MAX_QUEUED_EVENTS / 2;
 
 // The `EventSubscription` a driver delivers into.
 export class SubscriptionQueue<T> implements EventSubscription<T> {
@@ -138,6 +143,9 @@ export class SubscriptionQueue<T> implements EventSubscription<T> {
     readonly #entries: Entry<T>[] = [];
     readonly #seen = new Set<string>();
     readonly #waiters: Array<{ resolve(result: IteratorResult<Item<T>>): void; reject(error: unknown): void }> = [];
+    // The events in #entries, and the wait for them to drain to RESUME_QUEUED_EVENTS: one promise every waiter shares.
+    #queued = 0;
+    #room: { readonly promise: Promise<void>; readonly resolve: () => void } | undefined;
     // The loop holds an event it has not finished with.
     #holding = false;
     // Set by fail() or end(); delivered after the queued events.
@@ -159,6 +167,22 @@ export class SubscriptionQueue<T> implements EventSubscription<T> {
         return this.#deliveryStatus;
     }
 
+    // MAX_QUEUED_EVENTS events wait for the loop.
+    get full(): boolean {
+        return this.#queued >= MAX_QUEUED_EVENTS;
+    }
+
+    // Resolves once the loop has taken the waiting events down to RESUME_QUEUED_EVENTS, or the subscription ends.
+    room(): Promise<void> {
+        if (this.#queued <= RESUME_QUEUED_EVENTS || this.#done()) return Promise.resolve();
+        if (this.#room === undefined) {
+            let resolve!: () => void;
+            const promise = new Promise<void>(settle => (resolve = settle));
+            this.#room = { promise, resolve };
+        }
+        return this.#room.promise;
+    }
+
     // Starts `driver`, which cancel() stops; settles as its first exchange does.
     run(driver: Driver): Promise<void> {
         this.#driver = driver;
@@ -174,10 +198,27 @@ export class SubscriptionQueue<T> implements EventSubscription<T> {
         const waiter = this.#waiters.shift();
         if (waiter === undefined) {
             this.#entries.push({ event: item });
+            this.#queued += 1;
             return;
         }
         this.#holding = true;
         waiter.resolve({ done: false, value: item });
+    }
+
+    // Drops the oldest events the loop has not taken while more than MAX_QUEUED_EVENTS wait; answers whether it dropped any.
+    trim(): boolean {
+        let dropped = false;
+        while (this.#queued > MAX_QUEUED_EVENTS) {
+            this.#entries.splice(
+                this.#entries.findIndex(entry => 'event' in entry),
+                1
+            );
+            this.#queued -= 1;
+            dropped = true;
+            // The cursors around a dropped event collapse into the later one, as #next() would apply them.
+            while (this.#entries.length > 1 && 'cursor' in this.#entries[0]! && 'cursor' in this.#entries[1]!) this.#entries.shift();
+        }
+        return dropped;
     }
 
     setCursor(cursor: string | null): void {
@@ -195,6 +236,7 @@ export class SubscriptionQueue<T> implements EventSubscription<T> {
         if (this.#done()) return;
         this.#finish = { error };
         this.#settleWaiters();
+        this.#releaseRoom();
     }
 
     // Ends the loop once the queued events are delivered.
@@ -202,12 +244,15 @@ export class SubscriptionQueue<T> implements EventSubscription<T> {
         if (this.#done()) return;
         this.#finish = 'end';
         this.#settleWaiters();
+        this.#releaseRoom();
     }
 
     cancel(): Promise<void> {
         this.#cancelled ??= (async () => {
             this.#closed = true;
             this.#entries.length = 0;
+            this.#queued = 0;
+            this.#releaseRoom();
             for (const waiter of this.#waiters.splice(0)) waiter.resolve({ done: true, value: undefined });
             await this.#driver?.stop();
         })();
@@ -237,11 +282,19 @@ export class SubscriptionQueue<T> implements EventSubscription<T> {
         }
         if (entry !== undefined) {
             this.#holding = true;
+            this.#queued -= 1;
+            if (this.#queued <= RESUME_QUEUED_EVENTS) this.#releaseRoom();
             return Promise.resolve({ done: false, value: entry.event });
         }
         if (this.#closed) return Promise.resolve({ done: true, value: undefined });
         if (this.#finish !== undefined) return this.#deliverFinish();
         return new Promise((resolve, reject) => this.#waiters.push({ resolve, reject }));
+    }
+
+    #releaseRoom(): void {
+        const room = this.#room;
+        this.#room = undefined;
+        room?.resolve();
     }
 
     // Waiters exist only while nothing is queued, so the finish reaches them at once.
