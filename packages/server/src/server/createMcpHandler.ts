@@ -35,12 +35,15 @@ import type {
     InboundLadderRejection,
     InboundLegacyRoute,
     InboundModernRoute,
-    RequestId
+    RequestId,
+    SdkLogger
 } from '@modelcontextprotocol/core-internal';
 import {
     classifyInboundRequest,
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    extensionsSettled,
+    guardLogger,
     httpStatusForErrorCode,
     isJsonContentType,
     mediaTypeEssence,
@@ -168,6 +171,8 @@ export interface CreateMcpHandlerOptions {
     legacy?: 'stateless' | 'reject';
     /** Callback for out-of-band errors and rejected requests (reporting only; it never alters the response). */
     onerror?: (error: Error) => void;
+    /** Logger used for SDK diagnostics emitted by the HTTP handler. Defaults to `console`. */
+    logger?: SdkLogger;
     /**
      * Response shaping for modern (2026-07-28) request exchanges:
      *
@@ -281,7 +286,8 @@ function jsonRpcErrorResponse(httpStatus: number, code: number, message: string,
             error: { code, message, ...(data !== undefined && { data }) },
             id
         },
-        { status: httpStatus }
+        // This entry serves POST only, so every 405 it answers names POST (RFC 9110 §15.5.6).
+        { status: httpStatus, ...(httpStatus === 405 && { headers: { Allow: 'POST' } }) }
     );
 }
 
@@ -680,6 +686,7 @@ export async function isLegacyRequest(request: Request, parsedBody?: unknown, op
  */
 export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHandlerOptions = {}): McpHttpHandler {
     const { legacy, onerror, responseMode } = options;
+    const logger = guardLogger(options.logger);
     const maxRequestBodySize = resolveMaxRequestBodySize(options.maxRequestBodySize);
 
     // Construction-time guard for JavaScript callers passing a handler as the
@@ -713,8 +720,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         onerror: reportError
     });
     if (responseMode === 'json') {
-        // eslint-disable-next-line no-console
-        console.warn(
+        logger.warn?.(
             "responseMode: 'json' drops mid-call notifications. subscriptions/listen streams are always served over SSE regardless; " +
                 'other notifications emitted before a result are dropped.'
         );
@@ -793,6 +799,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             requestInfo: request
         });
         const server = product instanceof McpServer ? product.server : product;
+        // The checks below read the instance, so async extension setups must have finished.
+        await extensionsSettled(server);
         assertNotServing(server);
 
         // Entry-handled `subscriptions/listen`: the router owns ack-first /

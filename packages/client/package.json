@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/client",
-    "version": "2.3.1",
+    "version": "2.4.0",
     "description": "Model Context Protocol implementation for TypeScript - Client package",
     "license": "Apache-2.0",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -154,7 +154,11 @@
         "pkce-challenge": "catalog:runtimeShared",
         "zod": "catalog:runtimeShared"
     },
+    "peerDependencies": {
+        "@opentelemetry/api": "catalog:otel"
+    },
     "devDependencies": {
+        "@opentelemetry/api": "catalog:otel",
         "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",

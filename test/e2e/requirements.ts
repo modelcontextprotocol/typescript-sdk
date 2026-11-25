@@ -17,6 +17,38 @@ const SKILLS_SPEC =
     'https://github.com/modelcontextprotocol/ext-skills/blob/c1aa87e4c381c82b99aa37471d0eae4ab50f9985/specification/stable/skills.mdx?plain=1#';
 
 export const REQUIREMENTS: Record<string, Requirement> = {
+    // Extensions (SEP-3371 SDK extension points)
+    'extensions:registration:duplicate-id': {
+        source: 'https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3371',
+        behavior: 'A server or client given two extensions with the same id fails construction before setting either up.',
+        transports: ['inMemory'],
+        note: 'local API; the transport plays no part'
+    },
+    'extensions:registration:require': {
+        source: 'https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3371',
+        behavior:
+            'ctx.require(id) passes when the other extension is listed, before or after; when it is missing, construction fails naming it.',
+        transports: ['inMemory'],
+        note: 'local API; the transport plays no part'
+    },
+    'extensions:registration:refused-method-names': {
+        source: 'https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3371',
+        behavior:
+            'ctx.setRequestHandler refuses core request and notification names; use() and ctx.use throw a TypeError for a method they could never wrap: a notification, subscriptions/listen on a server, or a core request this side is never sent.',
+        transports: ['inMemory'],
+        note: 'local API; the transport plays no part'
+    },
+    'extensions:middleware:order': {
+        source: 'https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3371',
+        behavior:
+            'Middleware on a request runs extension middleware first, in extension order, then middleware the application adds with use(), then the handler.'
+    },
+    'extensions:setup:async-failure-fails-connect': {
+        source: 'https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3371',
+        behavior: "When an extension's async setup rejects, connect rejects with that error.",
+        transports: ['inMemory'],
+        note: 'local API; the transport plays no part'
+    },
     // Lifecycle & version negotiation
 
     'lifecycle:capability:client-not-declared': {
@@ -419,6 +451,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'tools:call:structured-content:text-mirror': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#structured-content',
         behavior: 'A tool returning structured content also returns the serialized JSON as a text content block.'
+    },
+    'server:tools:structured-content:text-when-content-omitted': {
+        source: 'https://modelcontextprotocol.io/specification/draft/server/tools#structured-content',
+        behavior:
+            'A McpServer tool whose handler returns structuredContent but omits content gets a single {type:"text", text: JSON.stringify(structuredContent)} block, so the result carries the serialized JSON the spec asks for. A handler that returns object structuredContent with content, even an empty array, keeps the content it supplied.'
     },
     'tools:call:unknown-name': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#error-handling',
@@ -1389,6 +1426,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'protocol:meta:request-to-handler': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#_meta',
         behavior: "_meta sent in a request's params by the client is delivered intact to the server-side request handler."
+    },
+    'protocol:meta:trace-context-otel': {
+        source: 'https://modelcontextprotocol.io/community/seps/414-request-meta',
+        behavior:
+            "With an OpenTelemetry SDK registered and no other configuration, a client's tools/call span carries its W3C trace context to the server in params._meta, the server's span for the call is its child, and the tool handler runs with the server span active."
     },
     'protocol:meta:result-to-client': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#_meta',
@@ -2755,9 +2797,9 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'typescript:hosting:entry:method-405': {
         source: 'sdk',
         behavior:
-            'A non-POST HTTP method (GET, DELETE, PUT, PATCH) on a createMcpHandler endpoint is answered 405 with a JSON-RPC Method-not-allowed body on both legs: the stateless legacy fallback rejects every non-POST method, and the modern-only strict path rejects body-less non-POST traffic via the modern-only-method-not-allowed cell.',
+            'A non-POST HTTP method (GET, DELETE, PUT, PATCH) on a createMcpHandler endpoint is answered 405 with `Allow: POST` and a JSON-RPC Method-not-allowed body on both legs: the stateless legacy fallback rejects every non-POST method, and the modern-only strict path rejects body-less non-POST traffic via the modern-only-method-not-allowed cell.',
         transports: ['entryStateless', 'entryModern'],
-        note: 'Runs on the createMcpHandler entry arms; each non-POST method is sent through wired.fetch so the HTTP status and body are observed directly. The entry does not emit an Allow header (the per-session server transport does), so only the status and JSON-RPC error shape are pinned.'
+        note: 'Runs on the createMcpHandler entry arms; each non-POST method is sent through wired.fetch so the HTTP status and body are observed directly. The status, the `Allow` header and the JSON-RPC error shape are pinned.'
     },
     'typescript:hosting:entry:parse-error-400': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server',

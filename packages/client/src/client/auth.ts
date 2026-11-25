@@ -9,6 +9,7 @@ import type {
     OAuthMetadata,
     OAuthProtectedResourceMetadata,
     OAuthTokens,
+    SdkLogger,
     StoredOAuthClientInformation,
     StoredOAuthTokens
 } from '@modelcontextprotocol/core-internal';
@@ -16,6 +17,7 @@ import {
     brandedHasInstance,
     checkResourceAllowed,
     fetchWithinOrigin,
+    guardLogger,
     LATEST_PROTOCOL_VERSION,
     OAuthClientInformationFullSchema,
     OAuthError,
@@ -119,7 +121,7 @@ export interface OAuthClientInformationContext {
  * as `undefined`, so a credential issued by one authorization server is never reused
  * at another — the flow falls through to re-registration / re-authorization exactly
  * as if nothing were stored. An unstamped value (legacy provider or pre-SEP-2352
- * storage) is returned as-is with a `console.warn`; {@linkcode auth} writes the
+ * storage) is returned as-is with a warning; {@linkcode auth} writes the
  * stamp back on first use so the window closes after one call.
  *
  * {@linkcode auth} stamps every value it writes via `saveTokens` / `saveClientInformation`,
@@ -130,18 +132,19 @@ export interface OAuthClientInformationContext {
  * @param opts.canPersistStamp - When `false`, suppresses the unstamped-credential
  *   warning: the caller cannot back-stamp (no `saveClientInformation`), so the
  *   "binding on first use" claim would be false and would fire on every call.
+ * @param opts.logger - Where the unstamped-credential warning goes. Defaults to `console`.
  */
 export function discardIfIssuerMismatch<T extends { issuer?: string }>(
     stored: T | null | undefined,
     issuer: string,
-    opts?: { canPersistStamp?: boolean }
+    opts?: { canPersistStamp?: boolean; logger?: SdkLogger }
 ): T | undefined {
     // Nothing stored (`null` from a `JSON.parse(storage.getItem(...))`-style getter included).
     if (!stored) return undefined;
     // A stamp that is not a string (raw storage) counts as no stamp.
     if (typeof stored.issuer !== 'string') {
         if (opts?.canPersistStamp !== false) {
-            console.warn(
+            guardLogger(opts?.logger).warn?.(
                 `[mcp-sdk] SEP-2352: stored OAuth credential has no 'issuer' stamp (pre-upgrade storage or ` +
                     `provider not round-tripping the value). SEP-2352 isolation is inactive for this read; ` +
                     `ensure your provider round-trips the issuer field.`
@@ -257,6 +260,28 @@ export interface OAuthClientProvider {
      * External URL the server should use to fetch client metadata document
      */
     clientMetadataUrl?: string;
+
+    /**
+     * When `true`, {@linkcode auth} does not add `prompt=consent` to the authorization
+     * request when the requested scope includes `offline_access`.
+     *
+     * OIDC Core §11 allows omitting it when other conditions already permit offline
+     * access, e.g. an administrator granted tenant-wide consent. Some authorization
+     * servers (such as Microsoft Entra ID with user consent disabled) reject a forced
+     * consent prompt from non-admin users even though consent is already in place.
+     *
+     * @default false
+     */
+    skipOfflineAccessConsentPrompt?: boolean;
+
+    /**
+     * Console-compatible sink for the warnings {@linkcode auth} prints while it runs: unstamped
+     * stored credentials, a missing `discoveryState()`, a failed token refresh and discarded
+     * credentials. Omitted methods discard diagnostics at that level.
+     *
+     * @default console
+     */
+    sdkLogger?: SdkLogger;
 
     /**
      * Metadata about this OAuth client.
@@ -1064,7 +1089,9 @@ function warnCredentialInvalidation(provider: OAuthClientProvider, error: OAuthE
     // JSON-stringify the AS-supplied values so attacker-supplied control characters cannot
     // forge log lines — the authorization server is resolved from the resource server's
     // metadata, and both `code` and `message` are echoed from its response verbatim.
-    console.warn(`[mcp-sdk] OAuth ${JSON.stringify(error.code)} — ${action}. Cause: ${JSON.stringify(error.message)}`);
+    guardLogger(provider.sdkLogger).warn?.(
+        `[mcp-sdk] OAuth ${JSON.stringify(error.code)} — ${action}. Cause: ${JSON.stringify(error.message)}`
+    );
 }
 
 /**
@@ -1150,6 +1177,7 @@ async function authInternal(
         forceReauthorization
     }: AuthOptions
 ): Promise<AuthResult> {
+    const logger = guardLogger(provider.sdkLogger);
     // SEP-837 / SEP-2207: resolve spec defaults for the DCR body. determineScope()
     // intentionally reads the raw provider.clientMetadata instead.
     const clientMetadata = resolveClientMetadata(provider);
@@ -1260,7 +1288,7 @@ async function authInternal(
                     issuer
                 );
             }
-            console.warn(
+            logger.warn?.(
                 '[mcp-sdk] OAuthClientProvider does not implement saveDiscoveryState()/discoveryState(); ' +
                     'the SEP-2352 callback-leg authorization-server binding cannot be checked. ' +
                     'Implement discoveryState (persist alongside codeVerifier) — see docs/migration/upgrade-to-v2.md §SEP-2352.'
@@ -1300,7 +1328,8 @@ async function authInternal(
     // re-registers exactly as if nothing were stored.
     const rawClientInfo = await Promise.resolve(provider.clientInformation(infoCtx));
     let clientInformation = discardIfIssuerMismatch(rawClientInfo, issuer, {
-        canPersistStamp: provider.saveClientInformation !== undefined
+        canPersistStamp: provider.saveClientInformation !== undefined,
+        logger
     });
     if (clientInformation === undefined && rawClientInfo?.issuer && provider.saveClientInformation === undefined) {
         // Static-credential provider (no DCR) whose `expectedIssuer` stamp names a different
@@ -1385,7 +1414,7 @@ async function authInternal(
 
     // SEP-2352: a refresh_token stamped for a different authorization server reads back
     // as `undefined`, so it is never POSTed to this AS's token endpoint.
-    let tokens = discardIfIssuerMismatch(await provider.tokens(infoCtx), issuer);
+    let tokens = discardIfIssuerMismatch(await provider.tokens(infoCtx), issuer, { logger });
     if (tokens && tokens.issuer === undefined) {
         // SEP-2352 back-stamp: bind a legacy unstamped token set to the first-resolved AS
         // so the stamp check is effective from the next call onward.
@@ -1426,7 +1455,7 @@ async function authInternal(
                 // redirectToAuthorization() is a no-op — so say why it happened.
                 // JSON-stringify the cause: on the non-OAuth-shaped path it carries the raw
                 // response body, so it is arbitrary attacker-supplied bytes.
-                console.warn(
+                logger.warn?.(
                     `[mcp-sdk] Could not refresh OAuth tokens; falling back to a new authorization request. ` +
                         `Cause: ${JSON.stringify(error instanceof Error ? error.message : String(error))}`
                 );
@@ -1457,7 +1486,8 @@ async function authInternal(
         state,
         redirectUrl: provider.redirectUrl,
         scope: resolvedScope,
-        resource
+        resource,
+        skipOfflineAccessConsentPrompt: provider.skipOfflineAccessConsentPrompt
     });
 
     await provider.saveCodeVerifier(codeVerifier);
@@ -2100,7 +2130,8 @@ export async function startAuthorization(
         redirectUrl,
         scope,
         state,
-        resource
+        resource,
+        skipOfflineAccessConsentPrompt
     }: {
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
@@ -2108,6 +2139,11 @@ export async function startAuthorization(
         scope?: string;
         state?: string;
         resource?: string | URL;
+        /**
+         * When `true`, `prompt=consent` is not added for an `offline_access` scope.
+         * See {@linkcode OAuthClientProvider.skipOfflineAccessConsentPrompt}.
+         */
+        skipOfflineAccessConsentPrompt?: boolean;
     }
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
     let authorizationUrl: URL;
@@ -2147,7 +2183,7 @@ export async function startAuthorization(
         authorizationUrl.searchParams.set('scope', scope);
     }
 
-    if (scope?.split(' ').includes('offline_access')) {
+    if (!skipOfflineAccessConsentPrompt && scope?.split(' ').includes('offline_access')) {
         // if the request includes the OIDC-only "offline_access" scope,
         // we need to set the prompt to "consent" to ensure the user is prompted to grant offline access
         // https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess

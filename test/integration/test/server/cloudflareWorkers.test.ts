@@ -82,16 +82,18 @@ function packWorkspacePackage(tempDir: string, packageDirName: string): string {
         scripts?: unknown;
         devDependencies?: unknown;
         dependencies?: Record<string, string>;
+        peerDependencies?: Record<string, string>;
     };
     delete manifest.scripts;
     delete manifest.devDependencies;
-    const dependencies = manifest.dependencies ?? {};
-    for (const [name, spec] of Object.entries(dependencies)) {
-        if (spec.startsWith('catalog:') || spec.startsWith('workspace:')) {
-            const installed = JSON.parse(fs.readFileSync(path.join(pkgPath, 'node_modules', name, 'package.json'), 'utf8')) as {
-                version: string;
-            };
-            dependencies[name] = installed.version;
+    for (const dependencies of [manifest.dependencies ?? {}, manifest.peerDependencies ?? {}]) {
+        for (const [name, spec] of Object.entries(dependencies)) {
+            if (spec.startsWith('catalog:') || spec.startsWith('workspace:')) {
+                const installed = JSON.parse(fs.readFileSync(path.join(pkgPath, 'node_modules', name, 'package.json'), 'utf8')) as {
+                    version: string;
+                };
+                dependencies[name] = installed.version;
+            }
         }
     }
     fs.writeFileSync(path.join(stagingDir, 'package.json'), JSON.stringify(manifest, null, 2));

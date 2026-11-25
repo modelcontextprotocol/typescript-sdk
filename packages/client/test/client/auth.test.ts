@@ -1846,6 +1846,18 @@ describe('OAuth Authorization', () => {
             expect(authorizationUrl.searchParams.has('state')).toBe(false);
         });
 
+        it("omits consent prompt parameter for 'offline_access' when skipOfflineAccessConsentPrompt is set", async () => {
+            const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                redirectUrl: 'http://localhost:3000/callback',
+                scope: 'read write profile offline_access',
+                skipOfflineAccessConsentPrompt: true
+            });
+
+            expect(authorizationUrl.searchParams.get('scope')).toBe('read write profile offline_access');
+            expect(authorizationUrl.searchParams.has('prompt')).toBe(false);
+        });
+
         // OpenID Connect requires that the user is prompted for consent if the scope includes 'offline_access'
         it("includes consent prompt parameter if scope includes 'offline_access'", async () => {
             const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
@@ -3478,6 +3490,38 @@ describe('OAuth Authorization', () => {
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('Could not refresh OAuth tokens'));
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('AS is having a bad day'));
             warn.mockRestore();
+        });
+
+        it("routes auth() warnings to the provider's sdkLogger instead of console", async () => {
+            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day'));
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
+            (mockProvider.tokens as Mock).mockResolvedValue(storedTokens);
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+            const warn = vi.fn();
+            const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const provider: OAuthClientProvider = Object.create(mockProvider, { sdkLogger: { value: { warn } } });
+
+            await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
+
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('Could not refresh OAuth tokens'));
+            expect(consoleWarn).not.toHaveBeenCalled();
+            consoleWarn.mockRestore();
+        });
+
+        it('auth() still completes when the provider sdkLogger throws', async () => {
+            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day'));
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
+            (mockProvider.tokens as Mock).mockResolvedValue(storedTokens);
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+            const warn = vi.fn(() => {
+                throw new Error('log sink closed');
+            });
+            const provider: OAuthClientProvider = Object.create(mockProvider, { sdkLogger: { value: { warn } } });
+
+            await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
+            expect(warn).toHaveBeenCalled();
         });
 
         it('warns, and cannot recover, when invalid_grant hits a provider with no invalidateCredentials (#2034)', async () => {
@@ -5315,6 +5359,55 @@ describe('OAuth Authorization', () => {
                 expect(authorizationUrl.searchParams.get('scope')).toBe('mcp:read');
                 expect(authorizationUrl.searchParams.has('prompt')).toBe(false);
             });
+
+            it('auth() omits prompt=consent for offline_access when provider.skipOfflineAccessConsentPrompt is true', async () => {
+                mockFetch.mockImplementation(url => {
+                    const urlString = url.toString();
+                    if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                        return Promise.resolve({ ok: false, status: 404 });
+                    }
+                    if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://api.example.com',
+                                authorization_endpoint: 'https://api.example.com/authorize',
+                                token_endpoint: 'https://api.example.com/token',
+                                response_types_supported: ['code'],
+                                scopes_supported: ['mcp:read', 'offline_access']
+                            })
+                        });
+                    }
+                    return Promise.resolve({ ok: false, status: 404 });
+                });
+                const redirectToAuthorization = vi.fn();
+                const provider: OAuthClientProvider = {
+                    get redirectUrl() {
+                        return 'http://localhost:3000/callback';
+                    },
+                    get clientMetadata() {
+                        return {
+                            redirect_uris: ['http://localhost:3000/callback'],
+                            scope: 'mcp:read',
+                            grant_types: ['authorization_code', 'refresh_token']
+                        };
+                    },
+                    skipOfflineAccessConsentPrompt: true,
+                    clientInformation: () => ({ client_id: 'static' }),
+                    tokens: () => undefined,
+                    saveTokens: vi.fn(),
+                    redirectToAuthorization,
+                    saveCodeVerifier: vi.fn(),
+                    codeVerifier: () => 'v'
+                };
+
+                const result = await auth(provider, { serverUrl: 'https://api.example.com/mcp' });
+                expect(result).toBe('REDIRECT');
+                const authorizationUrl = redirectToAuthorization.mock.calls[0]![0] as URL;
+                expect(authorizationUrl.searchParams.get('scope')).toBe('mcp:read offline_access');
+                expect(authorizationUrl.searchParams.has('prompt')).toBe(false);
+            });
         });
     });
 
@@ -5405,6 +5498,16 @@ describe('OAuth Authorization', () => {
             expect(discardIfIssuerMismatch<StoredOAuthTokens>(undefined, AS_TWO)).toBeUndefined();
             expect(warn).toHaveBeenCalledTimes(1);
             warn.mockRestore();
+        });
+
+        it('discardIfIssuerMismatch: sends the unstamped warning to opts.logger', () => {
+            const warn = vi.fn();
+            const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const unstamped: StoredOAuthTokens = { access_token: 'a', token_type: 'Bearer' };
+            expect(discardIfIssuerMismatch(unstamped, AS_ONE, { logger: { warn } })).toBe(unstamped);
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining("no 'issuer' stamp"));
+            expect(consoleWarn).not.toHaveBeenCalled();
+            consoleWarn.mockRestore();
         });
 
         it('clientInformation stamped for AS-one is discarded at AS-two → re-registers (single-slot blob provider)', async () => {
