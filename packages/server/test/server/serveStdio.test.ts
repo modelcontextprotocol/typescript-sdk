@@ -407,6 +407,60 @@ describe('server/discover probe window', () => {
         await handle.close();
     });
 
+    it('a claim-less notification during the probe window does not pin the legacy era', async () => {
+        const { handle, request, notify, flush, eras, closed, errors } = await startEntry();
+
+        const discover = await request({ jsonrpc: '2.0', id: 'probe-1', method: 'server/discover', params: { _meta: envelope() } });
+        expect(isJSONRPCResultResponse(discover)).toBe(true);
+
+        // A late cancellation of the probe without `_meta`, as in the spec's
+        // cancellation example: notifications carry no era claim, so it must
+        // not be read as a 2025-era client falling back.
+        await notify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 'probe-1', reason: 'probe timed out' } });
+        await flush();
+
+        const call = await request({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'tools/call',
+            params: { name: 'echo', arguments: { text: 'still modern' }, _meta: envelope() }
+        });
+        expect(isJSONRPCResultResponse(call)).toBe(true);
+        if (isJSONRPCResultResponse(call)) {
+            expect((call.result as { resultType?: string }).resultType).toBe('complete');
+        }
+
+        // The probe instance was pinned; no legacy instance was built.
+        expect(eras).toEqual(['modern']);
+        expect(closed[0]).toBe(false);
+        expect(errors).toEqual([]);
+
+        await handle.close();
+    });
+
+    it('a claim-less cancellation of the probe followed by initialize still falls back to legacy', async () => {
+        const { handle, request, notify, flush, eras, closed, errors } = await startEntry();
+
+        const discover = await request({ jsonrpc: '2.0', id: 'probe-1', method: 'server/discover', params: { _meta: envelope() } });
+        expect(isJSONRPCResultResponse(discover)).toBe(true);
+
+        await notify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 'probe-1', reason: 'probe timed out' } });
+        await flush();
+
+        const init = await request(initializeRequest(2));
+        expect(isJSONRPCResultResponse(init)).toBe(true);
+        if (isJSONRPCResultResponse(init)) {
+            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+        }
+
+        expect(eras).toEqual(['modern', 'legacy']);
+        expect(closed[0]).toBe(true);
+        expect(closed[1]).toBe(false);
+        expect(errors).toEqual([]);
+
+        await handle.close();
+    });
+
     it('a pipelined cancellation of the probe followed by initialize still falls back to a working legacy session', async () => {
         const { handle, request, notify, flush, eras, closed, errors } = await startEntry();
 
