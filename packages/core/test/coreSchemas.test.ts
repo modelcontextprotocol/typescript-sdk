@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import * as core from '../src/index';
-import { CursorSchema, InitializeRequestSchema, OAuthTokensSchema } from '../src/index';
+import { CursorSchema, InitializeRequestSchema, OAuthTokenResponseSchema, OAuthTokensSchema } from '../src/index';
 
 function readCore(relativePath: string): string {
     return readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8');
@@ -22,6 +22,11 @@ describe('@modelcontextprotocol/core', () => {
         expect(InitializeRequestSchema.safeParse({}).success).toBe(false);
         expect(OAuthTokensSchema.safeParse({}).success).toBe(false);
         expect(OAuthTokensSchema.safeParse({ access_token: 'tok', token_type: 'Bearer' }).success).toBe(true);
+        // The null-tolerant wrapper is real too: null optional members parse as absent.
+        expect(OAuthTokenResponseSchema.parse({ access_token: 'tok', token_type: 'Bearer', refresh_token: null })).toStrictEqual({
+            access_token: 'tok',
+            token_type: 'Bearer'
+        });
     });
 
     it('re-exports exactly core’s spec + OAuth schemas — no internal helpers (drift guard)', () => {
@@ -51,7 +56,10 @@ describe('@modelcontextprotocol/core', () => {
         const authObj = specTypeSrc.slice(authStart, specTypeSrc.indexOf('} as const', authStart));
         const authSchemas = exportedSchemaConsts(authObj, /\b(\w+Schema)\b/g);
 
-        const expected = [...specSchemas, ...authSchemas].sort();
+        // OAuthTokenResponseSchema is the one export on top of the two groups: it has no spec type
+        // of its own (its output type is OAuthTokens) so it is not in `authSchemas`, and it is
+        // public v1 API that the v1-to-v2 codemod routes here, so core's barrel must export it.
+        const expected = [...specSchemas, ...authSchemas, 'OAuthTokenResponseSchema'].sort();
         const exported = Object.keys(core).sort();
         // Exact match, both directions: a new core spec/auth schema missing here fails (we forgot to
         // re-export it), and any internal helper / non-spec symbol that leaks here also fails.

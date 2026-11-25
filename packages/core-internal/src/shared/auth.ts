@@ -30,6 +30,7 @@ export {
     OAuthErrorResponseSchema,
     OAuthMetadataSchema,
     OAuthProtectedResourceMetadataSchema,
+    OAuthTokenResponseSchema,
     OAuthTokenRevocationRequestSchema,
     OAuthTokensSchema,
     OpenIdProviderDiscoveryMetadataSchema,
