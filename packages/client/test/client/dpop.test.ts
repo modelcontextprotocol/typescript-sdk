@@ -192,4 +192,35 @@ describe('isDpopNonceChallenge', () => {
         const response = new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'Bearer error="use_dpop_nonce"' } });
         expect(isDpopNonceChallenge(response)).toBe(false);
     });
+
+    it('accepts unquoted error=use_dpop_nonce, case-insensitive scheme/param, and multiple schemes', () => {
+        const cases = [
+            'DPoP error=use_dpop_nonce',
+            'dpop ERROR="use_dpop_nonce"',
+            'DPoP algs="ES256 PS256", error="use_dpop_nonce"',
+            'Bearer realm="api, v2", error="invalid_token", DPoP error="use_dpop_nonce"',
+            'Basic dXNlcjpwYXNz==, DPoP error="use_dpop_nonce"',
+            'DPoP error="invalid_token", DPoP error="use_dpop_nonce"'
+        ];
+        for (const header of cases) {
+            expect(isDpopNonceChallenge(new Response(null, { status: 401, headers: { 'WWW-Authenticate': header } }))).toBe(true);
+        }
+    });
+
+    it('is false when use_dpop_nonce appears outside the DPoP challenge error parameter', () => {
+        const cases = [
+            'DPoP error="invalid_token", error_description="expired; not a use_dpop_nonce error"',
+            'Bearer error="use_dpop_nonce", DPoP error="invalid_token"',
+            'Bearer error="invalid_token", error_description="use_dpop_nonce", DPoP algs="ES256"',
+            'Bearer realm="acme, dpop auth", error="use_dpop_nonce"',
+            'DPoP error="not_use_dpop_nonce"',
+            'DPoP algs="use_dpop_nonce"',
+            String.raw`DPoP error="invalid_token", error_description="bad \", error=\"use_dpop_nonce\""`,
+            'DPoP, error="use_dpop_nonce"',
+            'DPoP error="use_dpop_nonce'
+        ];
+        for (const header of cases) {
+            expect(isDpopNonceChallenge(new Response(null, { status: 401, headers: { 'WWW-Authenticate': header } }))).toBe(false);
+        }
+    });
 });
