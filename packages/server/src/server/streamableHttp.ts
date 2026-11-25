@@ -257,6 +257,7 @@ export interface HandleRequestOptions {
  * };
  * ```
  */
+
 /**
  * Checks whether an Accept header lists an exact media type.
  *
