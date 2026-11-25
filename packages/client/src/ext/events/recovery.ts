@@ -117,6 +117,11 @@ export function reportGap(subscription: SubscribeOptions, connection: EventsConn
     }
 }
 
+// The floor subscribe() fixes when it is given a cursor and `maxAgeMs`; the spec ignores `maxAgeMs` with a null cursor, so a subscription that starts from now has none.
+export function floorOf({ cursor, maxAgeMs }: SubscribeOptions): number | undefined {
+    return cursor === undefined || cursor === null || maxAgeMs === undefined ? undefined : Date.now() - maxAgeMs;
+}
+
 // Re-lists, then throws why `name` cannot be subscribed with `mode`: notFound when unlisted, NoCompatibleDeliveryModeError when `mode` is not offered.
 export async function requireOffered(connection: EventsConnection, name: string, mode: DeliveryMode, signal: AbortSignal): Promise<void> {
     try {
@@ -163,9 +168,8 @@ export class DriverLoop<T> {
     // Aborts requests in flight on stop().
     readonly #abort = new AbortController();
     #cursor: string | null;
-    // The cursor subscribe() was given; `maxAgeMs` is sent until the cursor moves off it or the first replay is known complete.
-    readonly #startCursor: string | null;
-    #maxAgeMs: number | undefined;
+    // The subscription's floor (DriverContext.floor), before which no event is delivered for its life.
+    readonly #floor: number | undefined;
     // Until an exchange succeeds, or the first one fails transiently.
     #first = true;
     // A schema change has refused the subscription since the last successful exchange.
@@ -189,16 +193,16 @@ export class DriverLoop<T> {
         this.#context = context;
         this.#mode = mode;
         this.#cursor = context.subscription.cursor ?? null;
-        this.#startCursor = this.#cursor;
-        this.#maxAgeMs = context.subscription.maxAgeMs;
+        this.#floor = context.floor;
     }
 
     get cursor(): string | null {
         return this.#cursor;
     }
 
+    // The `maxAgeMs` every request of the subscription sends: the time since the floor.
     get maxAgeMs(): number | undefined {
-        return this.#maxAgeMs;
+        return this.#floor === undefined ? undefined : Math.max(0, Date.now() - this.#floor);
     }
 
     // start() has not settled: the first exchange has neither succeeded nor failed transiently.
@@ -259,14 +263,7 @@ export class DriverLoop<T> {
         if (reset || (truncated && cursor !== null)) reportGap(this.#context.subscription, this.#context.connection, cursor);
     }
 
-    // The subscription's first replay is known complete (a push heartbeat, a poll result, a webhook refresh after the subscribe): `maxAgeMs` is no longer sent.
-    replayed(): void {
-        this.#maxAgeMs = undefined;
-    }
-
-    // A cursor other than the one subscribe() was given stops `maxAgeMs` being sent.
     setCursor(cursor: string | null): void {
-        if (cursor !== this.#startCursor) this.#maxAgeMs = undefined;
         this.#cursor = cursor;
         this.#context.queue.setCursor(cursor);
     }

@@ -64,6 +64,8 @@ ticket.updated { ticketId: 'T-7', status: 'closed' }
 
 The cursor covers the events the loop finished with, and the loop finishes with an event when it asks for the next one, so a resumed subscription can repeat the last event: handle events idempotently, or skip an `eventId` you have handled. An event type that cannot resume has a `null` cursor, and there is nothing to save.
 
+Pass `maxAgeMs` with a `cursor` that may be old: no event older than `maxAgeMs` before `subscribe()` is delivered, for the life of the subscription, and the server reports the events it skips as a gap.
+
 `onGap` receives the cursor delivery continues from when events may have been skipped: the server reported `truncated`, or delivery started again from now after a schema change made the server refuse your cursor. Closing the client, or connecting it again, ends every subscription, and the loop rejects with an `SdkError` (`ConnectionClosed`). After reconnecting, subscribe again and pass the cursor you saved.
 
 ## Receive events by webhook

@@ -108,7 +108,13 @@ class SharedWebhook {
         const onGap = (cursor: string | null): void => {
             for (const member of members) reportGap(member.subscription, connection, cursor);
         };
-        this.#driver = new WebhookDriver({ subscription: { ...subscription, onGap }, queue, connection }, webhook, receiver, floorMs);
+        const context = {
+            subscription: { ...subscription, onGap },
+            queue,
+            connection,
+            ...(first.floor !== undefined && { floor: first.floor })
+        };
+        this.#driver = new WebhookDriver(context, webhook, receiver, floorMs);
     }
 
     // Delivers to `context` too; the driver returned settles with the shared first exchange, and its stop() ends the server subscription only for the last one.
@@ -267,11 +273,12 @@ class WebhookDriver implements Driver {
     // `events/subscribe` with no `ttlMs` suggestion, so the server grants its default.
     #subscribe(): Promise<SubscribeEventsResult> {
         const loop = this.#loop;
+        const { maxAgeMs } = loop;
         const params = {
             ...this.#mirror,
             delivery: { mode: 'webhook' as const, url: this.#url, secret: this.#secret },
             cursor: loop.cursor,
-            ...(loop.maxAgeMs !== undefined && { maxAgeMs: loop.maxAgeMs })
+            ...(maxAgeMs !== undefined && { maxAgeMs })
         };
         this.#terminated = undefined;
         return this.#context.connection.request(EVENTS_SUBSCRIBE_METHOD, params, SubscribeEventsResultSchema, this.#mirror, {
@@ -289,8 +296,6 @@ class WebhookDriver implements Driver {
         const loop = this.#loop;
         const cursor = result.cursor ?? null;
         this.#attempt = 0;
-        // A refresh of the live subscription: its create's replay is behind it.
-        if (this.#live) loop.replayed();
         this.#live = true;
         this.#bind(result.id);
         this.#withdrawPending?.();

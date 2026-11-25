@@ -353,27 +353,24 @@ describe('events/poll for an emit-only type', () => {
         expect(second.hasMore).toBe(false);
     });
 
-    it('delivers a targeted emit only to its subscription', async () => {
+    it('delivers an emit to every subscription match accepts', async () => {
         const events = new EventsExtension();
-        const ids = new Map<string, string>();
         const h = events.registerEvent('i', {
             emitOnly: true,
-            inputSchema: z.object({ who: z.string() }),
+            inputSchema: z.object({ min: z.number() }),
             payloadSchema: P,
-            onSubscribe: (ctx, args) => {
-                ids.set(args.who, ctx.subscriptionId);
-            }
+            match: (_ctx, event, args) => event.data.n >= args.min
         });
         const { poll } = poller(events);
-        const a = await poll({ name: 'i', arguments: { who: 'a' }, cursor: null });
-        const b = await poll({ name: 'i', arguments: { who: 'b' }, cursor: null });
-        await h.emit({ data: { n: 1 } }, { subscriptionId: ids.get('b')! });
+        const low = await poll({ name: 'i', arguments: { min: 1 }, cursor: null });
+        const high = await poll({ name: 'i', arguments: { min: 2 }, cursor: null });
+        await h.emit({ data: { n: 1 } });
         await h.emit({ data: { n: 2 } });
-        expect((await poll({ name: 'i', arguments: { who: 'a' }, cursor: a.cursor })).events.map(event => event.data)).toEqual([{ n: 2 }]);
-        expect((await poll({ name: 'i', arguments: { who: 'b' }, cursor: b.cursor })).events.map(event => event.data)).toEqual([
+        expect((await poll({ name: 'i', arguments: { min: 1 }, cursor: low.cursor })).events.map(event => event.data)).toEqual([
             { n: 1 },
             { n: 2 }
         ]);
+        expect((await poll({ name: 'i', arguments: { min: 2 }, cursor: high.cursor })).events.map(event => event.data)).toEqual([{ n: 2 }]);
     });
 
     it('drops an off-schema emit and reports it', async () => {
@@ -412,6 +409,38 @@ describe('events/poll for an emit-only type', () => {
         );
     });
 
+    it('drops and reports an event JSON cannot carry, emitted, transformed or from check, and the poll succeeds', async () => {
+        const onerror = vi.fn();
+        const events = new EventsExtension({ onerror });
+        const Loose = z.object({ n: z.number(), id: z.unknown().optional() });
+        const h = events.registerEvent('i', {
+            emitOnly: true,
+            payloadSchema: Loose,
+            transform: (_ctx, event) => (event.data.n === 3 ? { ...event, _meta: { big: 3n } } : event)
+        });
+        events.registerEvent('t', {
+            payloadSchema: Loose,
+            check: () => ({
+                events: [
+                    { eventId: 'big', data: { n: 1, id: 1n } },
+                    { eventId: 'fine', data: { n: 2 } }
+                ],
+                cursor: 'h2'
+            })
+        });
+        const { poll } = poller(events);
+        const { cursor } = await poll({ name: 'i', cursor: null });
+        await h.emit({ eventId: 'meta', data: { n: 1 }, _meta: { big: 1n } });
+        await h.emit({ eventId: 'data', data: { n: 2, id: 2n } });
+        await h.emit({ eventId: 'shaped', data: { n: 3 } });
+        await h.emit({ eventId: 'fine', data: { n: 4 } });
+        expect((await poll({ name: 'i', cursor })).events.map(event => event.eventId)).toEqual(['fine']);
+        expect((await poll({ name: 't', cursor: 'h1' })).events.map(event => event.eventId)).toEqual(['fine']);
+        const messages = onerror.mock.calls.map(([error]) => (error as Error).message);
+        expect(messages).toHaveLength(4);
+        for (const message of messages) expect(message).toMatch(/^event '[it]': dropped an event that cannot be serialised to JSON: /);
+    });
+
     it('skips an event whose match throws and reports it', async () => {
         const onerror = vi.fn();
         const events = new EventsExtension({ onerror });
@@ -441,11 +470,11 @@ describe('events/poll for an emit-only type', () => {
         });
         const h = events.registerEvent('i', { emitOnly: true, payloadSchema: P });
         const { cursor: c0 } = await poller(events).poll({ name: 'i', cursor: null });
-        await expect(h.emit({ eventId: 'x', data: { n: 1 } }, { subscriptionId: 'sub-1' })).resolves.toBeUndefined();
+        await expect(h.emit({ eventId: 'x', data: { n: 1 } })).resolves.toBeUndefined();
         expect(fanOut).toHaveBeenCalledOnce();
         const [name, buffered, positions] = fanOut.mock.calls[0]!;
         expect(name).toBe('i');
-        expect(buffered).toEqual({ occurrence: expect.objectContaining({ eventId: 'x', name: 'i', data: { n: 1 } }), target: 'sub-1' });
+        expect(buffered).toEqual({ occurrence: expect.objectContaining({ eventId: 'x', name: 'i', data: { n: 1 } }) });
         expect(positions.previous).toBe(c0);
         expect(positions.cursor).not.toBe(c0);
         expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'push failed' }));

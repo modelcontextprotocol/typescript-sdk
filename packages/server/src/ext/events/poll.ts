@@ -28,7 +28,19 @@ export interface PollDeps {
     report(error: unknown): void;
 }
 
-// The occurrence the SDK sends for an author's event, or `undefined` (reported) when its data fails `payloadSchema`.
+// `occurrence`, or `undefined` (reported) when JSON cannot carry it, such as a BigInt or a cycle in its `data` or `_meta`.
+function serialisable(entry: RegisteredEvent, occurrence: EventOccurrence, report: (error: unknown) => void): EventOccurrence | undefined {
+    try {
+        JSON.stringify(occurrence);
+        return occurrence;
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        report(new Error(`event '${entry.name}': dropped an event that cannot be serialised to JSON: ${reason}`, { cause: error }));
+        return undefined;
+    }
+}
+
+// The occurrence the SDK sends for an author's event, or `undefined` (reported) when its data fails `payloadSchema` or it cannot be serialised.
 export async function toOccurrence(
     entry: RegisteredEvent,
     input: EventInput<unknown>,
@@ -39,13 +51,14 @@ export async function toOccurrence(
         report(new Error(`event '${entry.name}': dropped an event whose data does not match payloadSchema: ${parsed.error}`));
         return undefined;
     }
-    return {
+    const occurrence: EventOccurrence = {
         eventId: input.eventId ?? globalThis.crypto.randomUUID(),
         name: entry.name,
         timestamp: input.timestamp ?? new Date().toISOString(),
         data: parsed.data,
         ...(input._meta === undefined ? {} : { _meta: input._meta })
     };
+    return serialisable(entry, occurrence, report);
 }
 
 // A check result's events to send, for every mode: ones without an eventId or off-schema dropped (reported), ones older than `maxAgeMs` skipped with `truncated` unless the result has no replay (`cursor: null`), which `maxAgeMs` does not apply to.
@@ -76,19 +89,17 @@ export async function checkedEvents(
     return { events, truncated: truncated && result.cursor !== null };
 }
 
-// What one subscription receives of an emitted event: broadcasts pass `match`, targeted ones reach only their subscription. A throwing hook skips the event.
+// What one subscription receives of an emitted event: nothing unless `match` accepts it, shaped by `transform`. A throwing hook skips the event.
 export function selectEvent(
     entry: RegisteredEvent,
     ctx: EventContext,
     args: Record<string, unknown>,
-    buffered: BufferedEvent,
+    { occurrence }: BufferedEvent,
     report: (error: unknown) => void
 ): EventOccurrence | undefined {
-    const { occurrence, target } = buffered;
-    if (target !== undefined && target !== ctx.subscriptionId) return undefined;
     const { match, transform } = entry.definition;
     try {
-        if (target === undefined && match !== undefined && !match(ctx, occurrence, args)) return undefined;
+        if (match !== undefined && !match(ctx, occurrence, args)) return undefined;
         if (transform === undefined) return occurrence;
         const shaped = transform(ctx, occurrence, args);
         return {
@@ -104,7 +115,7 @@ export function selectEvent(
     }
 }
 
-// A selected event whose `transform` output fails `payloadSchema` is dropped (reported), as an off-schema emit is; without a transform it was checked at emit.
+// A selected event whose `transform` output fails `payloadSchema` or cannot be serialised is dropped (reported), as such an emit is; without a transform it was checked at emit.
 export async function checkedSelection(
     entry: RegisteredEvent,
     occurrence: EventOccurrence,
@@ -113,7 +124,7 @@ export async function checkedSelection(
     if (entry.definition.transform === undefined) return occurrence;
     try {
         const parsed = await entry.parsePayload(occurrence.data);
-        if (parsed.ok) return { ...occurrence, data: parsed.data };
+        if (parsed.ok) return serialisable(entry, { ...occurrence, data: parsed.data }, report);
         report(new Error(`event '${entry.name}': dropped an event whose transform output does not match payloadSchema: ${parsed.error}`));
     } catch (error) {
         report(error);

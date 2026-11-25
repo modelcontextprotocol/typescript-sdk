@@ -1222,7 +1222,7 @@ describe('several replicas sharing one store', () => {
 });
 
 describe('fan-out', () => {
-    it('applies match and transform under each subscription, and a targeted emit reaches only its id', async () => {
+    it('applies match and transform under each subscription', async () => {
         const seen: EventContext[] = [];
         const { events, post } = replica();
         const handle = events.registerEvent('e', {
@@ -1246,15 +1246,16 @@ describe('fan-out', () => {
             [high.id, 'u1', 'webhook']
         ]);
 
-        await handle.emit({ eventId: 'direct', data: { n: 1 } }, { subscriptionId: high.id });
-        await post.until(3);
+        await handle.emit({ eventId: 'large', data: { n: 5 } });
+        await post.until(4);
         await settle();
-        expect(seen).toHaveLength(2);
+        expect(seen).toHaveLength(4);
         expect(
             post.deliveries().map(request => [request.headers['X-MCP-Subscription-Id'], bodyOf(request).eventId, bodyOf(request).data])
         ).toEqual([
             [low.id, 'small', { n: 10 }],
-            [high.id, 'direct', { n: 10 }]
+            [low.id, 'large', { n: 50 }],
+            [high.id, 'large', { n: 50 }]
         ]);
     });
 
@@ -1367,6 +1368,81 @@ describe('fan-out', () => {
         ]);
     });
 
+    it("moves the watermark past the events at the end of a create's replay that match skips, once the replay is delivered", async () => {
+        const { events, post } = replica();
+        const handle = events.registerEvent('e', {
+            emitOnly: true,
+            inputSchema: z.object({ k: z.number() }),
+            payloadSchema: P,
+            match: (_ctx, event, args) => event.data.n === args.k
+        });
+        const alice = client(events);
+        const head = async () =>
+            (resultOf(await alice.rpc('events/poll', { name: 'e', arguments: { k: 0 }, cursor: null })) as PollEventsResult).cursor;
+        const start = await head();
+        for (let n = 1; n <= 3; n++) await handle.emit({ eventId: `evt_${n}`, data: { n } });
+
+        // The replay from `start` delivers evt_1, and match skips evt_2 and evt_3 at its end.
+        const created = subscribed(await alice.subscribe({ arguments: { k: 1 }, cursor: start }));
+        await post.until(2);
+        await settle();
+        expect(post.deliveries().map(request => bodyOf(request).eventId)).toEqual(['evt_1']);
+        expect(subscribed(await alice.subscribe({ arguments: { k: 1 }, cursor: created.cursor }))).toMatchObject({
+            cursor: await head(),
+            truncated: false
+        });
+    });
+
+    it('moves the refresh cursor past the emits match skips, so a create from it later reads no gap', async () => {
+        const { events, post } = replica({ emitBuffer: { maxEvents: 2 } });
+        const handle = events.registerEvent('e', {
+            emitOnly: true,
+            inputSchema: z.object({ k: z.number() }),
+            payloadSchema: P,
+            match: (_ctx, event, args) => event.data.n === args.k
+        });
+        const alice = client(events);
+        const created = subscribed(await alice.subscribe({ arguments: { k: 0 } }));
+        for (let n = 1; n <= 3; n++) await handle.emit({ eventId: `evt_${n}`, data: { n } });
+        await settle();
+        expect(post.deliveries()).toEqual([]);
+        const { cursor: head } = resultOf(
+            await alice.rpc('events/poll', { name: 'e', arguments: { k: 0 }, cursor: null })
+        ) as PollEventsResult;
+        expect(head).not.toBe(created.cursor);
+
+        const refreshed = subscribed(await alice.subscribe({ arguments: { k: 0 }, cursor: created.cursor }));
+        expect(refreshed).toMatchObject({ id: created.id, cursor: head, truncated: false });
+        // The buffer holds evt_2 and evt_3 only: a create from the refreshed cursor reads no gap, one from the first cursor does.
+        await alice.unsubscribe({ arguments: { k: 0 } });
+        expect(subscribed(await alice.subscribe({ arguments: { k: 0 }, cursor: refreshed.cursor }))).toMatchObject({
+            cursor: head,
+            truncated: false
+        });
+        expect(subscribed(await alice.subscribe({ arguments: { k: 1 }, cursor: created.cursor }))).toMatchObject({ truncated: true });
+    });
+
+    it('drops and reports an event JSON cannot carry, and delivers the events after it', async () => {
+        const onerror = vi.fn();
+        const { events, post } = replica({ onerror });
+        const handle = events.registerEvent('e', {
+            emitOnly: true,
+            payloadSchema: P,
+            transform: (_ctx, event) => (event.eventId === 'shaped' ? { ...event, _meta: { big: 2n } } : event)
+        });
+        subscribed(await client(events).subscribe());
+        await handle.emit({ eventId: 'meta', data: { n: 1 }, _meta: { big: 1n } });
+        await handle.emit({ eventId: 'shaped', data: { n: 2 } });
+        await handle.emit({ eventId: 'after', data: { n: 3 } });
+        await post.until(2);
+        await settle();
+        expect(post.deliveries().map(request => bodyOf(request).eventId)).toEqual(['after']);
+        expect(onerror.mock.calls.map(([error]) => (error as Error).message)).toEqual([
+            expect.stringMatching(/^event 'e': dropped an event that cannot be serialised to JSON: /),
+            expect.stringMatching(/^event 'e': dropped an event that cannot be serialised to JSON: /)
+        ]);
+    });
+
     it('does no fan-out work for an event type that offers no webhook delivery', async () => {
         const store = new InMemoryWebhookSubscriptionStore();
         const listings = vi.spyOn(store, 'listByName');
@@ -1374,7 +1450,7 @@ describe('fan-out', () => {
         const { events } = replica({ webhookStore: store });
         const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P, delivery: { webhook: false } });
         await handle.emit({ data: { n: 1 } });
-        await handle.emit({ data: { n: 2 } }, { subscriptionId: 'sub_elsewhere' });
+        await handle.emit({ data: { n: 2 } });
         await settle();
         expect(listings).not.toHaveBeenCalled();
         expect(reads).not.toHaveBeenCalled();
@@ -1534,7 +1610,7 @@ describe('check-kind webhook subscriptions', () => {
         await vi.advanceTimersByTimeAsync(5000);
         await post.until(3);
         const gap = post.requests[2]!;
-        expect(check.mock.calls[1]![0]).not.toHaveProperty('maxAgeMs');
+        expect(check.mock.calls[1]![0]).toMatchObject({ maxAgeMs: 305_000 });
         expect(bodyOf(gap)).toEqual({ type: 'gap', cursor: 'c5' });
         expect(gap.headers).toMatchObject({
             'webhook-id': expect.stringMatching(/^msg_gap_[\w-]+$/),
@@ -1546,10 +1622,61 @@ describe('check-kind webhook subscriptions', () => {
         expect(gapped).toMatchObject({ cursor: 'c5', truncated: true });
     });
 
-    it('sends the gap envelope of a truncated check at the watermark, behind an event still unacknowledged', async () => {
+    it('applies the maxAgeMs floor of the request that started a check loop to its later runs, on a create and on a refresh that starts it on another replica', async () => {
+        const old = new Date(Date.now() - 600_000).toISOString();
+        // The replay pages through the upstream, and its second page holds an event older than the floor.
+        const pages: Check = (_ctx, _args, cursor) => {
+            if (cursor === 'c0') return { events: [{ eventId: 'evt_1', data: { n: 1 } }], cursor: 'c1', hasMore: true };
+            if (cursor === 'c1') {
+                return {
+                    events: [
+                        { eventId: 'old', timestamp: old, data: { n: 2 } },
+                        { eventId: 'evt_3', data: { n: 3 } }
+                    ],
+                    cursor: 'c3'
+                };
+            }
+            return { events: [], cursor: 'c3' };
+        };
+        const store = new InMemoryWebhookSubscriptionStore();
+        const a = replica({ webhookStore: store });
+        const b = replica({ webhookStore: store });
+        const checkA = vi.fn<Check>(pages);
+        const checkB = vi.fn<Check>(pages);
+        a.events.registerEvent('t', { payloadSchema: P, check: checkA });
+        b.events.registerEvent('t', { payloadSchema: P, check: checkB });
+        subscribed(await client(a.events).subscribe({ name: 't', cursor: 'c0', maxAgeMs: 300_000 }));
+        await vi.advanceTimersByTimeAsync(1000);
+        // A client whose subscribe() put the floor at the same moment refreshes on B a second later, from c1.
+        subscribed(await client(b.events).subscribe({ name: 't', cursor: 'c1', maxAgeMs: 301_000 }));
+        await vi.advanceTimersByTimeAsync(5000);
+        await a.post.until(4);
+        await b.post.until(2);
+        await settle();
+
+        expect(checkA.mock.calls.map(([ctx, , cursor]) => [cursor, ctx.maxAgeMs])).toEqual([
+            ['c0', 300_000],
+            ['c1', 305_000]
+        ]);
+        expect(checkB.mock.calls.map(([ctx, , cursor]) => [cursor, ctx.maxAgeMs])).toEqual([['c1', 306_000]]);
+        // Neither replica delivers `old`; each tells of the skip with a gap at the watermark past evt_3.
+        const eventIds = (post: typeof a.post) => post.deliveries().flatMap(request => bodyOf(request).eventId ?? []);
+        const gaps = (post: typeof a.post) =>
+            post
+                .deliveries()
+                .filter(request => bodyOf(request).type === 'gap')
+                .map(request => bodyOf(request));
+        expect(eventIds(a.post).sort()).toEqual(['evt_1', 'evt_3']);
+        expect(eventIds(b.post)).toEqual(['evt_3']);
+        expect(gaps(a.post)).toEqual([{ type: 'gap', cursor: 'c3' }]);
+        expect(gaps(b.post)).toEqual([{ type: 'gap', cursor: 'c3' }]);
+    });
+
+    it('sends the gap envelope of a truncated check at the watermark, behind an event still unacknowledged, once no POST is in flight', async () => {
+        // `a` fails, so it stays unacknowledged until its retry 5 s later, outside this test's 2 s.
         const respond: Respond = request => {
             if (isVerification(request)) return echo()(request);
-            return bodyOf(request).eventId === 'a' ? new Promise<never>(() => {}) : { status: 200, body: '' };
+            return bodyOf(request).eventId === 'a' ? { status: 503, body: '' } : { status: 200, body: '' };
         };
         const check = vi
             .fn<Check>()
@@ -1557,14 +1684,22 @@ describe('check-kind webhook subscriptions', () => {
             .mockReturnValueOnce({ events: [{ eventId: 'a', data: { n: 1 } }], cursor: 'c1' })
             .mockReturnValueOnce({ events: [{ eventId: 'b', data: { n: 2 } }], cursor: 'c9', truncated: true })
             .mockReturnValue({ events: [], cursor: 'c9' });
-        const { events, post } = replica({ respond });
+        const { events, post } = replica({ respond, checkIntervalMs: 1000 });
         events.registerEvent('t', { payloadSchema: P, check });
         subscribed(await client(events).subscribe({ name: 't' }));
-        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.advanceTimersByTimeAsync(2000);
+        // The verification, `a` and `b`, then the gap once neither is in flight.
         await post.until(4);
         await settle();
 
-        expect(post.deliveries().map(request => bodyOf(request))).toContainEqual({ type: 'gap', cursor: 'c0' });
+        const sent = post.deliveries().map(request => bodyOf(request));
+        expect(sent.at(-1)).toEqual({ type: 'gap', cursor: 'c0' });
+        expect(
+            sent
+                .slice(0, -1)
+                .map(body => body.eventId)
+                .sort()
+        ).toEqual(['a', 'b']);
     });
 
     it('keeps the watermark behind the unsettled events of a truncated batch', async () => {
@@ -1640,10 +1775,10 @@ describe('check-kind webhook subscriptions', () => {
         expect(check).toHaveBeenCalledTimes(4);
         expect(await refreshCursor()).toBe('c1');
 
-        // Once evt_2 is acknowledged, the watermark reaches it, and the next quiet batch catches up.
+        // Once evt_2 is acknowledged, the watermark moves past it to the quiet batch that came meanwhile, and the next quiet batch catches up.
         acknowledge({ status: 200, body: '' });
         await settle();
-        expect(await refreshCursor()).toBe('c2');
+        expect(await refreshCursor()).toBe('c3');
         await vi.advanceTimersByTimeAsync(100_000);
         expect(await refreshCursor()).toBe('c4');
     });

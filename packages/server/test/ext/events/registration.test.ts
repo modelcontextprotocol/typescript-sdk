@@ -197,6 +197,20 @@ describe('registerEvent', () => {
         expect(() => events.registerEvent('e', noMode)).toThrow(/delivery turns off every mode/);
     });
 
+    it('refuses a payloadSchema that does not describe an object, at registerEvent() and at update()', async () => {
+        const events = new EventsExtension();
+        const notObject = /^event 'a': payloadSchema must describe an object \(its JSON Schema has type "string"\)$/;
+        expect(() => events.registerEvent('a', { emitOnly: true, payloadSchema: z.string() })).toThrow(notObject);
+        expect(() => events.registerEvent('b', { payloadSchema: z.array(P), check: tick })).toThrow(TypeError);
+        expect(() => events.registerEvent('c', { emitOnly: true, payloadSchema: z.unknown() })).toThrow(/type none/);
+        expect((await listOf(events)).events).toEqual([]);
+
+        const handle = events.registerEvent('a', { emitOnly: true, payloadSchema: P });
+        expect(() => handle.update({ payloadSchema: z.string() })).toThrow(notObject);
+        expect((await listOf(events)).events).toMatchObject([{ name: 'a', payloadSchema: { type: 'object' } }]);
+        events.registerEvent('d', { emitOnly: true, payloadSchema: z.union([P, z.object({ s: z.string() })]) });
+    });
+
     it('types emit() only on emit-only handles', () => {
         const events = new EventsExtension();
         const checkHandle = events.registerEvent('a', { payloadSchema: P, check: () => ({ events: [], cursor: null }) });

@@ -1,9 +1,8 @@
 import type { EventOccurrence } from '@modelcontextprotocol/core/ext/events';
 
-// One emitted event; `target` is the subscriptionId of a targeted emit.
+// One emitted event.
 export interface BufferedEvent {
     readonly occurrence: EventOccurrence;
-    readonly target?: string;
 }
 
 export interface BufferRead {
@@ -44,6 +43,11 @@ export class EmitBuffer {
         this.#maxAgeMs = limits.maxAgeMs;
         this.#maxEvents = limits.maxEvents;
         this.#now = now;
+    }
+
+    // The most events of one type it holds.
+    get maxEvents(): number {
+        return this.#maxEvents;
     }
 
     // Returns the position just before the appended event (the previous head).

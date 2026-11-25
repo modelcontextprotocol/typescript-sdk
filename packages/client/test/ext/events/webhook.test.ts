@@ -124,6 +124,7 @@ async function heldUnsubscribe() {
 describe('webhook delivery', () => {
     it('subscribes with a generated whsec_ secret and refreshes at ¾ of the grant', async () => {
         const { subscribes, subscribe } = await webhookWith(granting({ cursor: 'c1' }, { cursor: 'c2' }, { id: 'sub_2' }));
+        // Without a cursor the subscription starts from now, so maxAgeMs is never sent.
         const sub = await subscribe({ arguments: { severity: 'P1' }, maxAgeMs: 300_000 });
 
         expect(sub.deliveryMode).toBe('webhook');
@@ -133,7 +134,6 @@ describe('webhook delivery', () => {
             arguments: { severity: 'P1' },
             delivery: { mode: 'webhook', url: WEBHOOK_URL, secret: expect.stringMatching(/^whsec_/) },
             cursor: null,
-            maxAgeMs: 300_000,
             _meta: expect.any(Object)
         });
         expect(parseWebhookSecret(secretOf(first))).toHaveLength(32);
@@ -157,15 +157,19 @@ describe('webhook delivery', () => {
         expect(secretOf(subscribes()[2]!)).not.toBe(secretOf(first));
     });
 
-    it('sends maxAgeMs until a refresh after the subscribe succeeds, though the cursor has not moved', async () => {
-        const { subscribes, subscribe } = await webhookWith(granting({ cursor: 'c0' }, { cursor: 'c0' }, { cursor: 'c0' }));
+    it('sends maxAgeMs on every subscribe and refresh, grown by the time since subscribe(), whether or not the cursor moved', async () => {
+        const { subscribes, subscribe } = await webhookWith(
+            granting({ cursor: 'c0' }, { cursor: 'c0' }, { cursor: 'c1' }, { cursor: 'c1' })
+        );
         await subscribe({ cursor: 'c0', maxAgeMs: 300_000 });
+        await vi.advanceTimersByTimeAsync(45_000);
         await vi.advanceTimersByTimeAsync(45_000);
         await vi.advanceTimersByTimeAsync(45_000);
         expect(subscribes().map(call => [call.params['cursor'], call.params['maxAgeMs']])).toEqual([
             ['c0', 300_000],
-            ['c0', 300_000],
-            ['c0', undefined]
+            ['c0', 345_000],
+            ['c0', 390_000],
+            ['c1', 435_000]
         ]);
     });
 

@@ -118,7 +118,8 @@ export interface ToNodeHandlerOptions {
  * `(req, res, parsedBody?)` request handler. The returned function converts the
  * Node request to a web-standard `Request`, calls `handler.fetch`, then writes
  * the `Response` back to `res` (honoring write backpressure for streamed SSE
- * responses).
+ * responses). A response body that errors destroys `res` and its socket, so the
+ * client sees the response end abnormally.
  *
  * `req.auth` is forwarded as the handler's pass-through `authInfo`. A function
  * third argument (Express's `next`) is ignored, never treated as a body.
@@ -188,8 +189,8 @@ export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandler
         // from `res.destroyed` at entry to cover the pre-registration window
         // when 'close' already fired during async middleware) is the single
         // termination source — racing it against the drain wait means a
-        // vanished client cannot park the loop, and breaking out of the async
-        // iterator calls return() to cancel the upstream stream.
+        // vanished client cannot park the loop, and an aborted loop cancels
+        // the upstream stream.
         let drainResolve: (() => void) | undefined;
         const releaseDrainWait = () => {
             drainResolve?.();
@@ -199,24 +200,40 @@ export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandler
         const closed = new Promise<void>(resolve => {
             abort.signal.addEventListener('abort', () => resolve(), { once: true });
         });
+        const reader = response.body.getReader();
+        // A body that errors ends the drain wait too, so a client that stopped reading cannot park the loop either.
+        const errored = new Promise<void>(resolve => void reader.closed.catch(() => resolve()));
+        let failed = false;
         try {
-            for await (const chunk of response.body) {
-                if (abort.signal.aborted) {
+            while (!abort.signal.aborted) {
+                const { done, value } = await reader.read();
+                if (done || abort.signal.aborted) {
                     break;
                 }
-                if (res.write(chunk) === false) {
+                if (res.write(value) === false) {
                     await Promise.race([
                         new Promise<void>(resolve => {
                             drainResolve = resolve;
                         }),
-                        closed
+                        closed,
+                        errored
                     ]);
                 }
             }
         } catch {
-            // Stream aborted upstream; the abort signal already cancelled the exchange.
+            failed = true;
         }
         finished = true;
+        // Cancelling also tears down the exchange behind a body whose write threw; for an errored body it does nothing.
+        if (abort.signal.aborted || failed) {
+            void reader.cancel().catch(() => {});
+        }
+        // A body that errored is an incomplete response: destroying the socket ends it abnormally, where end() would pass it off as complete.
+        const { destroy } = res as { destroy?: () => unknown };
+        if (failed && typeof destroy === 'function') {
+            destroy.call(res);
+            return;
+        }
         res.end();
     };
 }

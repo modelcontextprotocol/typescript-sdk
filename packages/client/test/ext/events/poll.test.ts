@@ -65,12 +65,14 @@ describe('poll delivery', () => {
                 { events: [], cursor: 'c4', nextPollMs: 5000 }
             )
         );
+        // Without a cursor the subscription starts from now, so maxAgeMs is never sent.
         const sub = await subscribe({ arguments: { severity: 'P1' }, maxAgeMs: 300_000 });
 
         expect(polls().map(call => call.params)).toEqual([
-            expect.objectContaining({ name: 'tick', arguments: { severity: 'P1' }, cursor: null, maxAgeMs: 300_000 }),
+            expect.objectContaining({ name: 'tick', arguments: { severity: 'P1' }, cursor: null }),
             expect.not.objectContaining({ maxAgeMs: expect.anything() })
         ]);
+        expect(polls()[0]!.params).not.toHaveProperty('maxAgeMs');
         expect(polls()[1]!.params).toMatchObject({ name: 'tick', arguments: { severity: 'P1' }, cursor: 'c1' });
 
         await vi.advanceTimersByTimeAsync(999);
@@ -88,7 +90,7 @@ describe('poll delivery', () => {
         expect([await nextEventId(iterator), await nextEventId(iterator)]).toEqual(['e1', 'e2']);
     });
 
-    it('polls again after the floor on hasMore without events, and at once on hasMore with events', async () => {
+    it('polls again after the floor on a truncated hasMore page without events, and at once on hasMore with events', async () => {
         // As two replicas with their own emit buffers answer a cursor the other one gave.
         const { polls, subscribe } = await pollWith(
             script(
@@ -111,15 +113,43 @@ describe('poll delivery', () => {
         expect(polls().map(call => call.params['cursor'])).toEqual([null, 'b0', 'a0', 'a1']);
     });
 
-    it('stops sending maxAgeMs after the first poll result, though the cursor has not moved', async () => {
+    it('polls again at once on hasMore pages without events whose cursor advanced, and after the floor on one that kept the cursor', async () => {
+        // As a check that filters each page of its upstream for this subscription.
         const { polls, subscribe } = await pollWith(
-            script({ events: [], cursor: 'c0', nextPollMs: 0 }, { events: [], cursor: 'c0', nextPollMs: 60_000 })
+            script(
+                { events: [], cursor: 'c1', hasMore: true, nextPollMs: 0 },
+                { events: [], cursor: 'c2', hasMore: true, nextPollMs: 0 },
+                { events: [], cursor: 'c2', hasMore: true, nextPollMs: 0 },
+                { events: [occurrence('e1')], cursor: 'c3', nextPollMs: 60_000 }
+            )
+        );
+        await subscribe({ cursor: 'c0' });
+        expect(polls().map(call => call.params['cursor'])).toEqual(['c0', 'c1', 'c2']);
+
+        await vi.advanceTimersByTimeAsync(999);
+        expect(polls()).toHaveLength(3);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(polls().map(call => call.params['cursor'])).toEqual(['c0', 'c1', 'c2', 'c2']);
+    });
+
+    it('sends maxAgeMs on every poll of a subscription that started from a cursor, grown by the time since subscribe()', async () => {
+        const { polls, subscribe } = await pollWith(
+            script(
+                { events: [], cursor: 'c1', truncated: true, hasMore: true, nextPollMs: 0 },
+                { events: [occurrence('e1')], cursor: 'c2', hasMore: true, nextPollMs: 0 },
+                { events: [], cursor: 'c3', nextPollMs: 0 },
+                { events: [], cursor: 'c3', nextPollMs: 60_000 }
+            )
         );
         await subscribe({ cursor: 'c0', maxAgeMs: 300_000 });
         await vi.advanceTimersByTimeAsync(1000);
+        await vi.advanceTimersByTimeAsync(1000);
+        // A paging replay keeps the floor on page 2 and later, and so does every poll after it.
         expect(polls().map(call => [call.params['cursor'], call.params['maxAgeMs']])).toEqual([
             ['c0', 300_000],
-            ['c0', undefined]
+            ['c1', 301_000],
+            ['c2', 301_000],
+            ['c3', 302_000]
         ]);
     });
 

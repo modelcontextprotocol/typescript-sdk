@@ -26,9 +26,13 @@ import type { EventsClientOptions, EventSubscription } from '@modelcontextprotoc
 import { EVENTS_EXTENSION_ID, EventsClientExtension, EventsError } from '@modelcontextprotocol/client/ext/events';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { AuthInfo, CreateMcpHandlerOptions, McpHttpHandler } from '@modelcontextprotocol/server';
-import { createMcpHandler } from '@modelcontextprotocol/server';
+import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import type { EventsOptions, WebhookSender } from '@modelcontextprotocol/server/ext/events';
-import { EventsError as ServerEventsError, InMemoryWebhookSubscriptionStore } from '@modelcontextprotocol/server/ext/events';
+import {
+    EventsError as ServerEventsError,
+    EventsExtension,
+    InMemoryWebhookSubscriptionStore
+} from '@modelcontextprotocol/server/ext/events';
 import { nodeWebhookSender } from '@modelcontextprotocol/server/ext/events/node';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
@@ -544,6 +548,45 @@ const getPrincipal: EventsOptions['getPrincipal'] = ctx => (ctx.http?.authInfo?.
 function eventPosts(posts: Post[], subscriptionId: string): Post[] {
     return posts.filter(post => post.headers['X-MCP-Subscription-Id'] === subscriptionId && post.body.type === undefined);
 }
+
+describe('maxAgeMs over http', () => {
+    it('keeps the floor subscribe() set on every page of a check replay', async () => {
+        const old = new Date(Date.now() - 600_000).toISOString();
+        // One upstream entry per page; `stale` is older than the floor and sits on the second page.
+        const upstream = [
+            { eventId: 'fresh-1', data: { n: 1 } },
+            { eventId: 'stale', timestamp: old, data: { n: 2 } },
+            { eventId: 'fresh-3', data: { n: 3 } }
+        ];
+        const events = new EventsExtension();
+        events.registerEvent('paged', {
+            payloadSchema: z.object({ n: z.number() }),
+            check: (_ctx, _args, cursor) => {
+                const from = cursor === null ? upstream.length : Number(cursor);
+                const to = Math.min(upstream.length, from + 1);
+                return { events: upstream.slice(from, to), cursor: String(to), hasMore: to < upstream.length, nextPollMs: 60_000 };
+            }
+        });
+        const handler = createMcpHandler(() => new McpServer({ name: 'paged', version: '1.0.0' }, { extensions: [events] }));
+        const connection = await overHttp(() => handler);
+        try {
+            const gaps: Array<string | null> = [];
+            const subscription = await connection.events.subscribe<{ n: number }>({
+                name: 'paged',
+                delivery: 'poll',
+                cursor: '0',
+                maxAgeMs: 300_000,
+                onGap: gap => void gaps.push(gap)
+            });
+            expect(await next(subscription, 2)).toEqual([{ n: 1 }, { n: 3 }]);
+            expect(gaps).toEqual(['2']);
+            await subscription.cancel();
+        } finally {
+            await connection.close();
+            await handler.close();
+        }
+    });
+});
 
 describe('webhook delivery over http', () => {
     // A client set up for webhook delivery to HOOK_URL, the server webhook-enabled with an in-process sender to its receiver.

@@ -20,10 +20,10 @@ import {
     SdkErrorCode,
     setNegotiatedProtocolVersion
 } from '@modelcontextprotocol/core-internal';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
-import { PerRequestHTTPServerTransport } from '../../src/server/perRequestTransport';
+import { PerRequestHTTPServerTransport, perRequestFlowOf } from '../../src/server/perRequestTransport';
 import { Server } from '../../src/server/server';
 
 const MODERN_REVISION = '2026-07-28';
@@ -409,6 +409,66 @@ describe('teardown and the close chain', () => {
         const response = await pending;
         expect(response.status).toBe(200);
         expect(response.headers.get('content-type')).toContain('application/json');
+    });
+});
+
+describe('response stream flow (package-internal)', () => {
+    it('reports the unread bytes, resolves drained() once the consumer asks for more, and abort() drops them with the errored stream and closes the exchange', async () => {
+        let ctx: ServerContext | undefined;
+        const { server } = modernServer({
+            toolsCallHandler: handlerCtx => {
+                ctx = handlerCtx;
+                return new Promise<never>(() => {
+                    // parked: the exchange streams until it is aborted
+                });
+            }
+        });
+        const transport = await connectedTransport(server);
+        const flow = perRequestFlowOf(transport)!;
+        expect(perRequestFlowOf(undefined)).toBeUndefined();
+        let closed = false;
+        const onclose = transport.onclose;
+        transport.onclose = () => {
+            closed = true;
+            onclose?.();
+        };
+        const pending = transport.handleMessage(toolsCall());
+        await vi.waitFor(() => expect(ctx).toBeDefined());
+        const progress = (n: number) =>
+            ctx!.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'tok', progress: n } });
+        expect(flow.backlog()).toBe(0);
+        await expect(flow.drained()).resolves.toBeUndefined();
+
+        await progress(1);
+        await progress(2);
+        const reader = (await pending).body!.getReader();
+        const unread = flow.backlog();
+        expect(unread).toBeGreaterThan(0);
+        let drained = false;
+        // Every wait of one drain epoch shares a promise, so a wait that gives up leaves nothing behind.
+        const epoch = flow.drained();
+        expect(flow.drained()).toBe(epoch);
+        const waiting = epoch.then(() => (drained = true));
+        await reader.read();
+        expect(flow.backlog()).toBeLessThan(unread);
+        await new Promise(resolve => setTimeout(resolve, 5));
+        expect(drained).toBe(false);
+        await reader.read();
+        // Nothing is queued now, so this read asks the stream for more.
+        const asked = reader.read();
+        await waiting;
+        expect(flow.backlog()).toBe(0);
+
+        await progress(3);
+        await progress(4);
+        expect((await asked).done).toBe(false);
+        expect(flow.backlog()).toBeGreaterThan(0);
+        expect(flow.drained()).not.toBe(epoch);
+        flow.abort();
+        expect(flow.backlog()).toBe(0);
+        await expect(reader.read()).rejects.toThrow('The client stopped reading the response stream');
+        expect(closed).toBe(true);
+        expect(ctx!.mcpReq.signal.aborted).toBe(true);
     });
 });
 

@@ -8,7 +8,7 @@ import { NoCompatibleDeliveryModeError } from './errors';
 import { PollDriver } from './poll';
 import { PushDriver, PushUnavailableError } from './push';
 import { WebhookReceiver } from './receiver';
-import { isModeRefusal } from './recovery';
+import { floorOf, isModeRefusal } from './recovery';
 import { EventsConnection } from './request';
 import type { Driver, DriverContext, EventSubscription, SubscribeOptions } from './subscription';
 import { SubscriptionQueue } from './subscription';
@@ -199,6 +199,8 @@ export class EventsClientExtension implements ClientExtension {
      *   secret another open server subscription signs with.
      */
     async subscribe<T = Record<string, unknown>>(options: SubscribeOptions): Promise<EventSubscription<T>> {
+        // Fixed now, so every request of the subscription, whatever mode it ends up in, keeps one floor.
+        const floor = floorOf(options);
         const connection = this.#require('subscribe');
         let descriptor = connection.descriptor(options.name);
         if (descriptor === undefined) {
@@ -208,7 +210,7 @@ export class EventsClientExtension implements ClientExtension {
         if (descriptor === undefined) throw new EventsError('notFound', 'Event type not found', { kind: 'event' });
         const mode = this.#select(options, descriptor);
         try {
-            return await this.#subscribeIn<T>(mode, descriptor, options, connection);
+            return await this.#subscribeIn<T>(mode, descriptor, options, connection, floor);
         } catch (error) {
             if (!isModeRefusal(error)) throw error;
             // The listing the mode came from may be stale: list again and select again, once.
@@ -222,7 +224,7 @@ export class EventsClientExtension implements ClientExtension {
             if (fresh === undefined) throw error;
             const again = this.#select(options, fresh);
             if (again === mode) throw error;
-            return this.#subscribeIn<T>(again, fresh, options, connection);
+            return this.#subscribeIn<T>(again, fresh, options, connection, floor);
         }
     }
 
@@ -253,15 +255,16 @@ export class EventsClientExtension implements ClientExtension {
         mode: DeliveryMode,
         descriptor: EventDescriptor,
         options: SubscribeOptions,
-        connection: EventsConnection
+        connection: EventsConnection,
+        floor: number | undefined
     ): Promise<EventSubscription<T>> {
         const fallback = options.delivery === undefined && mode === 'push' && descriptor.delivery.includes('poll');
         try {
-            return await this.#start<T>(mode, options, connection, fallback);
+            return await this.#start<T>(mode, options, connection, fallback, floor);
         } catch (error) {
             if (!(error instanceof PushUnavailableError)) throw error;
             connection.report(error);
-            return this.#start<T>('poll', options, connection, false);
+            return this.#start<T>('poll', options, connection, false, floor);
         }
     }
 
@@ -270,11 +273,13 @@ export class EventsClientExtension implements ClientExtension {
         mode: DeliveryMode,
         options: SubscribeOptions,
         connection: EventsConnection,
-        fallback: boolean
+        fallback: boolean,
+        floor: number | undefined
     ): Promise<EventSubscription<T>> {
         const queue = new SubscriptionQueue<T>(mode, options.cursor ?? null);
+        const context = { subscription: { ...options }, queue, connection, ...(floor !== undefined && { floor }) };
         try {
-            await queue.run(this.#driver(mode, { subscription: { ...options }, queue, connection }, fallback));
+            await queue.run(this.#driver(mode, context, fallback));
         } catch (error) {
             await queue.cancel();
             throw error;

@@ -12,7 +12,7 @@ import type { BufferedEvent, EmitBuffer } from './emitBuffer';
 import type { SubscriptionSource } from './extension';
 import { checkedSelection, selectEvent } from './poll';
 import type { Batch } from './push';
-import { checkedBatch, errorObject, replayBuffer, startCheck, TERMINAL_KINDS } from './push';
+import { checkedBatch, errorObject, floorOf, maxAgeSince, replayBuffer, startCheck, TERMINAL_KINDS } from './push';
 import type { EventRegistry, RegisteredEvent } from './registry';
 import type { CheckContext, WebhookSender, WebhookSubscriptionRecord, WebhookSubscriptionStore } from './types';
 import type { SubscriptionValidator, ValidSubscription } from './validation';
@@ -66,6 +66,8 @@ interface Watched {
     // A check type's loop: the position checked up to, and the next check.
     position: string | null;
     checkTimer?: ReturnType<typeof setTimeout>;
+    // The request that started the watch here carried a cursor and `maxAgeMs`: its receipt time less `maxAgeMs`, before which no run of a check type's loop delivers an event.
+    floor?: number;
 }
 
 // A subscribe request in flight for one id, from the id's derivation until it answers.
@@ -203,6 +205,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
     }
 
     async subscribe(params: SubscribeEventsRequestParams, ctx: ServerContext): Promise<SubscribeEventsResult> {
+        const floor = floorOf(params.cursor, params.maxAgeMs);
         const { url, secret } = params.delivery;
         const valid = await this.#deps.validator.validate('webhook', params, ctx, () => {
             this.#assertCallback(url);
@@ -219,8 +222,8 @@ export class WebhookSubscriptions implements SubscriptionSource {
             return await enqueue(this.#byId, id, async () => {
                 const existing = await this.#unexpired(id);
                 return existing === undefined
-                    ? this.#create(id, valid, params, ttl, subscribing)
-                    : this.#refresh(existing, valid, params, ttl, subscribing);
+                    ? this.#create(id, valid, params, ttl, subscribing, floor)
+                    : this.#refresh(existing, valid, params, ttl, subscribing, floor);
             });
         } finally {
             this.#subscribing.delete(subscribing);
@@ -308,13 +311,14 @@ export class WebhookSubscriptions implements SubscriptionSource {
         throw new EventsError('invalidParams', 'delivery.url must be an absolute https URL, or one whose origin is in trustedOrigins');
     }
 
-    // Quota, verification and onSubscribe, then the start position, tracked before the record is stored; a termination meanwhile fails it.
+    // Quota, verification and onSubscribe, then the start position, tracked before the record is stored; a termination meanwhile fails it. A check type's loop keeps to `floor`.
     async #create(
         id: string,
         valid: ValidSubscription,
         params: SubscribeEventsRequestParams,
         ttl: number,
-        subscribing: Subscribing
+        subscribing: Subscribing,
+        floor: number | undefined
     ): Promise<SubscribeEventsResult> {
         const { entry, args } = valid;
         const principal = valid.principal!;
@@ -351,7 +355,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
             try {
                 start =
                     entry.kind === 'check'
-                        ? await this.#startCheck(record, watched, from, params.maxAgeMs, subscribing)
+                        ? await this.#startCheck(record, watched, from, maxAgeSince(floor), subscribing)
                         : await this.#startEmitOnly(record, watched, from, params.maxAgeMs, subscribing);
                 const terminated = takeTermination(subscribing);
                 if (terminated !== undefined) {
@@ -369,6 +373,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
             this.#send(record, start, start.cursor);
             if (entry.kind === 'check') {
                 watched.position = start.position;
+                watched.floor = floor;
                 this.#schedule(watched);
             }
             return { id, refreshBefore: new Date(record.expiresAt).toISOString(), cursor: start.cursor, truncated: start.truncated };
@@ -411,17 +416,20 @@ export class WebhookSubscriptions implements SubscriptionSource {
             await this.#deps.store.put(record);
             const checked = await Promise.all(replay.events.map(event => checkedSelection(watched.entry, event, report)));
             for (const event of checked) if (event !== undefined) this.#engine.deliver(record, event, event.cursor ?? null, replay.cursor);
+            // The buffered events after the last one delivered were skipped for this subscription, so the watermark moves past them once delivery settles.
+            this.#engine.advance(record.id, replay.position);
             return { ...replay, events: [] };
         });
     }
 
-    // A new grant and a rotated secret; the client's cursor seeds the watermark only where this process tracks none.
+    // A new grant and a rotated secret; the client's cursor seeds the watermark only where this process tracks none, and a check type's loop started here keeps to `floor`.
     async #refresh(
         record: WebhookSubscriptionRecord,
         valid: ValidSubscription,
         params: SubscribeEventsRequestParams,
         ttl: number,
-        subscribing: Subscribing
+        subscribing: Subscribing,
+        floor: number | undefined
     ): Promise<SubscribeEventsResult> {
         const { id } = record;
         const now = Date.now();
@@ -437,7 +445,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
         const from = params.cursor ?? null;
         if (this.#engine.watermark(id) === undefined) this.#engine.track(id, from);
         this.#engine.resume(id);
-        this.#keep(refreshed, valid, from);
+        this.#keep(refreshed, valid, from, floor);
         return {
             id,
             refreshBefore: new Date(refreshed.expiresAt).toISOString(),
@@ -448,12 +456,13 @@ export class WebhookSubscriptions implements SubscriptionSource {
         };
     }
 
-    // Re-arms a refreshed subscription's timer, or starts watching it here (a check type's loop from `from`) when this process had not.
-    #keep(record: WebhookSubscriptionRecord, { entry, args }: ValidSubscription, from: string | null): void {
+    // Re-arms a refreshed subscription's timer, or starts watching it here (a check type's loop from `from`, kept to `floor`) when this process had not.
+    #keep(record: WebhookSubscriptionRecord, { entry, args }: ValidSubscription, from: string | null, floor: number | undefined): void {
         let watched = this.#watched.get(record.id);
         if (watched === undefined) {
             watched = this.#watch(record.id, entry, record.principal, args);
             watched.position = from;
+            watched.floor = floor;
             this.#watched.set(record.id, watched);
             if (entry.kind === 'check') this.#schedule(watched);
         }
@@ -596,7 +605,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
         const reached = new Set<string>();
         for (let attempt = 0; ; attempt++) {
             try {
-                for await (const record of this.#recordsFor(pass)) {
+                for await (const record of this.#deps.store.listByName(pass.entry.name)) {
                     if (reached.has(record.id)) continue;
                     reached.add(record.id);
                     if (isExpired(record)) {
@@ -625,19 +634,9 @@ export class WebhookSubscriptions implements SubscriptionSource {
         for (const { buffered, cursor, previous } of emits) {
             const selected = selectEvent(entry, ctx, args, buffered, report);
             const occurrence = selected === undefined ? undefined : await checkedSelection(entry, selected, report);
-            if (occurrence !== undefined) this.#engine.deliver(record, occurrence, cursor, previous);
-        }
-    }
-
-    // Every stored subscription of the type, or, when every emit of the pass is targeted and none was dropped, only their targets.
-    async *#recordsFor({ entry, emits, dropped }: Pass): AsyncIterable<WebhookSubscriptionRecord> {
-        if (dropped || emits.some(({ buffered }) => buffered.target === undefined)) {
-            yield* this.#deps.store.listByName(entry.name);
-            return;
-        }
-        for (const target of new Set(emits.map(({ buffered }) => buffered.target!))) {
-            const record = await this.#deps.store.get(target);
-            if (record?.name === entry.name) yield record;
+            // A skipped event moves the watermark past it once nothing before it is pending, so the refresh cursor follows the buffer; it starts no state for an id this process does not track.
+            if (occurrence === undefined) this.#engine.advance(record.id, cursor);
+            else this.#engine.deliver(record, occurrence, cursor, previous);
         }
     }
 
@@ -693,15 +692,16 @@ export class WebhookSubscriptions implements SubscriptionSource {
                 // The expiry path decides; it stops this loop unless the record was refreshed meanwhile.
                 this.#later(id, () => this.#recheck(id));
             } else {
-                const result = await entry.definition.check!(watched.ctx, watched.args, from);
-                const batch = await checkedBatch(entry, from, result, undefined, this.#deps.report);
+                const maxAgeMs = maxAgeSince(watched.floor);
+                const ctx = maxAgeMs === undefined ? watched.ctx : makeContext({ ...watched.ctx, maxAgeMs });
+                const result = await entry.definition.check!(ctx, watched.args, from);
+                const batch = await checkedBatch(entry, from, result, maxAgeMs, this.#deps.report);
                 if (this.#watched.get(id) !== watched) return;
                 this.#send(record, batch, from);
                 // A quiet batch moves the watermark to the upstream cursor once nothing awaits an answer, so the refresh cursor advances.
                 if (batch.events.length === 0) this.#engine.advance(id, batch.position);
-                // The gap goes at the watermark, as for abandoned events, or at the batch cursor when there is no watermark.
-                const gapCursor = this.#engine.watermark(id) ?? batch.cursor;
-                if (batch.truncated) void this.#engine.sendControl(record, { type: 'gap', cursor: gapCursor });
+                // The gap goes at the watermark of each attempt, as for abandoned events, or at the batch cursor when there is no watermark.
+                if (batch.truncated) void this.#engine.sendGap(record, batch.cursor);
                 watched.position = batch.position;
             }
         } catch (error) {

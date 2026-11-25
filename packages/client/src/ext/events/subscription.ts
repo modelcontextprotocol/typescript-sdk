@@ -19,10 +19,11 @@ export interface SubscribeOptions {
     /** Resumes from a persisted {@linkcode EventSubscription.cursor}; `null` or absent starts from now. */
     cursor?: string | null;
     /**
-     * Replays no event older than this many milliseconds, however old `cursor`
-     * is. It applies until the subscription's first replay is known complete:
-     * its cursor moves, a push heartbeat or a poll result arrives, or a webhook
-     * refresh after the subscribe succeeds.
+     * With `cursor`, delivers no event older than this many milliseconds
+     * before `subscribe()` was called, however old `cursor` is, for the life
+     * of the subscription: every request it makes, in whatever delivery mode,
+     * sends the time since that point. Without `cursor` it is not sent, as the
+     * subscription starts from now.
      */
     maxAgeMs?: number;
     /**
@@ -118,6 +119,8 @@ export interface DriverContext<T> {
     readonly subscription: SubscribeOptions;
     readonly queue: DeliveryQueue<T>;
     readonly connection: EventsConnection;
+    // When subscribe() was given a cursor and `maxAgeMs`: that call's time less `maxAgeMs`, before which no event is delivered, kept across a fallback or a mode chosen again.
+    readonly floor?: number;
 }
 
 export type Item<T> = EventOccurrence & { data: T };

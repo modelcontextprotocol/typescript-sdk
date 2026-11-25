@@ -108,10 +108,17 @@ describe('push delivery', () => {
         });
         expect(streams()[0]!.call.headers).toEqual({ 'Mcp-Param-Region': 'us-west1' });
 
+        // A reopen 500 ms later sends maxAgeMs grown by that time, so the floor stays where subscribe() put it.
         await last().end();
         await vi.advanceTimersByTimeAsync(500);
         expect(streams()).toHaveLength(2);
-        expect(last().call.params).toEqual({ name: 'tick', arguments: { region: 'us-west1' }, cursor: 'c1', _meta: expect.any(Object) });
+        expect(last().call.params).toEqual({
+            name: 'tick',
+            arguments: { region: 'us-west1' },
+            cursor: 'c1',
+            maxAgeMs: 300_500,
+            _meta: expect.any(Object)
+        });
         expect(last().call.headers).toEqual({ 'Mcp-Param-Region': 'us-west1' });
     });
 
@@ -314,20 +321,9 @@ describe('push delivery', () => {
         expect(await nextEventId(sub[Symbol.asyncIterator]())).toBe('e1');
     });
 
-    it('stops sending maxAgeMs once a heartbeat follows the first batch, though the cursor has not moved', async () => {
+    it('sends maxAgeMs on every reopen, after a heartbeat too, so a reopen mid-replay stays cut', async () => {
         const { last, subscribe } = await pushWith();
-        await subscribe({ cursor: 'h1', maxAgeMs: 300_000 }, s => s.active({ cursor: 'h1' }));
-        await last().frame('notifications/events/heartbeat', { cursor: 'h1' });
-
-        await last().end();
-        await vi.advanceTimersByTimeAsync(500);
-        expect(last().call.params['cursor']).toBe('h1');
-        expect(last().call.params).not.toHaveProperty('maxAgeMs');
-    });
-
-    it('keeps sending maxAgeMs until the cursor moves, so a reopen within the batch it cut stays cut', async () => {
-        const { last, subscribe } = await pushWith();
-        // As the SDK server answers a check from h1 whose `old` event is older than maxAgeMs: without it, `old` comes too.
+        // As the SDK server answers a check from h1 whose `old` event is older than the floor: without maxAgeMs, `old` comes too.
         const replay = async () => {
             const { maxAgeMs } = last().call.params;
             await last().active({ cursor: 'h1', truncated: true });
@@ -335,18 +331,18 @@ describe('push delivery', () => {
             await last().frame('notifications/events/event', { ...occurrence('new'), cursor: 'h1' });
         };
         const sub = await subscribe({ cursor: 'h1', maxAgeMs: 300_000 }, replay);
+        await last().frame('notifications/events/heartbeat', { cursor: 'h1' });
 
-        // The stream drops after the batch's first event, whose cursor is still the batch start.
+        // The stream drops after a heartbeat, while the check still pages through the replay from h1.
         await last().end();
         await vi.advanceTimersByTimeAsync(500);
-        expect(last().call.params).toMatchObject({ cursor: 'h1', maxAgeMs: 300_000 });
+        expect(last().call.params).toMatchObject({ cursor: 'h1', maxAgeMs: 300_500 });
         await replay();
         await last().frame('notifications/events/event', { ...occurrence('newer'), cursor: 'h2' });
 
         await last().end();
         await vi.advanceTimersByTimeAsync(500);
-        expect(last().call.params['cursor']).toBe('h2');
-        expect(last().call.params).not.toHaveProperty('maxAgeMs');
+        expect(last().call.params).toMatchObject({ cursor: 'h2', maxAgeMs: 301_000 });
         const iterator = sub[Symbol.asyncIterator]();
         expect([await nextEventId(iterator), await nextEventId(iterator)]).toEqual(['new', 'newer']);
     });
@@ -719,6 +715,18 @@ describe('push delivery', () => {
             expect(streams()).toHaveLength(1);
             expect(polls()[0]!.params['cursor']).toBe('c0');
             expect(errors).toEqual([expect.objectContaining({ message: FALLBACK, cause: expect.objectContaining(cause) })]);
+        });
+
+        it('keeps the maxAgeMs floor subscribe() set when it falls back to poll', async () => {
+            const { events, streams, polls } = await pushOrPoll(() => new Promise<never>(() => {}));
+            const subscribing = events.subscribe({ name: 'tick', cursor: 'c0', maxAgeMs: 300_000 });
+            await settle();
+            await vi.advanceTimersByTimeAsync(60_000);
+            subscriptions.push(await subscribing);
+
+            // The poll a minute later sends the time since the same floor, not a floor of its own.
+            expect(streams()[0]!.params).toMatchObject({ cursor: 'c0', maxAgeMs: 300_000 });
+            expect(polls()[0]!.params).toMatchObject({ cursor: 'c0', maxAgeMs: 360_000 });
         });
 
         it('subscribes by poll when the first active fails its schema, and reports both failures', async () => {

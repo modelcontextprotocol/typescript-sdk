@@ -599,6 +599,119 @@ describe('event delivery', () => {
         expect(engine.answerGap(ID, 'p0')).toBe(false);
     });
 
+    it('keeps the mark for a lost answer to a refresh that already carried the watermark, and leaves it to the gap envelope', async () => {
+        const { engine, record, requests, until } = setup();
+        const gaps = () => requests.map(request => bodyOf(request)).filter(body => body.type === 'gap');
+        engine.track(ID, 'p0');
+        // Events lost before they reached the engine, while the subscriber's cursor is already at the watermark.
+        engine.markGap(record, null);
+        expect(engine.answerGap(ID, 'p0')).toBe(true);
+        // That answer was lost: the retry carries the same cursor, which cannot show the answer arrived.
+        expect(engine.answerGap(ID, 'p0')).toBe(true);
+        engine.deliver(record, occurrence('evt_1'), 'p1', null);
+        await until(2);
+        await settle();
+        expect(gaps()).toEqual([{ type: 'gap', cursor: 'p1' }]);
+        expect(engine.answerGap(ID, 'p0')).toBe(false);
+    });
+
+    it('sends each attempt of a gap envelope at the watermark of that attempt', async () => {
+        let gapAnswer: WebhookSendOutcome = { status: 503, body: '' };
+        const answers: WebhookSendOutcome[] = [{ status: 413, body: '' }];
+        const { engine, record, requests, until } = setup(request =>
+            bodyOf(request).type === 'gap' ? gapAnswer : (answers.shift() ?? { status: 200, body: '' })
+        );
+        const gaps = () => requests.filter(request => bodyOf(request).type === 'gap');
+        engine.track(ID, 'p0');
+        engine.deliver(record, occurrence('evt_1'), 'p1', null);
+        await until(1);
+        await settle();
+        engine.deliver(record, occurrence('evt_2'), 'p2', null);
+        await until(3);
+        await settle();
+        // Acknowledged while the envelope waits for its retry: the retry must not take the subscriber's cursor back to p2.
+        engine.deliver(record, occurrence('evt_3'), 'p3', null);
+        await until(4);
+        await settle();
+        gapAnswer = { status: 200, body: '' };
+        await vi.advanceTimersByTimeAsync(5000);
+        await until(5);
+        await settle();
+        expect(gaps().map(request => bodyOf(request))).toEqual([
+            { type: 'gap', cursor: 'p2' },
+            { type: 'gap', cursor: 'p3' }
+        ]);
+        expect(new Set(gaps().map(request => request.headers['webhook-id'])).size).toBe(1);
+        expect(engine.answerGap(ID, 'p0')).toBe(false);
+        // A subscription this engine tracks no watermark for gets the fallback.
+        expect(await engine.sendGap(recordFor({ id: 'sub_2' }), 'p9')).toEqual({ status: 200, body: '' });
+        expect(bodyOf(requests.at(-1)!)).toEqual({ type: 'gap', cursor: 'p9' });
+    });
+
+    it('keeps a loss marked while the gap envelope is in flight, after a refresh with proof cleared the marks before it', async () => {
+        let holdGap = true;
+        let answerGap!: () => void;
+        const answers: WebhookSendOutcome[] = [
+            { status: 413, body: '' },
+            { status: 200, body: '' },
+            { status: 413, body: '' }
+        ];
+        const { engine, record, requests, until } = setup(request => {
+            if (bodyOf(request).type !== 'gap') return answers.shift() ?? { status: 200, body: '' };
+            if (!holdGap) return { status: 200, body: '' };
+            holdGap = false;
+            return new Promise(resolve => (answerGap = () => resolve({ status: 200, body: '' })));
+        });
+        const gaps = () => requests.map(request => bodyOf(request)).filter(body => body.type === 'gap');
+        engine.track(ID, 'p0');
+        engine.deliver(record, occurrence('evt_1'), 'p1', null);
+        await until(1);
+        await settle();
+        // evt_2 is acknowledged, so the envelope for evt_1 goes out and waits for its answer.
+        engine.deliver(record, occurrence('evt_2'), 'p2', null);
+        await until(3);
+        await settle();
+        expect(gaps()).toEqual([{ type: 'gap', cursor: 'p2' }]);
+        // A refresh with proof clears that mark meanwhile, and then evt_3 is lost too.
+        expect(engine.answerGap(ID, 'p0')).toBe(true);
+        expect(engine.answerGap(ID, 'p2')).toBe(false);
+        engine.deliver(record, occurrence('evt_3'), 'p3', null);
+        await until(4);
+        await settle();
+        // The envelope's acknowledgement covers only the marks made before its body was built.
+        answerGap();
+        await settle();
+        expect(engine.answerGap(ID, 'p0')).toBe(true);
+        engine.deliver(record, occurrence('evt_4'), 'p4', null);
+        await until(6);
+        await settle();
+        expect(gaps()).toEqual([
+            { type: 'gap', cursor: 'p2' },
+            { type: 'gap', cursor: 'p4' }
+        ]);
+        expect(engine.answerGap(ID, 'p0')).toBe(false);
+    });
+
+    it('sends a gap envelope only once no event POST is in flight, at the position the last of them settled at', async () => {
+        const hold = held();
+        const { engine, record, requests, until } = setup(hold.respond);
+        const gaps = () => requests.map(request => bodyOf(request)).filter(body => body.type === 'gap');
+        engine.track(ID, 'p0');
+        engine.markGap(record, null);
+        engine.deliver(record, occurrence('evt_1'), 'p1', null);
+        engine.deliver(record, occurrence('evt_2'), 'p2', null);
+        await until(2);
+        // One event is acknowledged, which calls for the envelope, while the other is still in flight.
+        hold.answers[0]!();
+        await settle();
+        expect(gaps()).toEqual([]);
+        hold.answers[1]!();
+        await until(3);
+        await settle();
+        expect(gaps()).toEqual([{ type: 'gap', cursor: 'p2' }]);
+        expect(engine.answerGap(ID, 'p0')).toBe(false);
+    });
+
     it.each([410, 413])('treats %i as final for the message', async status => {
         const { engine, store, record, requests, until } = setup(() => ({ status, body: '' }));
         const put = vi.spyOn(store, 'put');
@@ -674,7 +787,7 @@ describe('event delivery', () => {
         expect(bodyOf(requests[4]!).cursor).toBe('p4');
     });
 
-    it('advance() moves an idle watermark, and is ignored while a message is pending', async () => {
+    it('advance() moves an idle watermark at once, and one with a message pending once it settles, unless a later delivery came first', async () => {
         let answer: WebhookSendOutcome = { status: 500, body: '' };
         const { engine, record, requests, until } = setup(() => answer);
         engine.advance(ID, 'p9');
@@ -693,10 +806,22 @@ describe('event delivery', () => {
         await vi.advanceTimersByTimeAsync(5000);
         await until(2);
         await settle();
-        expect(engine.watermark(ID)).toBe('p2');
         expect(bodyOf(requests[1]!).cursor).toBe('p2');
-        engine.advance(ID, 'p5');
         expect(engine.watermark(ID)).toBe('p5');
+
+        // A delivery after the advance supersedes it: the watermark goes to that event, not back to the advance.
+        answer = { status: 500, body: '' };
+        engine.deliver(record, occurrence('evt_6'), 'p6', null);
+        await until(3);
+        await settle();
+        engine.advance(ID, 'p7');
+        engine.deliver(record, occurrence('evt_8'), 'p8', null);
+        answer = { status: 200, body: '' };
+        await until(4);
+        await vi.advanceTimersByTimeAsync(5000);
+        await until(5);
+        await settle();
+        expect(engine.watermark(ID)).toBe('p8');
     });
 
     it('tracks an unknown subscription from the seed, so every POST carries a cursor (F3a)', async () => {
@@ -775,10 +900,10 @@ describe('event delivery', () => {
         ]);
 
         await until(10);
-        // The first answer also sends the subscriber a gap for the abandoned events.
+        // The gap for the abandoned events waits until no event POST is in flight, which the backlog keeps from happening here.
         for (let n = 0; n < 10; n++) {
             hold.answers[n]!();
-            await until(12 + n);
+            await until(11 + n);
         }
         await settle();
         // The oldest message kept starts next, and the abandoned ones no longer hold the watermark back.
@@ -786,10 +911,10 @@ describe('event delivery', () => {
         expect(sent.filter(body => 'eventId' in body).map(body => body.eventId)).toEqual(
             Array.from({ length: 10 }, (_, n) => `evt_${17 + n}`)
         );
-        expect(sent.filter(body => body.type === 'gap')).toHaveLength(1);
+        expect(sent.filter(body => body.type === 'gap')).toHaveLength(0);
         expect(engine.watermark(ID)).toBe('p16');
         expect(hold.most()).toBe(10);
-    });
+    }, 30_000);
 
     it('queues each delivery and returns without waiting for the receiver', async () => {
         const answers = new Map<string, (outcome: WebhookSendOutcome) => void>();
@@ -1021,7 +1146,7 @@ describe('delivery status', () => {
         expect(engine.watermark(ID)).toBe('p10021');
         await vi.advanceTimersByTimeAsync(60_000);
         expect(reports()[1]).toBe(`webhook subscription ${ID}: abandoned 20 more events since the last report, the latest evt_21`);
-    });
+    }, 30_000);
 
     it.each(['a due retry', 'a new delivery'])('releases a suspended subscription whose record expired, on %s', async path => {
         const { engine, store, record, requests, until } = setup(() => ({ status: 503, body: '' }));

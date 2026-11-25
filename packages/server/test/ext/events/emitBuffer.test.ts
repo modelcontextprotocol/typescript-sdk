@@ -81,10 +81,10 @@ describe('EmitBuffer', () => {
     it('skips the events select drops and still advances past them', () => {
         const buffer = new EmitBuffer({ maxAgeMs: 60_000, maxEvents: 100 });
         const start = buffer.head('i');
-        for (let n = 1; n <= 4; n++) buffer.append('i', { occurrence: occurrence(n), ...(n === 2 ? { target: 'sub-a' } : {}) });
+        for (let n = 1; n <= 4; n++) buffer.append('i', { occurrence: occurrence(n) });
         const read = buffer.read('i', start, {
             maxEvents: 10,
-            select: event => (event.target === undefined ? event.occurrence : undefined)
+            select: event => (event.occurrence.eventId === 'evt_2' ? undefined : event.occurrence)
         });
         expect(ids(read.events)).toEqual(['evt_1', 'evt_3', 'evt_4']);
         expect(read.cursor).toBe(buffer.head('i'));

@@ -19,7 +19,7 @@ import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 import type { ServerExtension, ServerExtensionContext } from '../../server/extension';
 import { markModernOnlyExtension } from '../../server/modernOnlyExtensions';
 import { registerParamHeaderSource } from '../../server/paramHeaderSources';
-import { perRequestBacklogOf } from '../../server/perRequestTransport';
+import { perRequestFlowOf } from '../../server/perRequestTransport';
 import type { Server } from '../../server/server';
 import { markStreamingMethod } from '../../server/streamingMethods';
 import type { BufferedEvent } from './emitBuffer';
@@ -261,7 +261,7 @@ export class EventsExtension implements ServerExtension {
             this.#modernOnly(server, () => this.#poll.handlePoll(params, requestCtx))
         );
         ctx.setRequestHandler(EVENTS_STREAM_METHOD, { params: StreamEventsRequestParamsSchema }, (params, requestCtx) =>
-            this.#modernOnly(server, () => this.#push.open(params, requestCtx, perRequestBacklogOf(server.transport)))
+            this.#modernOnly(server, () => this.#push.open(params, requestCtx, perRequestFlowOf(server.transport)))
         );
         ctx.setRequestHandler(EVENTS_SUBSCRIBE_METHOD, { params: SubscribeEventsRequestParamsSchema }, (params, requestCtx) =>
             this.#modernOnly(server, () =>
@@ -338,9 +338,9 @@ export class EventsExtension implements ServerExtension {
         if (definition.emitOnly !== true) return handle;
         const emitOnly: EmitOnlyEventHandle<unknown> = {
             ...handle,
-            emit: async (input, options) => {
+            emit: async input => {
                 assertCurrent();
-                await this.#emit(current, input, options?.subscriptionId);
+                await this.#emit(current, input);
             }
         };
         return emitOnly;
@@ -386,10 +386,10 @@ export class EventsExtension implements ServerExtension {
     }
 
     // Validates and buffers the event, then hands it to every fan-out; nobody listening is not an error.
-    async #emit(entry: RegisteredEvent, input: EventInput<unknown>, subscriptionId: string | undefined): Promise<void> {
+    async #emit(entry: RegisteredEvent, input: EventInput<unknown>): Promise<void> {
         const occurrence = await toOccurrence(entry, input, error => this.#report(error));
         if (occurrence === undefined) return;
-        const buffered: BufferedEvent = subscriptionId === undefined ? { occurrence } : { occurrence, target: subscriptionId };
+        const buffered: BufferedEvent = { occurrence };
         const previous = this.#buffer.append(entry.name, buffered);
         const positions = { cursor: this.#buffer.head(entry.name), previous };
         await Promise.all(

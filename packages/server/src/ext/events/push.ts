@@ -16,6 +16,7 @@ import { ProtocolErrorCode, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotoc
 import type { EventsErrorKind } from '@modelcontextprotocol/core-internal/ext/events';
 import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 
+import type { ResponseFlow } from '../../server/perRequestTransport';
 import { makeContext } from './context';
 import type { BufferedEvent, EmitBuffer } from './emitBuffer';
 import type { SubscriptionSource } from './extension';
@@ -26,10 +27,8 @@ import type { SubscriptionValidator } from './validation';
 
 // The shortest heartbeat granted, whatever the client suggests (D33).
 const HEARTBEAT_FLOOR_MS = 5000;
-// A stream whose client has left more than this unread for its whole heartbeat interval ends at its next write.
+// No frame goes to the transport while the client has more than this unread; a stream that stays over it for a whole heartbeat interval is abandoned.
 const MAX_STREAM_BACKLOG_BYTES = 1_048_576;
-// A stream whose client has left more than this unread ends at its next write, however short the stall.
-const STREAM_BACKLOG_CEILING_BYTES = 8 * MAX_STREAM_BACKLOG_BYTES;
 
 // A check that throws one of these ends its subscription; any other error leaves the loop running.
 export const TERMINAL_KINDS: ReadonlySet<EventsErrorKind> = new Set(['forbidden', 'notFound', 'unsupported']);
@@ -50,12 +49,19 @@ interface PushStream {
     readonly requestId: RequestId;
     readonly grant: number;
     readonly notify: ServerContext['mcpReq']['notify'];
-    // The bytes written that the client has not read yet, where the transport tells, and since when that has been over the bound.
-    readonly backlog?: () => number;
+    // Where the transport tells: the bytes the client has not read, a wait for it to read, and the abort that drops them; and since when they have been over the bound.
+    readonly flow?: ResponseFlow;
     overSince?: number;
+    // The events queued that have not been handed to the transport or dropped yet.
+    waiting: number;
+    // Ends the current wait for room, and the drain epoch the stream already waits on, so a wait that times out leaves nothing behind.
+    wake?: () => void;
+    epoch?: Promise<void>;
     // Aborts when the stream ends; the `signal` of every callback's ctx.
     readonly ended: AbortController;
     readonly ctx: CheckContext;
+    // A check type's stream opened with a cursor and `maxAgeMs`: the request's receipt time less `maxAgeMs`, before which no `check` run of it delivers an event.
+    readonly floor: number | undefined;
     // Resolves once the stream has ended and its last message is written.
     readonly done: Promise<void>;
     finish(): void;
@@ -82,6 +88,24 @@ export interface Batch {
 function unref(timer: ReturnType<typeof setTimeout>): ReturnType<typeof setTimeout> {
     (timer as { unref?: () => void }).unref?.();
     return timer;
+}
+
+// Resolves once the client reads what is queued, or after `ms`, or on `stream.wake()`; the stream follows each drain epoch once.
+function untilDrained(stream: PushStream, flow: ResponseFlow, ms: number): Promise<void> {
+    const epoch = flow.drained();
+    if (stream.epoch !== epoch) {
+        stream.epoch = epoch;
+        void epoch.then(() => stream.wake?.());
+    }
+    return new Promise(resolve => {
+        const wake = (): void => {
+            clearTimeout(timer);
+            if (stream.wake === wake) stream.wake = undefined;
+            resolve();
+        };
+        const timer = unref(setTimeout(wake, ms));
+        stream.wake = wake;
+    });
 }
 
 // The `error` of `notifications/events/{error,terminated}` and the webhook `terminated` body: an `EventsError` as it is, anything else as -32603.
@@ -113,6 +137,16 @@ export async function checkedBatch(
         events: events.map((occurrence, index) => ({ ...occurrence, cursor: cursorAt(index) })),
         position: result.cursor
     };
+}
+
+// The `maxAgeMs` of a check run against a fixed `floor`: the time since it.
+export function maxAgeSince(floor: number | undefined): number | undefined {
+    return floor === undefined ? undefined : Math.max(0, Date.now() - floor);
+}
+
+// The floor of a subscription whose request carries `cursor` and `maxAgeMs`, taken as it is received; the spec ignores `maxAgeMs` with a null cursor.
+export function floorOf(cursor: string | null | undefined, maxAgeMs: number | undefined): number | undefined {
+    return cursor === null || cursor === undefined || maxAgeMs === undefined ? undefined : Date.now() - maxAgeMs;
 }
 
 // Where a check type starts: `null` takes the current cursor, a cursor replays the events since it first.
@@ -180,11 +214,12 @@ export class StreamSet implements SubscriptionSource {
         return count;
     }
 
-    // `backlog` reads the bytes of the response stream the client has not read, on a transport that can tell.
-    async open(params: StreamEventsRequestParams, ctx: ServerContext, backlog?: () => number): Promise<StreamEventsResult> {
+    // `flow` paces the writes to the response stream, on a transport that can tell how far the client has read.
+    async open(params: StreamEventsRequestParams, ctx: ServerContext, flow?: ResponseFlow): Promise<StreamEventsResult> {
+        const floor = floorOf(params.cursor, params.maxAgeMs);
         const { entry, principal, args } = await this.#deps.validator.validate('push', params, ctx);
         this.#deps.validator.assertCapacity(principal);
-        const stream = this.#create(entry, principal, args, params, ctx, backlog);
+        const stream = this.#create(entry, principal, args, params, ctx, flow, entry.kind === 'check' ? floor : undefined);
         const result = { _meta: { [SUBSCRIPTION_ID_META_KEY]: ctx.mcpReq.id } };
         try {
             await entry.definition.onSubscribe?.(stream.ctx, args);
@@ -196,7 +231,7 @@ export class StreamSet implements SubscriptionSource {
         let checked: Batch | undefined;
         try {
             if (entry.kind === 'check' && stream.stopped === undefined) {
-                checked = await startCheck(entry, stream.ctx, args, params.cursor ?? null, params.maxAgeMs, this.#deps.report);
+                checked = await startCheck(entry, stream.ctx, args, params.cursor ?? null, maxAgeSince(floor), this.#deps.report);
             }
         } catch (error) {
             await this.#abandon(stream);
@@ -212,7 +247,13 @@ export class StreamSet implements SubscriptionSource {
         stream.live = true;
         const { buffer, report } = this.#deps;
         const from = params.cursor ?? null;
-        this.#send(stream, checked ?? replayBuffer(buffer, stream.entry, stream.ctx, stream.args, from, params.maxAgeMs, report), true);
+        // The start batch does not count against the waiting-event cap, so live events get all of it after a full replay.
+        this.#send(
+            stream,
+            checked ?? replayBuffer(buffer, stream.entry, stream.ctx, stream.args, from, params.maxAgeMs, report),
+            true,
+            false
+        );
         this.#scheduleCheck(stream);
         await stream.done;
         return result;
@@ -254,7 +295,8 @@ export class StreamSet implements SubscriptionSource {
         args: Record<string, unknown>,
         params: StreamEventsRequestParams,
         ctx: ServerContext,
-        backlog: (() => number) | undefined
+        flow: ResponseFlow | undefined,
+        floor: number | undefined
     ): PushStream {
         let finish!: () => void;
         const done = new Promise<void>(resolve => (finish = resolve));
@@ -266,7 +308,7 @@ export class StreamSet implements SubscriptionSource {
             requestId: ctx.mcpReq.id,
             grant: Math.min(Math.max(params.heartbeatMs ?? max, HEARTBEAT_FLOOR_MS), max),
             notify: ctx.mcpReq.notify,
-            ...(backlog !== undefined && { backlog }),
+            ...(flow !== undefined && { flow }),
             ended,
             ctx: makeContext({
                 name: entry.name,
@@ -275,11 +317,13 @@ export class StreamSet implements SubscriptionSource {
                 mode: 'push',
                 signal: ended.signal
             }),
+            floor,
             done,
             finish,
             live: false,
             position: null,
-            queue: Promise.resolve()
+            queue: Promise.resolve(),
+            waiting: 0
         };
         this.#streams.add(stream);
         // The client went away: an HTTP abort or `notifications/cancelled`.
@@ -289,7 +333,7 @@ export class StreamSet implements SubscriptionSource {
         return stream;
     }
 
-    #send(stream: PushStream, batch: Batch, active: boolean): void {
+    #send(stream: PushStream, batch: Batch, active: boolean, counted = true): void {
         if (active) {
             this.#write(stream, EVENTS_ACTIVE_NOTIFICATION, {
                 cursor: batch.cursor,
@@ -297,25 +341,31 @@ export class StreamSet implements SubscriptionSource {
                 heartbeatMs: stream.grant
             });
         }
-        for (const event of batch.events) this.#writeEvent(stream, event);
+        for (const event of batch.events) this.#writeEvent(stream, event, counted);
         stream.position = batch.position;
     }
 
-    // Writes an event that checkedSelection passes, in order with the stream's other writes.
-    #writeEvent(stream: PushStream, event: EventOccurrence): void {
-        this.#write(stream, EVENTS_EVENT_NOTIFICATION, checkedSelection(stream.entry, event, this.#deps.report));
+    // Writes an event that checkedSelection passes, in order with the stream's other writes; `counted` ones count against the waiting-event cap.
+    #writeEvent(stream: PushStream, event: EventOccurrence, counted = true): void {
+        this.#write(stream, EVENTS_EVENT_NOTIFICATION, checkedSelection(stream.entry, event, this.#deps.report), counted);
     }
 
+    // The next check runs an interval after this one's frames reached the transport, so a client that reads slowly holds one batch at most.
     #scheduleCheck(stream: PushStream): void {
         if (!stream.live || stream.entry.kind !== 'check') return;
-        stream.checkTimer = unref(setTimeout(() => void this.#check(stream), this.#deps.checkIntervalMs));
+        void stream.queue.then(() => {
+            if (!stream.live) return;
+            stream.checkTimer = unref(setTimeout(() => void this.#check(stream), this.#deps.checkIntervalMs));
+        });
     }
 
     async #check(stream: PushStream): Promise<void> {
         const from = stream.position;
+        const maxAgeMs = maxAgeSince(stream.floor);
+        const ctx = maxAgeMs === undefined ? stream.ctx : makeContext({ ...stream.ctx, maxAgeMs });
         try {
-            const result = await stream.entry.definition.check!(stream.ctx, stream.args, from);
-            const batch = await checkedBatch(stream.entry, from, result, undefined, this.#deps.report);
+            const result = await stream.entry.definition.check!(ctx, stream.args, from);
+            const batch = await checkedBatch(stream.entry, from, result, maxAgeMs, this.#deps.report);
             if (!stream.live) return;
             this.#send(stream, batch, batch.truncated);
         } catch (error) {
@@ -330,19 +380,36 @@ export class StreamSet implements SubscriptionSource {
     }
 
     // Params that resolve to `undefined` (a dropped event) send nothing; an event's own `_meta` keys stay beside the stream's id.
-    #write(stream: PushStream, method: string, params: Record<string, unknown> | Promise<Record<string, unknown> | undefined>): void {
-        // A client that stopped reading is treated as gone, as after a failed write; it reconnects from its cursor.
-        if (this.#stalled(stream)) {
-            void this.#end(stream);
-            return;
+    #write(
+        stream: PushStream,
+        method: string,
+        params: Record<string, unknown> | Promise<Record<string, unknown> | undefined>,
+        event = false
+    ): void {
+        const { flow } = stream;
+        if (event) {
+            // An emit-only stream whose client falls more live events behind than the emit buffer holds is abandoned as a stalled one is; with its replay that is at most twice as many frames.
+            if (flow !== undefined && stream.entry.kind === 'emitOnly' && stream.waiting >= this.#deps.buffer.maxEvents) {
+                this.#dropStalled(stream, flow);
+                return;
+            }
+            stream.waiting += 1;
         }
         // A failed write means the client is gone.
         stream.queue = stream.queue
             .then(async () => {
-                const resolved = await params;
-                if (resolved === undefined) return;
-                const _meta = { ...(resolved._meta as Record<string, unknown> | undefined), [SUBSCRIPTION_ID_META_KEY]: stream.requestId };
-                await stream.notify({ method, params: { ...resolved, _meta } });
+                try {
+                    const resolved = await params;
+                    if (resolved === undefined || !(await this.#room(stream))) return;
+                    const _meta = {
+                        ...(resolved._meta as Record<string, unknown> | undefined),
+                        [SUBSCRIPTION_ID_META_KEY]: stream.requestId
+                    };
+                    await stream.notify({ method, params: { ...resolved, _meta } });
+                    if ((flow?.backlog() ?? 0) > MAX_STREAM_BACKLOG_BYTES) stream.overSince ??= Date.now();
+                } finally {
+                    if (event) stream.waiting -= 1;
+                }
             })
             .catch(() => void this.#end(stream));
         if (!stream.live) return;
@@ -352,25 +419,40 @@ export class StreamSet implements SubscriptionSource {
         );
     }
 
-    // Over the backlog bound at every reading for a whole grant, or over the ceiling: a burst the client goes on reading drains below the bound first, and the heartbeat re-reads a quiet stream.
-    #stalled(stream: PushStream): boolean {
-        const backlog = stream.backlog?.() ?? 0;
-        if (backlog <= MAX_STREAM_BACKLOG_BYTES) {
-            stream.overSince = undefined;
-            return false;
+    // Waits while the client has more than the bound unread, so a replay or a burst goes out at its pace; once that lasts a whole grant, or at once for a stream that has ended, the stream is abandoned and nothing more is written.
+    async #room(stream: PushStream): Promise<boolean> {
+        const { flow } = stream;
+        if (flow === undefined) return true;
+        while (flow.backlog() > MAX_STREAM_BACKLOG_BYTES) {
+            const now = Date.now();
+            stream.overSince ??= now;
+            const left = stream.overSince + stream.grant - now;
+            if (left <= 0 || stream.ended.signal.aborted) {
+                this.#dropStalled(stream, flow);
+                return false;
+            }
+            await untilDrained(stream, flow, left);
         }
-        if (backlog > STREAM_BACKLOG_CEILING_BYTES) return true;
-        const now = Date.now();
-        stream.overSince ??= now;
-        return now - stream.overSince >= stream.grant;
+        stream.overSince = undefined;
+        return true;
     }
 
-    // Ends a stream once. A live one sends `terminated` for an error, runs onUnsubscribe, then lets `open` return.
+    // A client that stopped reading: its unread bytes are dropped with the response, and the subscription ends; it reconnects from its cursor.
+    #dropStalled(stream: PushStream, flow: ResponseFlow): void {
+        void this.#end(stream);
+        flow.abort();
+    }
+
+    // Ends a stream once. A live one sends `terminated` for an error, runs onUnsubscribe, then lets `open` return; one whose client is over the bound, now or as its last frames go out (#room), is abandoned at once instead of waiting for room.
     #end(stream: PushStream, error?: EventsError): Promise<void> {
         if (!this.#streams.delete(stream)) return Promise.resolve();
         stream.ended.abort();
         clearTimeout(stream.heartbeat);
         clearTimeout(stream.checkTimer);
+        const { flow } = stream;
+        if (flow !== undefined && flow.backlog() > MAX_STREAM_BACKLOG_BYTES) flow.abort();
+        // A frame waiting for room checks it again now, so the last frames go out without waiting for the deadline.
+        stream.wake?.();
         if (!stream.live) {
             stream.stopped = error === undefined ? {} : { error };
             return Promise.resolve();

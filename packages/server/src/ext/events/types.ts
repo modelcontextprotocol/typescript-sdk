@@ -17,7 +17,7 @@ export type InferOutput<S extends StandardSchemaWithJSON> = StandardSchemaWithJS
 export interface EventContext {
     /** The event type name. */
     readonly name: string;
-    /** An opaque id the SDK assigns to the subscription; pass it to a targeted `emit` or `terminate`. */
+    /** An opaque id the SDK assigns to the subscription; pass it to `terminate`. */
     readonly subscriptionId: string;
     /** The subscriber, from `getPrincipal`; `null` without one. */
     readonly principal: string | null;
@@ -89,7 +89,7 @@ export interface EventDefinitionBase<I extends StandardSchemaWithJSON, P extends
     description?: string;
     /** Schema for the subscription `arguments`; absent means any object. */
     inputSchema?: I;
-    /** Schema for `data` in delivered events. */
+    /** Schema for `data` in delivered events. It must describe an object, as `data` always is: any other JSON Schema root throws `TypeError`. */
     payloadSchema: P;
     _meta?: Record<string, unknown>;
     /** Runs when a subscription starts. Throw an `EventsError` to refuse it. */
@@ -182,7 +182,12 @@ export interface EventHandle {
     ): void;
     /** Stops offering the event type and ends its subscriptions with a `notFound` error. */
     remove(): void;
-    /** Ends one subscription (`options.subscriptionId`), or every subscription of the type, with `error`. */
+    /**
+     * Ends one subscription (`options.subscriptionId`), or every subscription of the type, with `error`. A push
+     * stream whose client has more than 1 MiB unread, or reaches that while its last messages go out, gets no
+     * `terminated` notification: it is abandoned at once, its unread bytes dropped and its HTTP response ended
+     * abnormally.
+     */
     terminate(error: EventsError, options?: { subscriptionId?: string }): Promise<void>;
 }
 
@@ -195,12 +200,11 @@ export interface EventHandle {
  */
 export interface EmitOnlyEventHandle<P> extends EventHandle {
     /**
-     * Publishes one event to every matching subscription, or to the one with `options.subscriptionId`. A targeted
-     * event reaches only a live subscription: a push stream that reconnects, or a poll client whose lease lapsed,
-     * starts a new subscription with a new id, and targeted events are not replayed to it. Use `match` for events
-     * a client must not miss.
+     * Publishes one event to every subscription whose `match` accepts it (every subscription without `match`),
+     * shaped per subscription by `transform`. Route an event meant for one subscriber with `match`, on the
+     * subscription's arguments or `ctx.principal`.
      */
-    emit(input: EventInput<P>, options?: { subscriptionId?: string }): Promise<void>;
+    emit(input: EventInput<P>): Promise<void>;
 }
 
 /**

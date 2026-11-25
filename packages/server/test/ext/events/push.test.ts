@@ -275,6 +275,8 @@ describe('events/stream: a check type', () => {
     });
 
     it('applies the maxAgeMs floor to the replay and flags truncated', async () => {
+        // The clock stands still, so the floor the request fixes is exactly maxAgeMs back when the replay runs.
+        vi.useFakeTimers({ toFake: ['Date'] });
         const old = new Date(Date.now() - 600_000).toISOString();
         const check = vi.fn<Check>(() => ({
             events: [
@@ -291,6 +293,35 @@ describe('events/stream: a check type', () => {
         expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'new', cursor: 'h1' } });
         expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'newer', cursor: 'h2' } });
         expect(check.mock.calls[0]![0]).toMatchObject({ mode: 'push', maxAgeMs: 300_000 });
+    });
+
+    it('applies the maxAgeMs floor of the request to every later check run, as the replay pages through the upstream', async () => {
+        // The clock moves only when the test moves it; setImmediate stays real for afterEach.
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        const old = new Date(Date.now() - 600_000).toISOString();
+        const check = vi
+            .fn<Check>()
+            .mockReturnValueOnce({ events: [{ eventId: 'p1', data: { n: 1 } }], cursor: 'h1', hasMore: true })
+            .mockReturnValueOnce({
+                events: [
+                    { eventId: 'old', timestamp: old, data: { n: 2 } },
+                    { eventId: 'p2', data: { n: 3 } }
+                ],
+                cursor: 'h2'
+            })
+            .mockReturnValue({ events: [], cursor: 'h2' });
+        const events = new EventsExtension();
+        events.registerEvent('tick', { payloadSchema: P, check });
+        const stream = await open(serve(events), { name: 'tick', cursor: 'h0', maxAgeMs: 300_000 });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE, params: { cursor: 'h0', truncated: false } });
+        expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'p1', cursor: 'h1' } });
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(await next(stream)).toMatchObject({ method: ACTIVE, params: { cursor: 'h1', truncated: true } });
+        expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'p2', cursor: 'h2' } });
+        expect(check.mock.calls.map(([ctx, , cursor]) => [cursor, ctx.maxAgeMs])).toEqual([
+            ['h0', 300_000],
+            ['h1', 305_000]
+        ]);
     });
 
     it('drops a check event without an eventId and reports it', async () => {
@@ -409,7 +440,7 @@ describe('events/stream: a check type', () => {
 });
 
 describe('events/stream: an emit-only type', () => {
-    it('fans emits out per stream with match, transform and targeted emits', async () => {
+    it('fans emits out per stream with match and transform', async () => {
         const ids = new Map<string, string>();
         const events = new EventsExtension();
         const handle = events.registerEvent('incident', {
@@ -419,7 +450,7 @@ describe('events/stream: an emit-only type', () => {
             onSubscribe: (ctx, args) => {
                 ids.set(args.severity, ctx.subscriptionId);
             },
-            match: (_ctx, event, args) => event.data.severity === args.severity,
+            match: (_ctx, event, args) => event.data.severity === args.severity || event.data.reporter === 'all',
             transform: (_ctx, event, args) => (args.redact ? { ...event, data: { ...event.data, reporter: null } } : event)
         });
         const served = serve(events);
@@ -429,7 +460,7 @@ describe('events/stream: an emit-only type', () => {
         await next(p3);
         await handle.emit({ eventId: 'inc-1', data: { severity: 'P1', reporter: 'ann' } });
         await handle.emit({ eventId: 'inc-3', data: { severity: 'P3', reporter: 'bob' } });
-        await handle.emit({ eventId: 'direct', data: { severity: 'P3', reporter: 'cy' } }, { subscriptionId: ids.get('P1')! });
+        await handle.emit({ eventId: 'both', data: { severity: 'P2', reporter: 'all' } });
         await handle.emit({ eventId: 'inc-3b', data: { severity: 'P3', reporter: 'dee' } });
 
         const first = await next(p1);
@@ -443,8 +474,9 @@ describe('events/stream: an emit-only type', () => {
             })
         );
         expect(paramsOf(first).cursor).not.toBe(head);
-        expect(await next(p1)).toMatchObject({ params: { eventId: 'direct', data: { severity: 'P3', reporter: null } } });
+        expect(await next(p1)).toMatchObject({ params: { eventId: 'both', data: { severity: 'P2', reporter: null } } });
         expect(await next(p3)).toMatchObject({ params: { eventId: 'inc-3', data: { reporter: 'bob' }, _meta: { [SUB]: p3.id } } });
+        expect(await next(p3)).toMatchObject({ params: { eventId: 'both', data: { reporter: 'all' } } });
         expect(await next(p3)).toMatchObject({ params: { eventId: 'inc-3b' } });
         expect(ids.get('P1')).not.toBe(ids.get('P3'));
     });
@@ -469,6 +501,27 @@ describe('events/stream: an emit-only type', () => {
         await handle.emit({ eventId: 'good-4', data: { n: 4 } });
         expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'good-4' } });
         expect(onerror).toHaveBeenCalledTimes(2);
+    });
+
+    it('drops and reports an event JSON cannot carry, and keeps the stream open for the events after it', async () => {
+        const onerror = vi.fn();
+        const events = new EventsExtension({ onerror });
+        const handle = events.registerEvent('i', {
+            emitOnly: true,
+            payloadSchema: P,
+            transform: (_ctx, event) => (event.eventId === 'shaped' ? { ...event, _meta: { big: 2n } } : event)
+        });
+        const stream = await open(serve(events), { name: 'i', cursor: null });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE });
+        await handle.emit({ eventId: 'meta', data: { n: 1 }, _meta: { big: 1n } });
+        await handle.emit({ eventId: 'shaped', data: { n: 2 } });
+        await handle.emit({ eventId: 'after', data: { n: 3 } });
+        expect(await next(stream)).toMatchObject({ method: EVENT, params: { eventId: 'after' } });
+        expect(testHook(events).state().pushStreams).toBe(1);
+        expect(onerror.mock.calls.map(([error]) => (error as Error).message)).toEqual([
+            expect.stringMatching(/^event 'i': dropped an event that cannot be serialised to JSON: /),
+            expect.stringMatching(/^event 'i': dropped an event that cannot be serialised to JSON: /)
+        ]);
     });
 
     it('replays from a cursor with each event at its own position, then goes live', async () => {
@@ -651,62 +704,194 @@ describe('events/stream: termination', () => {
 });
 
 describe('events/stream: a client that stops reading', () => {
-    it('ends a stream whose client leaves more than 1 MiB unread for a whole heartbeat interval, and keeps one whose client reads', async () => {
+    const BIG = z.object({ s: z.string() });
+    const big = (n: number) => ({ eventId: `e${n}`, data: { s: 'x'.repeat(100_000) } });
+
+    it('abandons a stream whose client leaves more than 1 MiB unread for a whole grant: its unread bytes go with the errored response, and the subscription ends', async () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
+        const onUnsubscribe = vi.fn();
         const events = new EventsExtension();
-        const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: z.object({ s: z.string() }) });
+        const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: BIG, onUnsubscribe });
         const served = serve(events);
         const stalled = await open(served, { name: 'big', cursor: null, heartbeatMs: 5000 });
         const reading = await open(served, { name: 'big', cursor: null, heartbeatMs: 5000 });
         expect(await next(stalled)).toMatchObject({ method: ACTIVE });
         expect(await next(reading)).toMatchObject({ method: ACTIVE });
 
-        // 20 events of 100 kB: the stalled client reads none of them, and they are written all the same.
+        // 20 events of 100 kB: the reading client gets them all, while the stalled stream holds what passed the bound and waits.
         const read: unknown[] = [];
         for (let n = 0; n < 20; n++) {
-            await handle.emit({ eventId: `e${n}`, data: { s: 'x'.repeat(100_000) } });
+            await handle.emit(big(n));
             read.push(paramsOf(await next(reading))['eventId']);
         }
         expect(read).toHaveLength(20);
+        await vi.advanceTimersByTimeAsync(4000);
         expect(testHook(events).state().pushStreams).toBe(2);
+        expect(onUnsubscribe).not.toHaveBeenCalled();
 
-        // The heartbeats a grant later: the stalled stream is still over the bound and ends instead.
+        // A grant after it went over the bound, the stalled stream is abandoned, and the one that reads gets its heartbeat.
         const heartbeat = next(reading);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(await heartbeat).toMatchObject({ method: HEARTBEAT });
+        expect(testHook(events).state().pushStreams).toBe(1);
+        expect(onUnsubscribe).toHaveBeenCalledOnce();
+        await expect(rest(stalled)).rejects.toThrow();
+    });
+
+    it('abandons an emit-only stream whose client reads about a frame per grant while emits outpace it, once more events wait than the buffer holds', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const onUnsubscribe = vi.fn();
+        const events = new EventsExtension({ emitBuffer: { maxEvents: 10 } });
+        const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: BIG, onUnsubscribe });
+        const stream = await open(serve(events), { name: 'big', cursor: null, heartbeatMs: 5000 });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE });
+
+        // Two events a second; the client reads one frame every 4 s, so the backlog never stays over the bound for a grant.
+        for (let second = 0; second < 40 && testHook(events).state().pushStreams === 1; second++) {
+            await handle.emit(big(2 * second));
+            await handle.emit(big(2 * second + 1));
+            if (second % 4 === 3) await next(stream);
+            await vi.advanceTimersByTimeAsync(1000);
+        }
+        expect(testHook(events).state().pushStreams).toBe(0);
+        expect(onUnsubscribe).toHaveBeenCalledOnce();
+        await expect(rest(stream)).rejects.toThrow();
+        // The frames that waited are gone with it: nothing waits on a timer any more.
+        await vi.advanceTimersByTimeAsync(0);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("runs a check stream's next check only once its client has taken the last batch", async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const check = vi.fn((_ctx: CheckContext, _args: unknown, cursor: string | null) =>
+            cursor === null
+                ? { events: [], cursor: '0' }
+                : {
+                      events: Array.from({ length: 20 }, (_, n) => big(n)).map((event, n) => ({ ...event, eventId: `${cursor}.${n}` })),
+                      cursor: `${Number(cursor) + 1}`
+                  }
+        );
+        const events = new EventsExtension({ checkIntervalMs: 1000 });
+        events.registerEvent('t', { payloadSchema: BIG, check });
+        const stream = await open(serve(events), { name: 't', cursor: null, heartbeatMs: 5000 });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE });
+
+        // The 2 MB batch of the first run waits for the client, so no other run starts meanwhile.
+        await vi.advanceTimersByTimeAsync(4000);
+        expect(check).toHaveBeenCalledTimes(2);
+        for (let n = 0; n < 20; n++) expect(await next(stream)).toMatchObject({ params: { eventId: `0.${n}` } });
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(check).toHaveBeenCalledTimes(3);
+    });
+
+    it('abandons at once a stream that ends while its client is over the bound, so terminate() does not wait for room', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const events = new EventsExtension();
+        const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: BIG });
+        const stream = await open(serve(events), { name: 'big', cursor: null, heartbeatMs: 5000 });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE });
+        for (let n = 0; n < 20; n++) await handle.emit(big(n));
+
+        let ended = false;
+        void handle.terminate(new EventsError('forbidden', 'Forbidden')).then(() => (ended = true));
+        await vi.advanceTimersByTimeAsync(10);
+        expect(ended).toBe(true);
+        expect(testHook(events).state().pushStreams).toBe(0);
+        // No `terminated` frame: the response is cut off with its unread bytes.
+        await expect(rest(stream)).rejects.toThrow();
+    });
+
+    it('terminates at once a stream whose client is just under the bound with frames still queued, abandoning it as the last ones put it over', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const events = new EventsExtension();
+        const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: BIG });
+        const stream = await open(serve(events), { name: 'big', cursor: null, heartbeatMs: 5000 });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE });
+        for (let n = 0; n < 30; n++) await handle.emit(big(n));
+        // The client reads four frames: now under 1 MiB unread, with frames still queued behind the one that waits for room.
+        for (let n = 0; n < 4; n++) await next(stream);
+
+        let ended = false;
+        void handle.terminate(new EventsError('forbidden', 'Forbidden')).then(() => (ended = true));
+        await vi.advanceTimersByTimeAsync(10);
+        expect(ended).toBe(true);
+        expect(testHook(events).state().pushStreams).toBe(0);
+        await expect(rest(stream)).rejects.toThrow();
+    });
+
+    it('counts only live events against the cap, so a client that falls fewer than maxEvents behind after a full replay stays', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const events = new EventsExtension({ emitBuffer: { maxEvents: 10 } });
+        const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: BIG });
+        const served = serve(events);
+        const { cursor: start } = resultOf(await served.rpc('events/poll', { name: 'big', cursor: null })) as PollEventsResult;
+        // A full buffer of 300 kB events: the response takes four, and the rest of the replay waits.
+        const huge = (n: number) => ({ eventId: `e${n}`, data: { s: 'x'.repeat(300_000) } });
+        for (let n = 0; n < 10; n++) await handle.emit(huge(n));
+        const stream = await open(served, { name: 'big', cursor: start, heartbeatMs: 5000 });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE });
+        for (let n = 10; n < 18; n++) await handle.emit(huge(n));
+        expect(testHook(events).state().pushStreams).toBe(1);
+
+        const read: unknown[] = [];
+        for (let n = 0; n < 18; n++) read.push(paramsOf(await next(stream))['eventId']);
+        expect(read).toEqual(Array.from({ length: 18 }, (_, n) => `e${n}`));
+        expect(testHook(events).state().pushStreams).toBe(1);
+    });
+
+    it('frees the place of an abandoned stream in maxSubscriptions only as its response is dropped', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const events = new EventsExtension({ maxSubscriptions: 1 });
+        const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: BIG });
+        const served = serve(events);
+        const refusal = async () => errorOf(await served.rpc('events/stream', { name: 'big', cursor: null }));
+        const stalled = await open(served, { name: 'big', cursor: null, heartbeatMs: 5000 });
+        expect(await next(stalled)).toMatchObject({ method: ACTIVE });
+        for (let n = 0; n < 20; n++) await handle.emit(big(n));
+
+        await vi.advanceTimersByTimeAsync(4000);
+        expect(await refusal()).toMatchObject({ code: -32_025, data: { limit: 'subscriptions' } });
+        await vi.advanceTimersByTimeAsync(1000);
+        await expect(rest(stalled)).rejects.toThrow();
+        expect(testHook(events).state().pushStreams).toBe(0);
+        expect(await next(await open(served, { name: 'big', cursor: null }))).toMatchObject({ method: ACTIVE });
+    });
+
+    it('delivers a replay of more than 1 MiB in full at the pace its client reads, and keeps the stream open', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const events = new EventsExtension();
+        const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: BIG });
+        const served = serve(events);
+        const { cursor: start } = resultOf(await served.rpc('events/poll', { name: 'big', cursor: null })) as PollEventsResult;
+        // 10 MB buffered before the stream opens, then one live event behind the replay.
+        for (let n = 0; n < 100; n++) await handle.emit(big(n));
+        const stream = await open(served, { name: 'big', cursor: start, heartbeatMs: 5000 });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE });
+        await handle.emit(big(100));
+
+        // The client reads 15 events, then pauses for less than a grant, again and again, for several grants.
+        const read: unknown[] = [];
+        while (read.length < 101) {
+            for (let n = 0; n < 15 && read.length < 101; n++) read.push(paramsOf(await next(stream))['eventId']);
+            await vi.advanceTimersByTimeAsync(3000);
+        }
+        expect(read).toEqual(Array.from({ length: 101 }, (_, n) => `e${n}`));
+        const heartbeat = next(stream);
         await vi.advanceTimersByTimeAsync(5000);
         expect(await heartbeat).toMatchObject({ method: HEARTBEAT });
         expect(testHook(events).state().pushStreams).toBe(1);
-        const left = await rest(stalled);
-        expect(left.at(-1)).toEqual(finalResult(stalled.id));
-        expect(left.filter(frame => 'method' in frame && frame.method === EVENT)).toHaveLength(20);
-        expect(left.filter(frame => 'method' in frame && frame.method === HEARTBEAT)).toEqual([]);
     });
 
-    it('ends a stream at once when its client leaves more than 8 MiB unread', async () => {
+    it('keeps a stream whose client stops reading for less than a grant and then reads what waited', async () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
         const events = new EventsExtension();
-        const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: z.object({ s: z.string() }) });
+        const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: BIG });
         const stream = await open(serve(events), { name: 'big', cursor: null, heartbeatMs: 5000 });
         expect(await next(stream)).toMatchObject({ method: ACTIVE });
 
-        // 100 events of 100 kB, well within one grant, before the client reads any.
-        for (let n = 0; n < 100; n++) await handle.emit({ eventId: `e${n}`, data: { s: 'x'.repeat(100_000) } });
-        expect(testHook(events).state().pushStreams).toBe(0);
-        const left = await rest(stream);
-        expect(left.at(-1)).toEqual(finalResult(stream.id));
-        const unread = left.filter(frame => 'method' in frame && frame.method === EVENT);
-        expect(unread.length).toBeGreaterThan(80);
-        expect(unread.length).toBeLessThan(90);
-    });
-
-    it('keeps a stream open through a burst of more than 1 MiB that its client then reads', async () => {
-        vi.useFakeTimers({ shouldAdvanceTime: true });
-        const events = new EventsExtension();
-        const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: z.object({ s: z.string() }) });
-        const stream = await open(serve(events), { name: 'big', cursor: null, heartbeatMs: 5000 });
-        expect(await next(stream)).toMatchObject({ method: ACTIVE });
-
-        // `for (…) await handle.emit(…)` writes every frame before the client can read one.
-        for (let n = 0; n < 20; n++) await handle.emit({ eventId: `e${n}`, data: { s: 'x'.repeat(100_000) } });
+        // `for (…) await handle.emit(…)` queues every frame before the client reads one.
+        for (let n = 0; n < 20; n++) await handle.emit(big(n));
+        await vi.advanceTimersByTimeAsync(4000);
         const read: unknown[] = [];
         for (let n = 0; n < 20; n++) read.push(paramsOf(await next(stream))['eventId']);
         expect(read).toEqual(Array.from({ length: 20 }, (_, n) => `e${n}`));

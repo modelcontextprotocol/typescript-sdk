@@ -324,9 +324,11 @@ export function buildMcpParamHeaders(
  * ------------------------------------------------------------------------ */
 
 /**
- * The header/body comparison the server performs at tool-resolution time.
+ * The header/body comparison the server performs once it has resolved the
+ * input schema.
  *
- * For each `x-mcp-header` declaration on the named tool: when the body
+ * For each `x-mcp-header` declaration of the input schema `params.name`
+ * names (a tool's, or one an extension registered a lookup for): when the body
  * `arguments` carries a value, the matching `Mcp-Param-{Name}` header MUST be
  * present and decode to an equal value; when the body value is `null` or
  * absent the server MUST NOT expect the header (a present header is ignored).

@@ -43,6 +43,17 @@ function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+// Every event's `data` is an object (SEP-3415), so a payloadSchema whose JSON Schema root is anything else is refused.
+function payloadJsonOf(name: string, payloadSchema: AnyEventDefinition['payloadSchema']): Record<string, unknown> {
+    const json = standardSchemaToJsonSchema(payloadSchema, 'output');
+    if (json.type !== 'object') {
+        throw new TypeError(
+            `event '${name}': payloadSchema must describe an object (its JSON Schema has type ${JSON.stringify(json.type) ?? 'none'})`
+        );
+    }
+    return json;
+}
+
 function createEntry(name: string, definition: AnyEventDefinition): RegisteredEvent {
     const { inputSchema, payloadSchema } = definition;
     const entry: RegisteredEvent = {
@@ -50,7 +61,7 @@ function createEntry(name: string, definition: AnyEventDefinition): RegisteredEv
         kind: definition.emitOnly === true ? 'emitOnly' : 'check',
         definition,
         inputJson: inputSchema === undefined ? { type: 'object' } : standardSchemaToJsonSchema(inputSchema, 'input'),
-        payloadJson: standardSchemaToJsonSchema(payloadSchema, 'output'),
+        payloadJson: payloadJsonOf(name, payloadSchema),
         modes: webhookEnabled => deliveryModes(definition.delivery, webhookEnabled),
         parseArguments: async args => {
             const value = args ?? {};

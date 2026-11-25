@@ -279,6 +279,85 @@ describe('toNodeHandler', () => {
         ).resolves.toBeUndefined();
     });
 
+    it.each([
+        ['while it waits for drain', false],
+        ['between chunks', true]
+    ])('destroys the response, and never ends it, when the body errors %s', async (_case, writable) => {
+        let fail!: (error: Error) => void;
+        const body = new ReadableStream<Uint8Array>({
+            start: controller => {
+                controller.enqueue(new TextEncoder().encode('event: message\ndata: {}\n\n'));
+                fail = error => controller.error(error);
+            }
+        });
+        const node = toNodeHandler({ fetch: async () => new Response(body, { headers: { 'content-type': 'text/event-stream' } }) });
+        const calls: string[] = [];
+        const res: NodeServerResponseLike & { destroy(): unknown } = {
+            writeHead() {
+                return this;
+            },
+            write() {
+                calls.push('write');
+                // `false` reports a full buffer: 'drain' never fires for a client that stopped reading.
+                return writable;
+            },
+            end() {
+                calls.push('end');
+                return this;
+            },
+            on() {
+                return this;
+            },
+            destroy() {
+                calls.push('destroy');
+                return this;
+            }
+        };
+
+        const { req } = nodeRequestResponse(modernToolsCall('echo', { text: 'x' }));
+        const served = node(req, res);
+        await vi.waitFor(() => expect(calls).toEqual(['write']));
+        fail(new Error('the client stopped reading'));
+        await expect(
+            Promise.race([served, new Promise((_, reject) => setTimeout(() => reject(new Error('parked')), 500))])
+        ).resolves.toBeUndefined();
+        expect(calls).toEqual(['write', 'destroy']);
+    });
+
+    it('cancels the body and destroys the response when res.write throws', async () => {
+        const cancel = vi.fn();
+        const body = new ReadableStream<Uint8Array>({
+            start: controller => controller.enqueue(new TextEncoder().encode('event: message\ndata: {}\n\n')),
+            cancel
+        });
+        const node = toNodeHandler({ fetch: async () => new Response(body, { headers: { 'content-type': 'text/event-stream' } }) });
+        const calls: string[] = [];
+        const res: NodeServerResponseLike & { destroy(): unknown } = {
+            writeHead() {
+                return this;
+            },
+            write() {
+                throw new Error('write after the socket failed');
+            },
+            end() {
+                calls.push('end');
+                return this;
+            },
+            on() {
+                return this;
+            },
+            destroy() {
+                calls.push('destroy');
+                return this;
+            }
+        };
+
+        const { req } = nodeRequestResponse(modernToolsCall('echo', { text: 'x' }));
+        await node(req, res);
+        expect(calls).toEqual(['destroy']);
+        await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    });
+
     it('answers with a 500 JSON-RPC error when handler.fetch throws (closed handler)', async () => {
         const { factory } = testFactory();
         const handler = createMcpHandler(factory);

@@ -131,11 +131,12 @@ export class PushDriver<T> implements Driver {
         const { connection, subscription } = this.#context;
         const { name, arguments: args } = subscription;
         const loop = this.#loop;
+        const { maxAgeMs } = loop;
         const params = {
             name,
             ...(args !== undefined && { arguments: args }),
             cursor: loop.cursor,
-            ...(loop.maxAgeMs !== undefined && { maxAgeMs: loop.maxAgeMs })
+            ...(maxAgeMs !== undefined && { maxAgeMs })
         };
         const headers = connection.paramHeadersFor(name, args);
         // A terminated stream whose final result has not arrived.
@@ -206,8 +207,6 @@ export class PushDriver<T> implements Driver {
             case EVENTS_HEARTBEAT_NOTIFICATION: {
                 const params = this.#parse(EventsHeartbeatNotificationParamsSchema, notification);
                 if (params === undefined) break;
-                // A heartbeat follows the whole batch sent after `active`.
-                this.#loop.replayed();
                 this.#loop.setCursor(params.cursor ?? null);
                 break;
             }
