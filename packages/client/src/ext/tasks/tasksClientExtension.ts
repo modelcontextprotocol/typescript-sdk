@@ -25,10 +25,11 @@
 import type { CreateTaskResult, DetailedTask } from '@modelcontextprotocol/core/ext/tasks';
 import { createTaskResultSchema, detailedTaskSchema, TASKS_EXTENSION_ID } from '@modelcontextprotocol/core/ext/tasks';
 import type { CallToolRequestParams, CallToolResult, InputResponses, RequestOptions } from '@modelcontextprotocol/core-internal';
-import { CompatibilityCallToolResultSchema, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
+import { CallToolResultSchema, CompatibilityCallToolResultSchema, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import * as z from 'zod/v4';
 
-import type { Client } from '../../client/client';
+import type { CallToolRequestOptions, Client } from '../../client/client';
+import { callToolWith } from '../../client/client';
 import type { ClientExtension, ClientExtensionContext } from '../../client/extension';
 
 /**
@@ -85,6 +86,8 @@ const ackSchema = z.looseObject({});
 export class TasksClientExtension implements ClientExtension {
     readonly id = TASKS_EXTENSION_ID;
     #client: Client | undefined;
+    // The output check of the tool behind each task this instance started, applied to the task's final result.
+    readonly #outputChecks = new Map<string, (result: CallToolResult) => void>();
 
     /**
      * Binds this instance to the client and lets `tools/call` answer with a
@@ -108,22 +111,43 @@ export class TasksClientExtension implements ClientExtension {
     /**
      * Calls a tool that may answer with a task handle. The ordinary result
      * comes back as `{ kind: 'result' }` for tools that answer synchronously.
-     * Unlike `client.callTool`, this neither mirrors `x-mcp-header` arguments
-     * into `Mcp-Param-*` headers nor validates `structuredContent` against the
-     * tool's `outputSchema`.
+     * It does what `client.callTool` does around the request: it mirrors
+     * `x-mcp-header` arguments into `Mcp-Param-*` headers, and checks an
+     * ordinary result's `structuredContent` against the tool's `outputSchema`.
+     * For a task, that check runs on the final result, when {@link get} or
+     * {@link waitFor} on this instance sees it completed.
      */
-    async callTool(params: CallToolRequestParams, options?: RequestOptions): Promise<CallToolOutcome> {
-        const raw = await this.client.request({ method: 'tools/call', params }, callToolOutcomeSchema, options);
+    async callTool(params: CallToolRequestParams, options?: CallToolRequestOptions): Promise<CallToolOutcome> {
+        const { result: raw, validateOutput } = await callToolWith(this.client, params, options, sendOptions =>
+            this.client.request({ method: 'tools/call', params }, callToolOutcomeSchema, sendOptions)
+        );
         if ((raw as { resultType?: unknown }).resultType === 'task') {
-            return { kind: 'task', task: createTaskResultSchema.parse(raw) };
+            const task = createTaskResultSchema.parse(raw);
+            this.#outputChecks.set(task.taskId, validateOutput);
+            return { kind: 'task', task };
         }
-        return { kind: 'result', result: raw as CallToolResult };
+        const result = raw as CallToolResult;
+        validateOutput(result);
+        return { kind: 'result', result };
     }
 
-    /** `tasks/get`: the task's current snapshot, results and input requests inlined. */
+    /**
+     * `tasks/get`: the task's current snapshot, results and input requests
+     * inlined. A completed task this instance started through {@link callTool}
+     * has its result checked against the tool's `outputSchema`; a mismatch
+     * throws, as it does from `client.callTool`.
+     */
     async get(taskId: string, options?: RequestOptions): Promise<DetailedTask> {
-        const task = await this.client.request({ method: 'tasks/get', params: { taskId } }, detailedTaskSchema, options);
-        return task as DetailedTask;
+        const task: DetailedTask = await this.client.request({ method: 'tasks/get', params: { taskId } }, detailedTaskSchema, options);
+        const check = this.#outputChecks.get(taskId);
+        if (task.status === 'completed' && check !== undefined) {
+            const result = CallToolResultSchema.safeParse(task.result);
+            if (!result.success)
+                throw new SdkError(SdkErrorCode.InvalidResult, `Task "${taskId}" completed with a result that is not a tool result`);
+            check(result.data);
+        }
+        if (TERMINAL.has(task.status)) this.#outputChecks.delete(taskId);
+        return task;
     }
 
     /** `tasks/update`: answers outstanding input requests. Partial answers are accepted. */
@@ -134,6 +158,7 @@ export class TasksClientExtension implements ClientExtension {
     /** `tasks/cancel`: cooperative; resolves on acknowledgement, the task may still settle. */
     async cancel(taskId: string, options?: RequestOptions): Promise<void> {
         await this.client.request({ method: 'tasks/cancel', params: { taskId } }, ackSchema, options);
+        this.#outputChecks.delete(taskId);
     }
 
     /**

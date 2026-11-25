@@ -10,7 +10,7 @@ import { Client } from '@modelcontextprotocol/client';
 import { SkillsClient } from '@modelcontextprotocol/client/ext/skills';
 import type { DetailedTask } from '@modelcontextprotocol/client/ext/tasks';
 import { TasksClientExtension } from '@modelcontextprotocol/client/ext/tasks';
-import { McpServer } from '@modelcontextprotocol/server';
+import { fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { memorySkillFiles, SkillsExtension } from '@modelcontextprotocol/server/ext/skills';
 import type { TaskHandle } from '@modelcontextprotocol/server/ext/tasks';
 import { InMemoryTaskStore, TASKS_EXTENSION_ID, TasksExtension } from '@modelcontextprotocol/server/ext/tasks';
@@ -178,16 +178,51 @@ verifies('tasks:capability:undeclared-refused', async ({ transport }: TestArgs) 
 });
 
 verifies('typescript:tasks:tool-with-output-schema', async ({ transport }: TestArgs) => {
-    using h = harness(async handle => handle.complete({ content: [], structuredContent: { greeting: 'hello' } }), {
-        outputSchema: z.object({ greeting: z.string() })
-    });
+    using h = harness(
+        async (handle, { name }) =>
+            handle.complete({ content: [], structuredContent: name === 'bad' ? { greeting: 42 } : { greeting: `hello ${name}` } }),
+        { outputSchema: z.object({ greeting: z.string() }) }
+    );
     const client = h.newClient();
     await using _ = await wire(transport, h.makeServer, client, WIRE);
+    await client.listTools();
 
     const created = await h.start();
     expect(created.resultType).toBe('task');
     const done = await h.tasks.waitFor(created.taskId);
-    expect(done.status === 'completed' && done.result).toMatchObject({ structuredContent: { greeting: 'hello' } });
+    expect(done.status === 'completed' && done.result).toMatchObject({ structuredContent: { greeting: 'hello ada' } });
+
+    // The store does not check the final result; the client does, as client.callTool checks a synchronous one.
+    const bad = await h.start('bad');
+    await expect(h.tasks.waitFor(bad.taskId)).rejects.toThrow(/does not match the tool's output schema/);
+});
+
+verifies('typescript:tasks:call-tool:param-headers', async ({ transport }: TestArgs) => {
+    using store = Object.assign(new InMemoryTaskStore(), { [Symbol.dispose]: () => store.close() });
+    const tasks = new TasksExtension(store, { defaultPollIntervalMs: 5 });
+    // Declared as a non-literal so the `x-mcp-header` vendor key passes excess property checks.
+    const inputSchema = { type: 'object', properties: { region: { type: 'string', 'x-mcp-header': 'Region' } }, required: ['region'] };
+    const makeServer = () => {
+        const server = new McpServer(info, { extensions: [tasks] });
+        server.registerTool('locate', { inputSchema: fromJsonSchema<{ region: string }>(inputSchema) }, async ({ region }, ctx) => {
+            const task = await tasks.create(ctx);
+            void store.handle(task.taskId).complete({ content: [{ type: 'text', text: `region=${region}` }] });
+            return task;
+        });
+        return server;
+    };
+    const clientTasks = new TasksClientExtension();
+    const client = new Client(info, { extensions: [clientTasks] });
+    await using wired = await wire(transport, makeServer, client, WIRE);
+
+    // No listTools first: the server refuses the header-less call, and callTool refreshes the tool list and retries once.
+    const outcome = await clientTasks.callTool({ name: 'locate', arguments: { region: 'us-west1' } });
+    if (outcome.kind !== 'task') throw new Error('expected a task handle');
+    const calls = (wired.httpLog ?? []).filter(exchange => exchange.requestBody?.includes('"tools/call"'));
+    expect(calls.at(-1)?.requestHeaders.get('mcp-param-region')).toBe('us-west1');
+
+    const done = await clientTasks.waitFor(outcome.task.taskId);
+    expect(done.status === 'completed' && done.result).toEqual({ content: [{ type: 'text', text: 'region=us-west1' }] });
 });
 
 verifies('typescript:tasks:with-skills', async ({ transport }: TestArgs) => {

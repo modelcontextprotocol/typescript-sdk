@@ -177,4 +177,40 @@ describe('TasksClientExtension', () => {
         expect(methodsWritten(written)).toContain('tasks/cancel');
         await client.close();
     });
+
+    const counted = (name: string) => ({
+        name,
+        inputSchema: { type: 'object' as const },
+        outputSchema: { type: 'object' as const, properties: { n: { type: 'number' as const } }, required: ['n'] }
+    });
+
+    it('checks an immediate result against the tool outputSchema, as client.callTool does', async () => {
+        const { client, tasks } = await scriptedServer([]);
+        // The scripted `fast` result carries no structuredContent.
+        await expect(tasks.callTool({ name: 'fast', arguments: {} }, { toolDefinition: counted('fast') })).rejects.toThrow(
+            /has an output schema but did not return structured content/
+        );
+        await client.close();
+    });
+
+    it('checks the final result of a task it started against the tool outputSchema', async () => {
+        const bad = await scriptedServer([{ status: 'completed', result: { content: [], structuredContent: { n: 'one' } } }]);
+        const started = await bad.tasks.callTool({ name: 'slow', arguments: {} }, { toolDefinition: counted('slow') });
+        expect(started.kind).toBe('task');
+        await expect(bad.tasks.waitFor('t-1')).rejects.toThrow(/does not match the tool's output schema/);
+        // The same task read by an instance that did not start it is not checked: the tool is unknown there.
+        await bad.client.close();
+
+        const good = await scriptedServer([{ status: 'completed', result: { content: [], structuredContent: { n: 1 } } }]);
+        await good.tasks.callTool({ name: 'slow', arguments: {} }, { toolDefinition: counted('slow') });
+        const done = await good.tasks.waitFor('t-1');
+        expect(done.status === 'completed' && done.result).toMatchObject({ structuredContent: { n: 1 } });
+        await good.client.close();
+    });
+
+    it('refuses a failed task whose error is not a JSON-RPC error object', async () => {
+        const { client, tasks } = await scriptedServer([{ status: 'failed', error: { reason: 'nope' } }]);
+        await expect(tasks.get('t-1')).rejects.toThrow();
+        await client.close();
+    });
 });

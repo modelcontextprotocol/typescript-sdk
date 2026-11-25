@@ -78,10 +78,18 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'typescript:tasks:tool-with-output-schema': {
         source: 'sdk',
         behavior:
-            'A tool that declares an outputSchema can answer with a task handle: the handle is not validated as the tool output, and the completed task carries the structured result.',
+            'A tool that declares an outputSchema can answer with a task handle: the handle is not validated as the tool output, and the completed task carries the structured result. The client that started the task checks that result against the outputSchema, and rejects one that does not match.',
         transports: ['entryModern'],
         addedInSpecVersion: '2026-07-28',
         note: 'The extension is served on 2026-07-28 requests only; entryModern is the modern-era arm.'
+    },
+    'typescript:tasks:call-tool:param-headers': {
+        source: 'https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http',
+        behavior:
+            'TasksClientExtension.callTool mirrors a tool argument declared with x-mcp-header into its Mcp-Param-{Name} HTTP header, as client.callTool does, so a task tool with such an argument is served over Streamable HTTP; a cold tool cache recovers with one refresh and retry.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'The header exists on 2026-07-28 Streamable HTTP only; read from the HTTP log of the modern entry.'
     },
     'typescript:tasks:with-skills': {
         source: 'sdk',

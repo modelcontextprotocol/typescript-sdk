@@ -29,7 +29,7 @@ The client declares `io.modelcontextprotocol/tasks` in the capabilities envelope
 
 `tasks.callTool` returns a discriminated outcome: a task handle to follow, or the ordinary result for tools that answered synchronously.
 
-It sends `tools/call` directly, without what `client.callTool` adds: it does not mirror `x-mcp-header` arguments into `Mcp-Param-*` headers, so a tool that declares them is refused over HTTP, and it does not validate a synchronous result's `structuredContent` against the tool's `outputSchema`. Call such tools with `client.callTool`.
+Around the request it does what `client.callTool` does: it mirrors `x-mcp-header` arguments into `Mcp-Param-*` headers and takes the same `toolDefinition` option. It checks `structuredContent` against the tool's `outputSchema` too: on a synchronous result straight away, and on a task's final result when `tasks.get` or `tasks.waitFor` on the same extension sees it completed. A mismatch throws. A task picked up by its id alone, such as after a restart, is not checked, because the client no longer knows which tool started it.
 
 ```ts
 const outcome = await tasks.callTool({ name: 'send_report', arguments: { to: 'ops' } });
