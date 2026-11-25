@@ -172,8 +172,8 @@ export class PollSource implements SubscriptionSource {
 
     async handlePoll(params: PollEventsRequestParams, ctx: ServerContext): Promise<PollEventsResult> {
         let key = '';
-        const { entry, principal, args } = await this.#deps.validator.validate('poll', params, ctx, (principal, rawArgs) => {
-            key = leaseKey(principal, params.name, rawArgs);
+        const { entry, principal, args } = await this.#deps.validator.validate('poll', params, ctx, async (principal, rawArgs) => {
+            key = await leaseKey(principal, params.name, rawArgs);
             this.#throwTerminated(key);
         });
         const { lease, created } = await this.#lease(key, entry, principal, args);

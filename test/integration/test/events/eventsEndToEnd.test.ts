@@ -19,6 +19,7 @@ import {
     PROTOCOL_VERSION_META_KEY,
     SdkError,
     SdkErrorCode,
+    SdkHttpError,
     StreamableHTTPClientTransport,
     SUBSCRIPTION_ID_META_KEY
 } from '@modelcontextprotocol/client';
@@ -588,6 +589,36 @@ describe('maxAgeMs over http', () => {
     });
 });
 
+describe('a server that stops serving Events, over http', () => {
+    it('ends a live poll subscription with the HTTP 404 its -32601 comes in', async () => {
+        const events = new EventsExtension();
+        events.registerEvent('ticks', {
+            payloadSchema: z.object({ n: z.number() }),
+            check: () => ({ events: [], cursor: '0', nextPollMs: 20 })
+        });
+        const serving = createMcpHandler(() => new McpServer({ name: 'with-events', version: '1.0.0' }, { extensions: [events] }));
+        // The same server after a deploy that dropped the Events extension.
+        const dropped = createMcpHandler(() => new McpServer({ name: 'without-events', version: '1.0.0' }));
+        let target = serving;
+        const connection = await overHttp(() => target);
+        try {
+            const subscription = await connection.events.subscribe({ name: 'ticks', delivery: 'poll' });
+            target = dropped;
+            const ended = next(subscription);
+            await expect(ended).rejects.toBeInstanceOf(SdkHttpError);
+            await expect(ended).rejects.toMatchObject({ status: 404 });
+            const polls = () => connection.requests.filter(request => request.method === 'events/poll').length;
+            const after = polls();
+            await new Promise(resolve => setTimeout(resolve, 200));
+            expect(polls()).toBe(after);
+        } finally {
+            await connection.close();
+            await serving.close();
+            await dropped.close();
+        }
+    });
+});
+
 describe('push backpressure over http', () => {
     it('resumes a large check backlog by push a page at a time, holding about 1 000 events for a loop that does not read', async () => {
         const upstream = Array.from({ length: 3000 }, (_, n) => ({ eventId: `u${n}`, data: { n } }));
@@ -853,7 +884,7 @@ describe('webhook delivery over http', () => {
         }
     });
 
-    it('keeps delivering to a stored subscription after a restart, without a resubscribe', async () => {
+    it('keeps delivering to a stored subscription after a restart, without a resubscribe, and reports the restart as one gap', async () => {
         const events = new EventsClientExtension({ ...CLIENT_OPTIONS, webhook: { url: HOOK_URL } });
         const posts: Post[] = [];
         const store = new InMemoryWebhookSubscriptionStore();
@@ -867,19 +898,74 @@ describe('webhook delivery over http', () => {
         let target = before;
         const connection = await overHttp(() => target, { events, authInfo: ALICE });
         try {
-            const subscription = await events.subscribe<Note>({ name: NOTE, arguments: { tag: 'restart' } });
+            const gaps: Array<string | null> = [];
+            const subscription = await events.subscribe<Note>({
+                name: NOTE,
+                arguments: { tag: 'restart' },
+                onGap: gap => void gaps.push(gap)
+            });
             await before.close();
 
+            // The new process starts after the subscription was created and delivers before any refresh.
+            await new Promise(resolve => setTimeout(resolve, 5));
             const restarted = eventsFixture(options);
             target = handlerFor(restarted);
             const requests = connection.requests.length;
             const delivered = posts.length;
             await emit(restarted, 'restart', 'after the restart');
             expect(texts(await next(subscription))).toEqual(['after the restart']);
+            // It cannot know what the old process left undelivered, so a gap envelope follows its first acknowledged delivery.
+            await vi.waitFor(() => expect(gaps).toHaveLength(1));
             expect(connection.requests.slice(requests)).toEqual([]);
-            expect(posts.slice(delivered).map(post => post.body.type ?? 'event')).toEqual(['event']);
+            const sent = posts.slice(delivered);
+            expect(sent.map(post => post.body.type ?? 'event')).toEqual(['event', 'gap']);
+            expect(gaps).toEqual([sent[1]!.body.cursor]);
             await subscription.cancel();
             expect(restarted.log).toEqual([expect.objectContaining({ hook: 'unsubscribe', tag: 'restart' })]);
+        } finally {
+            await connection.close();
+            await target.close();
+        }
+    });
+
+    it('reports one gap through onGap on the first refresh after a restart, for an emit the old process had not delivered', async () => {
+        const events = new EventsClientExtension({ ...CLIENT_OPTIONS, webhook: { url: HOOK_URL } });
+        const posts: Post[] = [];
+        const store = new InMemoryWebhookSubscriptionStore();
+        // A 2 s grant: the client refreshes every 1.5 s. The receiver's answer to 'lost' is always 503, so it is never acknowledged.
+        const refuse = (body: Record<string, unknown>) => (body.data as { text?: unknown } | undefined)?.text === 'lost';
+        const options = {
+            webhookTtlMs: 2000,
+            webhookSender: inProcessSender(events.createWebhookHandler(), posts, refuse),
+            webhookStore: store,
+            getPrincipal
+        };
+        const before = eventsFixture(options);
+        const beforeHandler = handlerFor(before);
+        let target = beforeHandler;
+        const connection = await overHttp(() => target, { events, authInfo: ALICE });
+        try {
+            const gaps: Array<string | null> = [];
+            const subscription = await events.subscribe<Note>({
+                name: NOTE,
+                arguments: { tag: 'restart-gap' },
+                onGap: gap => void gaps.push(gap)
+            });
+            await emit(before, 'restart-gap', 'lost');
+            await vi.waitFor(() => expect(posts.some(post => refuse(post.body) && post.status === 503)).toBe(true));
+            await beforeHandler.close();
+
+            const restarted = eventsFixture(options);
+            target = handlerFor(restarted);
+            const refreshes = () =>
+                connection.requests.filter(request => request.handler === target && request.method === 'events/subscribe');
+            await vi.waitFor(() => expect(refreshes()).toHaveLength(2), { timeout: 5000 });
+            expect(gaps).toEqual([subscription.cursor]);
+
+            await emit(restarted, 'restart-gap', 'after the restart');
+            expect(texts(await next(subscription))).toEqual(['after the restart']);
+            expect(gaps).toHaveLength(1);
+            await subscription.cancel();
         } finally {
             await connection.close();
             await target.close();

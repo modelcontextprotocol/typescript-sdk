@@ -90,16 +90,23 @@ describe('EmitBuffer', () => {
         expect(read.cursor).toBe(buffer.head('i'));
     });
 
-    it('evicts beyond the count bound', () => {
+    it('evicts beyond the count bound, and reads an evicted cursor as a gap with the events from the oldest one held', () => {
         const buffer = new EmitBuffer({ maxAgeMs: 60_000, maxEvents: 2 });
         const start = buffer.head('i');
-        const positions = [1, 2, 3].map(n => buffer.append('i', { occurrence: occurrence(n) }));
-        const gap = buffer.read('i', start, { maxEvents: 10, select: all });
-        expect(gap).toEqual({ events: [], cursor: positions[1], truncated: true, hasMore: true });
-        expect(ids(buffer.read('i', gap.cursor, { maxEvents: 10, select: all }).events)).toEqual(['evt_2', 'evt_3']);
+        for (let n = 1; n <= 3; n++) buffer.append('i', { occurrence: occurrence(n) });
+        expect(buffer.read('i', start, { maxEvents: 10, select: all })).toEqual({
+            events: [occurrence(2), occurrence(3)],
+            cursor: buffer.head('i'),
+            truncated: true,
+            hasMore: false
+        });
+        const page = buffer.read('i', start, { maxEvents: 1, select: all });
+        expect(page).toMatchObject({ truncated: true, hasMore: true });
+        expect(ids(page.events)).toEqual(['evt_2']);
+        expect(buffer.read('i', page.cursor, { maxEvents: 10, select: all })).toMatchObject({ truncated: false, hasMore: false });
     });
 
-    it('evicts beyond the age bound', () => {
+    it('evicts beyond the age bound, and reads an evicted cursor as a gap with the events still held', () => {
         let now = 0;
         const buffer = new EmitBuffer({ maxAgeMs: 1000, maxEvents: 100 }, () => now);
         const start = buffer.head('i');
@@ -107,11 +114,15 @@ describe('EmitBuffer', () => {
         now = 500;
         const second = buffer.append('i', { occurrence: occurrence(2) });
         now = 1001;
-        const gap = buffer.read('i', start, { maxEvents: 10, select: all });
-        expect(gap).toEqual({ events: [], cursor: second, truncated: true, hasMore: true });
-        expect(ids(buffer.read('i', gap.cursor, { maxEvents: 10, select: all }).events)).toEqual(['evt_2']);
+        expect(buffer.read('i', start, { maxEvents: 10, select: all })).toEqual({
+            events: [occurrence(2)],
+            cursor: buffer.head('i'),
+            truncated: true,
+            hasMore: false
+        });
+        expect(buffer.read('i', second, { maxEvents: 10, select: all })).toMatchObject({ events: [occurrence(2)], truncated: false });
         now = 1501;
-        expect(buffer.read('i', gap.cursor, { maxEvents: 10, select: all })).toEqual({
+        expect(buffer.read('i', second, { maxEvents: 10, select: all })).toEqual({
             events: [],
             cursor: buffer.head('i'),
             truncated: true,
@@ -119,12 +130,39 @@ describe('EmitBuffer', () => {
         });
     });
 
+    it('serves an evicted cursor from the oldest event held in one read while the buffer keeps evicting', () => {
+        const buffer = new EmitBuffer({ maxAgeMs: 60_000, maxEvents: 5 });
+        let cursor = buffer.head('i');
+        const delivered: string[] = [];
+        let n = 0;
+        // Ten emits between reads evict everything the last read reached, so every read starts from an evicted cursor.
+        for (let round = 0; round < 3; round++) {
+            for (let emitted = 0; emitted < 10; emitted++) buffer.append('i', { occurrence: occurrence(++n) });
+            const read = buffer.read('i', cursor, { maxEvents: 3, select: all });
+            expect(read.truncated).toBe(true);
+            delivered.push(...ids(read.events));
+            cursor = read.cursor;
+        }
+        expect(delivered).toEqual(['evt_6', 'evt_7', 'evt_8', 'evt_16', 'evt_17', 'evt_18', 'evt_26', 'evt_27', 'evt_28']);
+    });
+
+    it('applies the maxAgeMs floor to an evicted cursor after the oldest event held', () => {
+        let now = 0;
+        const buffer = new EmitBuffer({ maxAgeMs: 60_000, maxEvents: 2 }, () => now);
+        const start = buffer.head('i');
+        buffer.append('i', { occurrence: occurrence(1) });
+        buffer.append('i', { occurrence: occurrence(2) });
+        now = 10_000;
+        buffer.append('i', { occurrence: occurrence(3) });
+        const read = buffer.read('i', start, { maxEvents: 10, maxAgeMs: 5000, select: all });
+        expect(read).toEqual({ events: [occurrence(3)], cursor: buffer.head('i'), truncated: true, hasMore: false });
+    });
+
     it.each([
-        ['older than the oldest retained event', (buffer: EmitBuffer) => buffer.head('i')],
         ['from another EmitBuffer', () => filled(1).head('i')],
         ['garbage', () => 'garbage'],
         ['ahead of the head', (buffer: EmitBuffer) => buffer.head('i').replace(/\.\d+$/, '.99')]
-    ])('reads a cursor %s as a gap from the oldest retained position (Review Focus 5)', (_label, cursorOf) => {
+    ])('reads a cursor %s as a gap from the oldest retained position, with no events (Review Focus 5)', (_label, cursorOf) => {
         const buffer = new EmitBuffer({ maxAgeMs: 60_000, maxEvents: 2 });
         const cursor = cursorOf(buffer);
         const positions = [1, 2, 3].map(n => buffer.append('i', { occurrence: occurrence(n) }));
@@ -135,6 +173,21 @@ describe('EmitBuffer', () => {
             truncated: true,
             hasMore: true
         });
+    });
+
+    it('serves null and the cursors whose events it still holds, and no other', () => {
+        const buffer = new EmitBuffer({ maxAgeMs: 60_000, maxEvents: 2 });
+        const start = buffer.head('i');
+        const positions = [1, 2, 3].map(n => buffer.append('i', { occurrence: occurrence(n) }));
+        expect([null, positions[1]!, positions[2]!, buffer.head('i')].map(cursor => buffer.serves('i', cursor))).toEqual([
+            true,
+            true,
+            true,
+            true
+        ]);
+        expect(
+            [start, filled(1).head('i'), 'garbage', buffer.head('i').replace(/\.\d+$/, '.99')].map(cursor => buffer.serves('i', cursor))
+        ).toEqual([false, false, false, false]);
     });
 
     it('starts replay at the maxAgeMs floor and flags the skip', () => {

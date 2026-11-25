@@ -27,12 +27,14 @@ const SUSPENSION_MIN_ATTEMPTS = 100;
 const SUSPENSION_FAILURE_PERCENT = 95;
 // A failed verification of a (principal, url) is answered again for this long without a POST.
 const FAILED_VERIFICATION_MS = 60_000;
-// Verification POSTs to one destination host: one at a time, and at most 10 in any 60 s; at most 10 more wait their turn.
+// Verification POSTs to one destination host: one at a time, and at most 10 in any 60 s; at most 10 more wait their turn. One principal holds at most 3 of these at once, sending or waiting, and gets no more there once 3 of its verifications to the host failed in the window, until it moves.
 const VERIFICATIONS_PER_WINDOW = 10;
+const PRINCIPAL_VERIFICATIONS_AT_ONCE = 3;
+const PRINCIPAL_FAILURES_PER_WINDOW = 3;
 const VERIFICATION_WINDOW_MS = 60_000;
-// The retry hint when the host's wait is full: nodeWebhookSender's 5 s timeout, by when the verification in flight has ended.
+// The retry hint when the host's wait is full or the principal holds its three places there: nodeWebhookSender's 5 s timeout, by when the verification in flight has ended.
 const QUEUE_FULL_RETRY_MS = 5000;
-// The most failed pairs and destination hosts the verification limits remember.
+// The most failed pairs, destination hosts and principals' failures at a host the verification limits remember.
 const MAX_REMEMBERED = 10_000;
 // setTimeout fires at once for longer delays; a longer grant re-arms when the timer fires early.
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
@@ -119,6 +121,8 @@ interface Tracked {
     told: number;
     // The watermark the last `truncated: true` refresh answer carried, since the last mark, and whether that refresh carried another cursor: only then does a refresh with it show the answer arrived.
     answered?: { readonly cursor: string | null; readonly proves: boolean };
+    // The mark made when this process began delivering to a subscription created before it started (a process before it may have held undelivered events); told once `told` reaches it.
+    restart?: number;
     // A gap envelope is in flight.
     signalling: boolean;
     // A position advance() asked for while messages were pending; the watermark moves to it once none is, unless a later delivery came first.
@@ -136,11 +140,22 @@ interface Handshake {
     callers: number;
 }
 
-// One destination host's verification POSTs: whether one holds the slot, the verifications waiting for it (oldest first), and the send times of the last window, oldest first.
+// One destination host's verification POSTs: the principal whose verification holds the slot, the verifications waiting for it (oldest first) with their principals, and the send times of the last window, oldest first.
 interface HostVerifications {
-    inFlight: boolean;
-    readonly waiting: Array<{ resolve(): void; reject(error: unknown): void }>;
+    holder: string | undefined;
+    readonly waiting: Array<{ readonly principal: string; resolve(): void; reject(error: unknown): void }>;
     readonly sent: number[];
+}
+
+// `times` (oldest first) without those at or before `start`, which it drops from its front.
+function since(times: number[], start: number): number[] {
+    while (times[0] !== undefined && times[0] <= start) times.shift();
+    return times;
+}
+
+// The key of one principal's verifications to the lower-cased destination hostname of `url`.
+function hostKeyOf(principal: string, url: string): string {
+    return `${principal}\u0000${new URL(url).hostname.toLowerCase()}`;
 }
 
 // Adds `key` to `map`, first dropping the entries `stale` says are done from its front, where the oldest are; at MAX_REMEMBERED it drops every such entry, then the oldest.
@@ -246,8 +261,12 @@ export class WebhookEngine {
     readonly #failed = new Map<string, { readonly reason: DeliveryErrorCategory; readonly until: number }>();
     // By lower-cased destination hostname (SEP-3415: rate-limited per destination host).
     readonly #hosts = new Map<string, HostVerifications>();
+    // By `principal\0hostname`: when the principal's verifications to the host failed in the last window, oldest first.
+    readonly #hostFailures = new Map<string, number[]>();
     // Aborts verification sends in flight on clear(); made at first use, as Cloudflare Workers refuse it at module scope.
     #lifetime: AbortController | undefined;
+    // When this engine started, or clear() started it again as a restart would.
+    #startedAt: number;
 
     constructor(options: WebhookEngineOptions) {
         this.#sender = options.sender;
@@ -256,6 +275,7 @@ export class WebhookEngine {
         this.#onerror = options.onerror;
         this.#watches = options.watches ?? (() => false);
         this.#now = options.now ?? (() => Date.now());
+        this.#startedAt = this.#now();
     }
 
     // Subscriptions this process holds delivery state for.
@@ -263,15 +283,15 @@ export class WebhookEngine {
         return this.#tracked.size;
     }
 
-    // The failed pairs and destination hosts the verification limits hold.
-    get remembered(): { readonly failed: number; readonly hosts: number } {
-        return { failed: this.#failed.size, hosts: this.#hosts.size };
+    // The failed pairs, destination hosts and principals' failures at a host the verification limits hold.
+    get remembered(): { readonly failed: number; readonly hosts: number; readonly hostFailures: number } {
+        return { failed: this.#failed.size, hosts: this.#hosts.size, hostFailures: this.#hostFailures.size };
     }
 
-    // One attempt, which the subscribe call waits for, after the host's verification in flight; throws `callbackEndpointError` with the failure category as `data.reason`, or `resourceExhausted` at the host's limit.
+    // One attempt, which the subscribe call waits for, after the host's verification in flight; throws `callbackEndpointError` with the failure category as `data.reason`, or `resourceExhausted` at the host's limit or once the principal's verifications to the host failed too often.
     async verify(principal: string, url: string, secret: string, subscriptionId: string, signal?: AbortSignal): Promise<void> {
         const key = `${principal}\u0000${url}`;
-        if (!this.#verified.has(key)) await this.#verifyPair(key, url, secret, subscriptionId, signal);
+        if (!this.#verified.has(key)) await this.#verifyPair(principal, key, url, secret, subscriptionId, signal);
         let covered = this.#verified.get(key);
         if (covered === undefined) {
             covered = new Set();
@@ -328,6 +348,18 @@ export class WebhookEngine {
         // A refresh that already carried the watermark cannot tell a lost answer from a received one, so only a gap envelope clears the mark then.
         tracked.answered = { cursor: watermark, proves: cursor !== watermark };
         return true;
+    }
+
+    // A refresh answered `truncated: true` at the watermark, which tells the subscriber of every loss marked so far.
+    gapAnswered(id: string): void {
+        const tracked = this.#tracked.get(id);
+        if (tracked !== undefined) this.#told(tracked, tracked.marked);
+    }
+
+    // Whether the subscriber was already told of the gap this process marked as it began delivering to a subscription created before it started.
+    restartTold(id: string): boolean {
+        const tracked = this.#tracked.get(id);
+        return tracked?.restart !== undefined && tracked.told >= tracked.restart;
     }
 
     // Moves the watermark to `position`, at once or once the pending messages settle, so a quiet upstream or a skipped event still advances it; it never passes an unsettled message, and starts no state for an untracked id.
@@ -393,16 +425,25 @@ export class WebhookEngine {
         for (const host of this.#hosts.values())
             for (const waiter of host.waiting.splice(0)) waiter.reject(verificationLimit(QUEUE_FULL_RETRY_MS));
         this.#hosts.clear();
+        this.#hostFailures.clear();
         this.#lifetime?.abort();
         this.#lifetime = undefined;
+        this.#startedAt = this.#now();
     }
 
     // The pair's handshake in flight, or a new one; `signal` (the subscribe request's) stops this caller waiting for it.
-    async #verifyPair(key: string, url: string, secret: string, subscriptionId: string, signal: AbortSignal | undefined): Promise<void> {
+    async #verifyPair(
+        principal: string,
+        key: string,
+        url: string,
+        secret: string,
+        subscriptionId: string,
+        signal: AbortSignal | undefined
+    ): Promise<void> {
         let handshake = this.#handshakes.get(key);
         if (handshake === undefined) {
             const abandoned = new AbortController();
-            const done = this.#handshake(key, url, secret, subscriptionId, abandoned.signal).finally(() => {
+            const done = this.#handshake(principal, key, url, secret, subscriptionId, abandoned.signal).finally(() => {
                 if (this.#handshakes.get(key)?.done === done) this.#handshakes.delete(key);
             });
             handshake = { done, abandoned, callers: 0 };
@@ -417,12 +458,20 @@ export class WebhookEngine {
         }
     }
 
-    // One verification POST, unless a failure of the pair is still remembered, the host is at its limit, or every subscribe waiting for it was cancelled while it queued.
-    async #handshake(key: string, url: string, secret: string, subscriptionId: string, abandoned: AbortSignal): Promise<void> {
+    // One verification POST, unless a failure of the pair is still remembered, the host, the principal's places at it or its failures there are at their limit, or every subscribe waiting for it was cancelled while it queued.
+    async #handshake(
+        principal: string,
+        key: string,
+        url: string,
+        secret: string,
+        subscriptionId: string,
+        abandoned: AbortSignal
+    ): Promise<void> {
         const failed = this.#failed.get(key);
         if (failed !== undefined && this.#now() < failed.until) throw verificationError(failed.reason);
         this.#failed.delete(key);
-        const host = await this.#claimHost(url, abandoned);
+        const hostKey = hostKeyOf(principal, url);
+        const host = await this.#claimHost(principal, hostKey, url, abandoned);
         this.#lifetime ??= new AbortController();
         const { signal } = this.#lifetime;
         try {
@@ -435,8 +484,12 @@ export class WebhookEngine {
             if (reason === undefined) return;
             // A send that clear() aborted leaves nothing behind.
             if (!signal.aborted) {
-                const until = this.#now() + FAILED_VERIFICATION_MS;
-                remember(this.#failed, key, { reason, until }, held => held.until <= this.#now());
+                const now = this.#now();
+                remember(this.#failed, key, { reason, until: now + FAILED_VERIFICATION_MS }, held => held.until <= this.#now());
+                const start = now - VERIFICATION_WINDOW_MS;
+                const failures = since(this.#hostFailures.get(hostKey) ?? [], start);
+                failures.push(now);
+                remember(this.#hostFailures, hostKey, failures, held => (held.at(-1) ?? start) <= start);
             }
             throw verificationError(reason);
         } finally {
@@ -444,38 +497,50 @@ export class WebhookEngine {
         }
     }
 
-    // Waits for the host's one verification slot, leaving the queue when `abandoned` aborts, then counts the POST; throws `resourceExhausted` with a retry hint when the wait or the window is full.
-    async #claimHost(url: string, abandoned: AbortSignal): Promise<HostVerifications> {
+    // Waits for the host's one verification slot, leaving the queue when `abandoned` aborts, then counts the POST; throws `resourceExhausted` with a retry hint when the wait or the window is full, the principal already holds its share of the host's places, or its verifications to the host failed too often.
+    async #claimHost(principal: string, hostKey: string, url: string, abandoned: AbortSignal): Promise<HostVerifications> {
         const name = new URL(url).hostname.toLowerCase();
-        const host = this.#hosts.get(name) ?? { inFlight: false, waiting: [], sent: [] };
+        const host = this.#hosts.get(name) ?? { holder: undefined, waiting: [], sent: [] };
         const windowStart = this.#now() - VERIFICATION_WINDOW_MS;
         // Remembered again at every use, so the least recently used host, the first to go stale, is at the front.
-        remember(this.#hosts, name, host, held => !held.inFlight && (held.sent.at(-1) ?? windowStart) <= windowStart);
-        if (host.inFlight) {
+        remember(this.#hosts, name, host, held => held.holder === undefined && (held.sent.at(-1) ?? windowStart) <= windowStart);
+        const refused = this.#failuresRetry(hostKey);
+        if (refused !== undefined) throw verificationLimit(refused);
+        const held = host.waiting.filter(waiter => waiter.principal === principal).length + (host.holder === principal ? 1 : 0);
+        if (held >= PRINCIPAL_VERIFICATIONS_AT_ONCE) throw verificationLimit(QUEUE_FULL_RETRY_MS);
+        if (host.holder === undefined) {
+            host.holder = principal;
+        } else {
             if (host.waiting.length >= VERIFICATIONS_PER_WINDOW) throw verificationLimit(QUEUE_FULL_RETRY_MS);
-            await this.#waitTurn(host, abandoned);
+            await this.#waitTurn(host, principal, abandoned);
             // Handed the slot just as it was abandoned: pass it on without a POST.
             if (abandoned.aborted) {
                 this.#releaseHost(host);
                 throw abandoned.reason;
             }
-        } else {
-            host.inFlight = true;
         }
         const now = this.#now();
         const start = now - VERIFICATION_WINDOW_MS;
-        const { sent } = host;
-        while (sent[0] !== undefined && sent[0] <= start) sent.shift();
-        if (sent.length >= VERIFICATIONS_PER_WINDOW) {
+        const sent = since(host.sent, start);
+        // Its own verifications that failed while it waited count too.
+        const retryAfterMs = sent.length >= VERIFICATIONS_PER_WINDOW ? sent[0]! - start : this.#failuresRetry(hostKey);
+        if (retryAfterMs !== undefined) {
             this.#releaseHost(host);
-            throw verificationLimit(sent[0]! - start);
+            throw verificationLimit(retryAfterMs);
         }
         sent.push(now);
         return host;
     }
 
+    // How long until the principal may verify at the host again, once its verifications there failed PRINCIPAL_FAILURES_PER_WINDOW times in the window; `undefined` while it may.
+    #failuresRetry(hostKey: string): number | undefined {
+        const start = this.#now() - VERIFICATION_WINDOW_MS;
+        const failures = since(this.#hostFailures.get(hostKey) ?? [], start);
+        return failures.length >= PRINCIPAL_FAILURES_PER_WINDOW ? failures[0]! - start : undefined;
+    }
+
     // Resolves holding the slot, which #releaseHost hands over; rejects at once, out of the queue, when `abandoned` aborts.
-    #waitTurn(host: HostVerifications, abandoned: AbortSignal): Promise<void> {
+    #waitTurn(host: HostVerifications, principal: string, abandoned: AbortSignal): Promise<void> {
         return new Promise<void>((resolve, reject) => {
             const leave = (): void => {
                 const index = host.waiting.indexOf(waiter);
@@ -483,6 +548,7 @@ export class WebhookEngine {
                 reject(abandoned.reason);
             };
             const waiter = {
+                principal,
                 resolve: () => {
                     abandoned.removeEventListener('abort', leave);
                     resolve();
@@ -500,8 +566,8 @@ export class WebhookEngine {
     // Hands the host's slot to the verification that waited longest, or frees it.
     #releaseHost(host: HostVerifications): void {
         const next = host.waiting.shift();
-        if (next === undefined) host.inFlight = false;
-        else next.resolve();
+        host.holder = next?.principal;
+        next?.resolve();
     }
 
     #start(id: string, watermark: string | null): Tracked {
@@ -529,7 +595,7 @@ export class WebhookEngine {
         return tracked;
     }
 
-    // The subscription's state, started at `seed` when it has none; for one this process does not watch, a record created again since starts it again, as track() does on a create.
+    // The subscription's state, started at `seed` when it has none; for one this process does not watch, a record created again since starts it again, as track() does on a create, and one created before this engine started begins with a gap mark.
     #trackedFor(record: WebhookSubscriptionRecord, seed: string | null): Tracked {
         const watched = this.#watches(record.id);
         let tracked = this.#tracked.get(record.id);
@@ -542,6 +608,11 @@ export class WebhookEngine {
         if (!watched) {
             tracked.createdAt = record.createdAt;
             this.#sweepAt(tracked, record);
+            // The process this one replaced, or the one beside it, may have held undelivered events.
+            if (record.createdAt < this.#startedAt) {
+                this.#mark(tracked);
+                tracked.restart = tracked.marked;
+            }
         }
         return tracked;
     }

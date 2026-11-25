@@ -68,7 +68,7 @@ export class EmitBuffer {
         return this.#format(this.#rings.get(name)?.last ?? 0);
     }
 
-    // A cursor this buffer cannot serve from reads as a gap: no events, `truncated`, and the oldest servable position.
+    // A cursor of this epoch that was evicted reads as a gap from the oldest event held, with its events; one this buffer never gave (another epoch, say) reads as a gap with none: `truncated` and the oldest servable position.
     read(
         name: string,
         cursor: string | null,
@@ -79,8 +79,9 @@ export class EmitBuffer {
         if (cursor === null) return { events: [], cursor: this.#format(ring.last), truncated: false, hasMore: false };
         const parsed = this.#parse(cursor);
         const valid = parsed !== undefined && parsed >= ring.evicted && parsed <= ring.last;
+        const evicted = parsed !== undefined && parsed < ring.evicted;
         let index = valid ? parsed - ring.evicted : 0;
-        let skipped = false;
+        let skipped = evicted;
         if (options.maxAgeMs !== undefined) {
             const floor = this.#now() - options.maxAgeMs;
             while (index < ring.entries.length && ring.entries[index]!.at < floor) {
@@ -88,7 +89,7 @@ export class EmitBuffer {
                 skipped = true;
             }
         }
-        if (!valid) {
+        if (!valid && !evicted) {
             const position = ring.evicted + index;
             return { events: [], cursor: this.#format(position), truncated: true, hasMore: position < ring.last };
         }
@@ -100,6 +101,15 @@ export class EmitBuffer {
         }
         const position = ring.evicted + index;
         return { events, cursor: this.#format(position), truncated: skipped, hasMore: position < ring.last };
+    }
+
+    // Whether `read` serves `cursor` without a gap: `null`, or a position of this epoch whose events are all still held.
+    serves(name: string, cursor: string | null): boolean {
+        if (cursor === null) return true;
+        const ring = this.#rings.get(name) ?? { entries: [], last: 0, evicted: 0 };
+        this.#evict(ring);
+        const parsed = this.#parse(cursor);
+        return parsed !== undefined && parsed >= ring.evicted && parsed <= ring.last;
     }
 
     // Retained events per event type.

@@ -1,5 +1,5 @@
 import type { DeliveryMode } from '@modelcontextprotocol/core/ext/events';
-import { HEADER_MISMATCH_ERROR_CODE, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core-internal';
+import { HEADER_MISMATCH_ERROR_CODE, isJSONRPCErrorResponse, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core-internal';
 import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal/public';
 
@@ -32,9 +32,25 @@ function isFinalAuthFailure(error: unknown): boolean {
     return error instanceof OAuthError && !TRANSIENT_OAUTH_CODES.has(error.code);
 }
 
-// An error that ends a live subscription: a final auth failure of the transport, a -32601 or a -32602; any other auth failure is retried like a transport failure.
+// A -32601 that Streamable HTTP raises as an HTTP 404 whose body is that JSON-RPC error.
+function isHttpMethodNotFound(error: unknown): boolean {
+    if (!(error instanceof SdkHttpError) || error.status !== 404 || typeof error.data.text !== 'string') return false;
+    let body: unknown;
+    try {
+        body = JSON.parse(error.data.text);
+    } catch {
+        return false;
+    }
+    return isJSONRPCErrorResponse(body) && body.error.code === ProtocolErrorCode.MethodNotFound;
+}
+
+// An error that ends a live subscription: a final auth failure of the transport, a -32601 (in-band or as an HTTP 404) or a -32602; any other auth failure is retried like a transport failure.
 export function endsSubscription(error: unknown): boolean {
-    return (isAuthSeamEscape(error) && isFinalAuthFailure(error)) || (error instanceof ProtocolError && FINAL_CODES.has(error.code));
+    return (
+        (isAuthSeamEscape(error) && isFinalAuthFailure(error)) ||
+        (error instanceof ProtocolError && FINAL_CODES.has(error.code)) ||
+        isHttpMethodNotFound(error)
+    );
 }
 
 // An error of the first exchange that subscribe() rejects with: any auth failure of the transport, so a misconfigured provider rejects, and a -32020 only once its re-list is spent; any other (transport, an HTTP 5xx or 429, another non-Events JSON-RPC error, a verification limit) is retried in the background.
@@ -96,7 +112,7 @@ export function isModeRefusal(error: unknown): boolean {
     );
 }
 
-// Every mode's recovery once subscribed (spec §6.3): `relist` and go on while still offered, `mismatch` (re-list and retry once, then end), `fail` (end with the error), or `retry` later (anything but an Events kind or an endsSubscription() error, such as a transport or non-final auth failure, and a verification limit).
+// Every mode's recovery once subscribed (spec §6.3): `relist` and go on while still offered (a `notFound` only once in a row), `mismatch` (re-list and retry once, then end), `fail` (end with the error), or `retry` later (anything but an Events kind or an endsSubscription() error, such as a transport or non-final auth failure, and a verification limit).
 export function recoveryFor(error: unknown): 'relist' | 'mismatch' | 'fail' | 'retry' {
     if (endsSubscription(error)) return 'fail';
     if (isHeaderMismatch(error)) return 'mismatch';
@@ -174,6 +190,8 @@ export class DriverLoop<T> {
     #first = true;
     // A schema change has refused the subscription since the last successful exchange.
     #schemaChanged = false;
+    // A `notFound` has refused it since then while the event type was still listed.
+    #notFound = false;
     // The cursor was reset to now; the next successful exchange reports the gap.
     #reset = false;
     #stopped = false;
@@ -258,6 +276,7 @@ export class DriverLoop<T> {
     succeeded(cursor: string | null, truncated: boolean): void {
         const reset = this.#reset;
         this.#schemaChanged = false;
+        this.#notFound = false;
         this.#reset = false;
         // A type without replay has no position to have skipped past (SEP: ignore `truncated`).
         if (reset || (truncated && cursor !== null)) reportGap(this.#context.subscription, this.#context.connection, cursor);
@@ -288,8 +307,11 @@ export class DriverLoop<T> {
 
     // While the queue is full, resolves once its loop has taken half of the events, or the subscription ends.
     async room(): Promise<void> {
-        const { queue } = this.#context;
-        if (queue.full && !this.ended) await queue.room?.();
+        const { queue, subscription, connection } = this.#context;
+        if (!queue.full || this.ended) return;
+        // A type without replay may lose what the server has for it meanwhile (a poll lease lapses, say): one gap per pause.
+        if (this.#cursor === null) reportGap(subscription, connection, null);
+        await queue.room?.();
     }
 
     // A failure the server reports and retries itself (a push `notifications/events/error`): reported as the loop's own retries are.
@@ -333,12 +355,20 @@ export class DriverLoop<T> {
         const offered = await stillOffered(connection, subscription.name, this.#mode, this.#abort.signal);
         if (offered === false) throw error;
         if (isSchemaChange(error)) this.#schemaChange();
+        else if (offered) this.#notFoundWhileOffered(error);
         return 'retry';
     }
 
     #restartFromNow(): void {
         this.#cursor = null;
         this.#reset = true;
+    }
+
+    // A second `notFound` in a row for a type still listed ends the subscription, as a second -32020 does; the first is retried and reported.
+    #notFoundWhileOffered(error: unknown): void {
+        if (this.#notFound) throw error;
+        this.#notFound = true;
+        this.#retrying(error);
     }
 
     // A second schema change in a row means the last cursor is refused (SEP: a stale schema epoch), so start again from now.

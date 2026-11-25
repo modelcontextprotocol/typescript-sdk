@@ -178,6 +178,30 @@ describe('poll delivery', () => {
         expect(ids).toEqual(Array.from({ length: 1500 }, (_, n) => `e${n}`));
     });
 
+    it('reports onGap(null) once per pause of a type without replay, as the server may lose its events while no poll goes out', async () => {
+        const onGap = vi.fn();
+        let produced = 0;
+        const { polls, subscribe } = await pollWith(() => {
+            const events = Array.from({ length: 100 }, () => occurrence(`e${produced++}`));
+            return { events, cursor: null, hasMore: true, nextPollMs: 0 };
+        });
+        const sub = await subscribe({ onGap });
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(polls()).toHaveLength(10);
+        expect(onGap).toHaveBeenCalledExactlyOnceWith(null);
+
+        const iterator = sub[Symbol.asyncIterator]();
+        for (let taken = 0; taken < 499; taken++) await iterator.next();
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(onGap).toHaveBeenCalledOnce();
+        // Taking the 500th ends the pause; the pages fill the queue again, and the next pause reports again.
+        await iterator.next();
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(polls()).toHaveLength(15);
+        expect(onGap.mock.calls).toEqual([[null], [null]]);
+        expect(sub.cursor).toBeNull();
+    });
+
     it('reports one gap for a run of truncated results, and another for a truncated result after a clean one', async () => {
         const onGap = vi.fn();
         const pages = Array.from({ length: 10 }, (_, n) => ({
@@ -202,6 +226,30 @@ describe('poll delivery', () => {
         expect(polls()).toHaveLength(12);
         expect(onGap).toHaveBeenCalledTimes(2);
         expect(onGap).toHaveBeenLastCalledWith('c11');
+    });
+
+    it('reports a gap for each truncated result without hasMore, as each is a separate loss', async () => {
+        const onGap = vi.fn();
+        // As a check over an upstream with bounded retention that lost entries again since the last poll.
+        const { polls, subscribe } = await pollWith(
+            script(
+                { events: [occurrence('e1')], cursor: 'c1', truncated: true, nextPollMs: 30_000 },
+                { events: [occurrence('e2')], cursor: 'c2', truncated: true, nextPollMs: 30_000 },
+                { events: [occurrence('e3')], cursor: 'c3', truncated: true, hasMore: true, nextPollMs: 0 },
+                { events: [occurrence('e4')], cursor: 'c4', truncated: true, nextPollMs: 60_000 }
+            )
+        );
+        await subscribe({ cursor: 'c0', onGap });
+        expect(onGap).toHaveBeenCalledExactlyOnceWith('c1');
+
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(polls()).toHaveLength(2);
+        expect(onGap.mock.calls).toEqual([['c1'], ['c2']]);
+
+        // The third starts a run of truncated hasMore pages, which the fourth continues.
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(polls()).toHaveLength(4);
+        expect(onGap.mock.calls).toEqual([['c1'], ['c2'], ['c3']]);
     });
 
     it('reports truncated through onGap and persists the fresh cursor', async () => {
@@ -329,6 +377,91 @@ describe('poll delivery', () => {
         expect(error).toBeInstanceOf(EventsError);
         expect(error).toMatchObject({ kind: 'notFound', data: { kind: 'event' } });
         expect(callsTo(calls, 'events/list')).toHaveLength(2);
+    });
+
+    it('ends the loop on a second notFound in a row while the event type is still listed, after reporting the first as retried', async () => {
+        const notFound = new RpcError(-32_023, 'Not found', { kind: 'subscription' });
+        let polled = 0;
+        const { client, calls, polls, subscribe } = await pollWith(() => {
+            polled += 1;
+            if (polled === 1) return { events: [], cursor: 'c1', nextPollMs: 0 };
+            throw notFound;
+        });
+        const errors: Error[] = [];
+        client.onerror = error => void errors.push(error);
+        const sub = await subscribe();
+        const pending = sub[Symbol.asyncIterator]()
+            .next()
+            .catch((error_: unknown) => error_);
+
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(polls()).toHaveLength(2);
+        expect(errors).toEqual([
+            expect.objectContaining({
+                message: "poll subscription to 'tick' failed and is retried: Not found",
+                cause: expect.objectContaining({ kind: 'notFound' })
+            })
+        ]);
+        await vi.advanceTimersByTimeAsync(1000);
+        const error = await pending;
+        expect(error).toBeInstanceOf(EventsError);
+        expect(error).toMatchObject({ kind: 'notFound', data: { kind: 'subscription' } });
+        expect(polls()).toHaveLength(3);
+        expect(callsTo(calls, 'events/list')).toHaveLength(3);
+        expect(errors).toHaveLength(1);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('carries on after a notFound while the event type is still listed once a poll succeeds between them', async () => {
+        const notFound = new RpcError(-32_023, 'Not found', { kind: 'subscription' });
+        const { polls, subscribe } = await pollWith(
+            script(
+                { events: [], cursor: 'c1', nextPollMs: 0 },
+                notFound,
+                { events: [occurrence('e1')], cursor: 'c2', nextPollMs: 0 },
+                notFound,
+                { events: [occurrence('e2')], cursor: 'c3', nextPollMs: 60_000 }
+            )
+        );
+        const sub = await subscribe();
+        await vi.advanceTimersByTimeAsync(4000);
+        expect(polls().map(call => call.params['cursor'])).toEqual([null, 'c1', 'c1', 'c2', 'c2']);
+        const iterator = sub[Symbol.asyncIterator]();
+        expect([await nextEventId(iterator), await nextEventId(iterator)]).toEqual(['e1', 'e2']);
+    });
+
+    it('ends the loop on an HTTP 404 whose body is a -32601, and retries a 404 without one', async () => {
+        const notFoundBody = (body: string) =>
+            new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${body}`, {
+                status: 404,
+                statusText: 'Not Found',
+                text: body
+            });
+        const methodNotFound = JSON.stringify({ jsonrpc: '2.0', id: 3, error: { code: -32_601, message: 'Method not found' } });
+        const other = JSON.stringify({ jsonrpc: '2.0', id: 2, error: { code: -32_603, message: 'Internal error' } });
+        const { client, polls, subscribe } = await pollWith(
+            script({ events: [], cursor: 'c1', nextPollMs: 0 }, { events: [occurrence('e1')], cursor: 'c2', nextPollMs: 0 })
+        );
+        // The second poll gets a plain 404, the third one whose body is another JSON-RPC error; the fourth goes through, and the fifth gets a -32601.
+        const failures: Array<SdkHttpError | undefined> = [undefined, notFoundBody('Not Found'), notFoundBody(other), undefined];
+        const attempts = failSends(client, 'events/poll', attempt =>
+            attempt <= failures.length ? failures[attempt - 1] : notFoundBody(methodNotFound)
+        );
+        const sub = await subscribe();
+        const iterator = sub[Symbol.asyncIterator]();
+        await vi.advanceTimersByTimeAsync(1000);
+        await vi.advanceTimersByTimeAsync(1000);
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(await nextEventId(iterator)).toBe('e1');
+        expect(polls()).toHaveLength(2);
+
+        const pending = iterator.next().catch((error_: unknown) => error_);
+        await vi.advanceTimersByTimeAsync(1000);
+        const error = await pending;
+        expect(error).toBeInstanceOf(SdkHttpError);
+        expect(error).toMatchObject({ status: 404, data: { text: methodNotFound } });
+        expect(attempts()).toBe(5);
+        expect(vi.getTimerCount()).toBe(0);
     });
 
     it('ends the loop on resourceExhausted, callbackEndpointError and an unsupported that is not a schema change', async () => {

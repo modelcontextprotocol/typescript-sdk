@@ -320,20 +320,110 @@ describe('endpoint verification', () => {
         expect(requests).toHaveLength(12);
     });
 
-    it('drops the failed pairs and idle hosts that expired as it remembers the next one, well below the cap', async () => {
+    it("refuses a principal's fourth verification to a host after three failed there in 60 s, while another principal still verifies", async () => {
+        const answers = new Map<string, () => void>();
+        const { engine, requests, until } = setup(request => {
+            const id = request.headers['X-MCP-Subscription-Id']!;
+            if (id.startsWith('sub_u')) return { error: 'connection_refused' };
+            if (id !== 'sub_v') return echo(request);
+            return new Promise(resolve => answers.set(id, () => resolve(echo(request) as WebhookSendOutcome)));
+        });
+        for (let n = 1; n <= 3; n++) {
+            await expect(engine.verify('u', `${HOOK_URL}/${n}`, SECRET, `sub_u${n}`)).rejects.toMatchObject({ code: -32_027 });
+        }
+        await vi.advanceTimersByTimeAsync(1000);
+        const other = engine.verify('v', `${HOOK_URL}/v`, SECRET, 'sub_v');
+        await until(4);
+        // Refused at once, without waiting for the slot another principal's verification holds.
+        const refused = { code: -32_025, data: { limit: 'verification', retryAfterMs: 59_000 } };
+        await expect(engine.verify('u', 'https://HOOKS.example.com/4', SECRET, 'sub_u4')).rejects.toMatchObject(refused);
+        answers.get('sub_v')!();
+        await expect(other).resolves.toBeUndefined();
+        await engine.verify('w', `${HOOK_URL}/w`, SECRET, 'sub_w');
+        expect(requests).toHaveLength(5);
+
+        // Once its first failure leaves the window, the principal verifies there again.
+        await vi.advanceTimersByTimeAsync(59_000);
+        await expect(engine.verify('u', `${HOOK_URL}/4`, SECRET, 'sub_u4')).rejects.toMatchObject({ code: -32_027 });
+        expect(requests).toHaveLength(6);
+    });
+
+    it("refuses at its turn a principal's verification that waited while its third failure at the host came in", async () => {
+        const answers: Array<() => void> = [];
+        const { engine, requests, until } = setup(request =>
+            request.headers['X-MCP-Subscription-Id']!.startsWith('sub_u')
+                ? { error: 'timeout' }
+                : new Promise(resolve => answers.push(() => resolve(echo(request) as WebhookSendOutcome)))
+        );
+        for (let n = 1; n <= 2; n++) {
+            await expect(engine.verify('u', `${HOOK_URL}/${n}`, SECRET, `sub_u${n}`)).rejects.toMatchObject({ code: -32_027 });
+        }
+        const first = engine.verify('v', HOOK_URL, SECRET, 'sub_v');
+        await until(3);
+        const outcomes = [3, 4].map(n =>
+            engine.verify('u', `${HOOK_URL}/${n}`, SECRET, `sub_u${n}`).then(
+                () => 'verified',
+                (error: { code?: unknown }) => error.code
+            )
+        );
+        answers[0]!();
+        await first;
+        expect(await Promise.all(outcomes)).toEqual([-32_027, -32_025]);
+        expect(requests.map(request => request.headers['X-MCP-Subscription-Id'])).toEqual(['sub_u1', 'sub_u2', 'sub_v', 'sub_u3']);
+    });
+
+    it("refuses a principal's fourth verification to a host while it holds three, sending or waiting, and another principal's still queues", async () => {
+        const answers: Array<() => void> = [];
+        const { engine, requests, until } = setup(
+            request => new Promise(resolve => answers.push(() => resolve(echo(request) as WebhookSendOutcome)))
+        );
+        const mine = [1, 2, 3].map(n => engine.verify('u', `${HOOK_URL}/${n}`, SECRET, `sub_u${n}`));
+        await until(1);
+        // One sends and two wait: a fourth is refused at once.
+        await expect(engine.verify('u', `${HOOK_URL}/4`, SECRET, 'sub_u4')).rejects.toMatchObject({
+            code: -32_025,
+            data: { limit: 'verification', retryAfterMs: 5000 }
+        });
+        const other = engine.verify('v', `${HOOK_URL}/v`, SECRET, 'sub_v');
+        for (let n = 1; n <= 4; n++) {
+            answers[n - 1]!();
+            await until(Math.min(n + 1, 4));
+            await settle();
+        }
+        await expect(Promise.all([...mine, other])).resolves.toHaveLength(4);
+        expect(requests.map(request => request.headers['X-MCP-Subscription-Id'])).toEqual(['sub_u1', 'sub_u2', 'sub_u3', 'sub_v']);
+
+        // Once those are done, the principal verifies there again.
+        const again = engine.verify('u', `${HOOK_URL}/4`, SECRET, 'sub_u4');
+        await until(5);
+        answers[4]!();
+        await expect(again).resolves.toBeUndefined();
+    });
+
+    it('never refuses a principal whose verifications to a host succeed, short of the host total of 10 in 60 s', async () => {
+        const { engine, requests } = setup(echo);
+        for (let n = 1; n <= 10; n++) await engine.verify('u', `${HOOK_URL}/${n}`, SECRET, `sub_${n}`);
+        expect(requests).toHaveLength(10);
+        const full = { code: -32_025, data: { limit: 'verification', retryAfterMs: 60_000 } };
+        await expect(engine.verify('u', `${HOOK_URL}/11`, SECRET, 'sub_11')).rejects.toMatchObject(full);
+        await expect(engine.verify('v', `${HOOK_URL}/v`, SECRET, 'sub_v')).rejects.toMatchObject(full);
+        expect(requests).toHaveLength(10);
+    });
+
+    it("drops the failed pairs, idle hosts and principals' failures at a host that expired as it remembers the next one, well below the cap", async () => {
         const { engine } = setup(() => ({ error: 'timeout' }));
         const timeout = { data: { reason: 'timeout' } };
         await expect(engine.verify('u1', HOOK_URL, SECRET, 'sub_1')).rejects.toMatchObject(timeout);
         await expect(engine.verify('u2', 'https://b.example.com/mcp', SECRET, 'sub_2')).rejects.toMatchObject(timeout);
-        expect(engine.remembered).toEqual({ failed: 2, hosts: 2 });
+        expect(engine.remembered).toEqual({ failed: 2, hosts: 2, hostFailures: 2 });
         // The first host is used again later, so it outlives the second.
         await vi.advanceTimersByTimeAsync(30_000);
         await expect(engine.verify('u3', HOOK_URL, SECRET, 'sub_3')).rejects.toMatchObject(timeout);
-        expect(engine.remembered).toEqual({ failed: 3, hosts: 2 });
+        expect(engine.remembered).toEqual({ failed: 3, hosts: 2, hostFailures: 3 });
 
         await vi.advanceTimersByTimeAsync(30_000);
         await expect(engine.verify('u4', 'https://c.example.com/mcp', SECRET, 'sub_4')).rejects.toMatchObject(timeout);
-        expect(engine.remembered).toEqual({ failed: 2, hosts: 2 });
+        expect(engine.remembered).toEqual({ failed: 2, hosts: 2, hostFailures: 2 });
     });
 
     it('fails verification when a 404 echoes the challenge', async () => {

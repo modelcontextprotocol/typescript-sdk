@@ -1,12 +1,14 @@
 import type { DeliveryMode } from '@modelcontextprotocol/core/ext/events';
 import type { ServerContext } from '@modelcontextprotocol/core-internal';
-import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
+import { canonicalJson, EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 
 import type { EventRegistry, RegisteredEvent } from './registry';
 import type { EventsOptions } from './types';
 
 // With `getPrincipal`, each principal, and the callers without one together, may hold this share of `maxSubscriptions`.
 const PRINCIPAL_SHARE_DIVISOR = 4;
+// The longest canonical JSON of a request's `arguments`, which bounds what a lease, a stream or a stored record keeps of them.
+const MAX_ARGUMENTS_LENGTH = 65_536;
 
 export interface ValidatorDeps {
     readonly registry: EventRegistry;
@@ -42,12 +44,12 @@ export class SubscriptionValidator {
         this.#deps = deps;
     }
 
-    // After the era gate in `setup`'s handlers: webhook mode (webhook only), principal (required for webhook), event exists, mode offered, `beforeParse`, then the arguments.
+    // After the era gate in `setup`'s handlers: webhook mode (webhook only), principal (required for webhook), event exists, mode offered, the arguments' size, `beforeParse`, then the arguments.
     async validate(
         mode: DeliveryMode,
         params: SubscriptionRequest,
         ctx: ServerContext,
-        beforeParse?: (principal: string | null, rawArgs: Record<string, unknown>) => void
+        beforeParse?: (principal: string | null, rawArgs: Record<string, unknown>) => void | Promise<void>
     ): Promise<ValidSubscription> {
         const webhook = mode === 'webhook';
         if (webhook && !this.#deps.webhookEnabled) throw notOffered('This server does not offer webhook delivery', mode);
@@ -58,7 +60,10 @@ export class SubscriptionValidator {
             throw notOffered(`Event type ${params.name} does not offer ${mode} delivery`, mode);
         }
         const rawArgs = params.arguments ?? {};
-        beforeParse?.(principal, rawArgs);
+        if (canonicalJson(rawArgs).length > MAX_ARGUMENTS_LENGTH) {
+            throw new EventsError('invalidParams', `arguments must be at most ${MAX_ARGUMENTS_LENGTH} characters as canonical JSON`);
+        }
+        await beforeParse?.(principal, rawArgs);
         const args = await entry.parseArguments(rawArgs);
         return { entry, principal, args };
     }

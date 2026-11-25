@@ -72,6 +72,8 @@ interface Watched {
     floor?: number;
     // The pages being read continue a run of truncated ones the subscriber was already told of, by the subscribe answer or a gap envelope.
     skipping?: boolean;
+    // The cursor of the first refresh this process answered, when that answer was a gap, until the next refresh: one that carries it again retries after a lost answer.
+    gapCursor?: string | null;
 }
 
 // A subscribe request in flight for one id, from the id's derivation until it answers.
@@ -432,7 +434,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
         });
     }
 
-    // A new grant and a rotated secret; the client's cursor seeds the watermark only where this process tracks none, and a check type's loop started here keeps to `floor`.
+    // A new grant and a rotated secret; the client's cursor seeds the watermark only where this process tracks none, and a check type's loop started here keeps to `floor`. The first refresh this process answers for an emit-only subscription it did not create reports a gap when its buffer cannot serve the client's cursor, and so does the next refresh when it retries with that cursor.
     async #refresh(
         record: WebhookSubscriptionRecord,
         valid: ValidSubscription,
@@ -453,21 +455,35 @@ export class WebhookSubscriptions implements SubscriptionSource {
         // Read before resume(), so a suspension shows as `active: false` on the refresh that ends it.
         const deliveryStatus = this.#engine.status(id);
         const from = params.cursor ?? null;
-        if (this.#engine.watermark(id) === undefined) this.#engine.track(id, from);
+        const { entry } = valid;
+        // After a restart, or on another replica, the client's cursor is where delivery stood (SEP-3415): one this buffer cannot serve lost what was not delivered, so delivery goes on from the buffer head, or from where this process already delivers.
+        const watched = this.#watched.get(id);
+        // A delivery that began here first already reported the restart, unless its gap mark is still untold.
+        const first =
+            watched === undefined &&
+            entry.kind === 'emitOnly' &&
+            !this.#deps.buffer.serves(entry.name, from) &&
+            !this.#engine.restartTold(id);
+        const lost = first || (watched?.gapCursor !== undefined && from === watched.gapCursor);
+        if (this.#engine.watermark(id) === undefined) this.#engine.track(id, lost ? this.#deps.buffer.head(entry.name) : from);
         this.#engine.resume(id);
-        this.#keep(refreshed, valid, from, floor);
+        // Only the refresh right after the first gap answer can be its retry.
+        this.#keep(refreshed, valid, from, floor).gapCursor = first ? from : undefined;
+        // The gap answer tells the subscriber of what this process marked lost so far, its restart mark included, so no gap envelope repeats it.
+        if (lost) this.#engine.gapAnswered(id);
+        // Events this process lost since the subscriber was last told.
+        const gap = this.#engine.answerGap(id, from);
         return {
             id,
             refreshBefore: new Date(refreshed.expiresAt).toISOString(),
             cursor: this.#engine.watermark(id) ?? null,
-            // Events this process lost since the subscriber was last told.
-            truncated: this.#engine.answerGap(id, from),
+            truncated: lost || gap,
             ...(deliveryStatus === undefined ? {} : { deliveryStatus })
         };
     }
 
-    // Re-arms a refreshed subscription's timer, or starts watching it here (a check type's loop from `from`, kept to `floor`) when this process had not.
-    #keep(record: WebhookSubscriptionRecord, { entry, args }: ValidSubscription, from: string | null, floor: number | undefined): void {
+    // Re-arms a refreshed subscription's timer and returns its watch, or starts watching it here (a check type's loop from `from`, kept to `floor`) when this process had not.
+    #keep(record: WebhookSubscriptionRecord, { entry, args }: ValidSubscription, from: string | null, floor: number | undefined): Watched {
         let watched = this.#watched.get(record.id);
         if (watched === undefined) {
             watched = this.#watch(record.id, entry, record.principal, args);
@@ -477,6 +493,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
             if (entry.kind === 'check') this.#schedule(watched);
         }
         this.#arm(watched, record.expiresAt);
+        return watched;
     }
 
     #watch(id: string, entry: RegisteredEvent, principal: string, args: Record<string, unknown>): Watched {

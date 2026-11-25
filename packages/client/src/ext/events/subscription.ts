@@ -29,8 +29,10 @@ export interface SubscribeOptions {
     /**
      * Called with the cursor delivery continues from when events may have been
      * skipped: the server reports `truncated`, delivery started again from now
-     * after a schema change, or a push loop fell 1 000 events behind on an event
-     * type that cannot resume and its oldest queued events were dropped (`null`).
+     * after a schema change, the loop fell 1 000 events behind on an event type
+     * that cannot resume (`null`: delivery paused, or push dropped the oldest
+     * queued events), or a webhook loop 1 000 events behind dropped its oldest
+     * queued events while an identical subscription kept up.
      * An error it throws goes to the client's `onerror`, and delivery goes on.
      */
     onGap?: (cursor: string | null) => void;
@@ -46,9 +48,10 @@ export interface SubscribeOptions {
  * - `notFound`, or `unsupported` for a schema change: the event types are
  *   listed again, and delivery goes on while the event type is still listed
  *   with this delivery mode; otherwise the loop ends with that `EventsError`.
- *   After a schema change delivery resumes from the last cursor; when the
- *   server refuses that cursor too, it starts again from now and `onGap`
- *   reports it.
+ *   A second `notFound` in a row, with no successful exchange between them,
+ *   ends the loop even while the event type is listed. After a schema change
+ *   delivery resumes from the last cursor; when the server refuses that
+ *   cursor too, it starts again from now and `onGap` reports it.
  * - Any other `EventsError` (`forbidden`, `invalidParams`, `resourceExhausted`
  *   other than the webhook verification limit, `callbackEndpointError`, any
  *   other `unsupported`): the loop ends with it, and `kind` says why.
@@ -60,8 +63,9 @@ export interface SubscribeOptions {
  *   could not resolve, an `SdkError` such as a `401` after
  *   re-authentication, an `OAuthError` other than `server_error`,
  *   `temporarily_unavailable` and `too_many_requests`, or an OAuth flow
- *   error such as `InsecureTokenEndpointError`), or a `ProtocolError`
- *   `-32601` (the server no longer serves the method): the loop ends with it.
+ *   error such as `InsecureTokenEndpointError`), or a `-32601` (the server no
+ *   longer serves the method: a `ProtocolError`, or over Streamable HTTP the
+ *   `SdkHttpError` of a `404` whose body is that error): the loop ends with it.
  * - Anything else (a network or transport failure, any other error the
  *   `authProvider` throws, such as a network error or one of those
  *   `OAuthError` codes while it fetches a token, an HTTP error status, another
@@ -112,7 +116,7 @@ export interface Driver {
     stop(): Promise<void>;
 }
 
-// What a driver delivers into: one subscription's queue, or (webhook, which never waits for room or trims) one that passes everything on to identical subscriptions.
+// What a driver delivers into: one subscription's queue, or (webhook, which never trims) one that passes everything on to identical subscriptions.
 export type DeliveryQueue<T> = Pick<SubscriptionQueue<T>, 'push' | 'setCursor' | 'setDeliveryStatus' | 'fail' | 'full'> &
     Partial<Pick<SubscriptionQueue<T>, 'room' | 'trim'>>;
 

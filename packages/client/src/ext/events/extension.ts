@@ -41,9 +41,11 @@ export interface EventsClientOptions {
     webhook?: { url: string; secretProvider?: () => string };
     /**
      * The shortest wait between two polls, whatever `nextPollMs` the server
-     * recommends, and between two webhook refreshes, whatever the grant
-     * (a skewed clock cannot make them back to back), unless it would reach
-     * the end of the grant: the refresh then comes at ¾ of it. Default 1000.
+     * recommends, except after a `hasMore` page that made progress (it had
+     * events, or moved the cursor and was not `truncated`), which is followed
+     * at once; and between two webhook refreshes, whatever the grant (a
+     * skewed clock cannot make them back to back), unless it would reach the
+     * end of the grant: the refresh then comes at ¾ of it. Default 1000.
      */
     pollIntervalFloorMs?: number;
 }
@@ -240,9 +242,11 @@ export class EventsClientExtension implements ClientExtension {
      * `400` to a missing header, a timestamp more than 5 minutes off or a
      * malformed body, `401` to a bad signature, and `503` to a subscription
      * id it does not route (yet), or to an event for a subscription whose
-     * loop has 1 000 events it has not taken (identical webhook subscriptions
-     * share one server subscription, so they pause together), which the
-     * server retries.
+     * loops all have 1 000 events they have not taken, which the server
+     * retries. Identical webhook subscriptions share one server subscription:
+     * while one of their loops has room, one that is 1 000 behind drops its
+     * oldest queued event for each new one and reports the first such drop
+     * through `onGap`, once until it has taken half of them.
      */
     createWebhookHandler(): (request: Request) => Promise<Response> {
         const receiver = this.#receiver;

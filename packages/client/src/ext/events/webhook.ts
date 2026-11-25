@@ -1,4 +1,4 @@
-import type { DeliveryStatus, SubscribeEventsResult } from '@modelcontextprotocol/core/ext/events';
+import type { DeliveryStatus, EventOccurrence, SubscribeEventsResult } from '@modelcontextprotocol/core/ext/events';
 import {
     EVENTS_SUBSCRIBE_METHOD,
     EVENTS_UNSUBSCRIBE_METHOD,
@@ -73,6 +73,8 @@ class SharedWebhook {
     #cursor: string | null;
     #deliveryStatus: DeliveryStatus | undefined;
     #started: Promise<void> | undefined;
+    // Members that have dropped events since their loop last took their queue down to half the limit.
+    readonly #dropping = new Set<DriverContext<unknown>>();
 
     constructor(
         first: DriverContext<unknown>,
@@ -90,7 +92,7 @@ class SharedWebhook {
         this.#cursor = subscription.cursor ?? null;
         const queue: DeliveryQueue<unknown> = {
             push: event => {
-                for (const member of members) member.queue.push(event);
+                for (const member of members) this.#deliver(member, event);
             },
             setCursor: cursor => {
                 this.#cursor = cursor;
@@ -104,9 +106,12 @@ class SharedWebhook {
                 close();
                 for (const member of members) member.queue.fail(error);
             },
+            // An event is refused only while every member's loop has fallen behind; while one has room, a full one drops for it.
             get full() {
-                return [...members].some(member => member.queue.full);
-            }
+                return members.size > 0 && [...members].every(member => member.queue.full);
+            },
+            // Once one member's loop has taken half of its queue, or its subscription ended.
+            room: () => Promise.race([...members].map(member => member.queue.room?.() ?? Promise.resolve()))
         };
         const onGap = (cursor: string | null): void => {
             for (const member of members) reportGap(member.subscription, connection, cursor);
@@ -118,6 +123,15 @@ class SharedWebhook {
             ...(first.floor !== undefined && { floor: first.floor })
         };
         this.#driver = new WebhookDriver(context, webhook, receiver, floorMs);
+    }
+
+    // A member whose loop has fallen behind drops its oldest queued event to take `event`, as push does for a type without replay: one gap per episode (at the cursor delivery continues from), which ends once it has taken half its queue.
+    #deliver(member: DriverContext<unknown>, event: EventOccurrence): void {
+        member.queue.push(event);
+        if (member.queue.trim?.() !== true || this.#dropping.has(member)) return;
+        this.#dropping.add(member);
+        reportGap(member.subscription, this.#connection, event.cursor ?? null);
+        void member.queue.room?.().then(() => this.#dropping.delete(member));
     }
 
     // Delivers to `context` too; the driver returned settles with the shared first exchange, and its stop() ends the server subscription only for the last one.
@@ -166,6 +180,8 @@ class WebhookDriver implements Driver {
     #terminated: ProtocolError | undefined;
     // Retry delays taken since the last successful subscribe.
     #attempt = 0;
+    // Refused events of a type without replay have been reported as a gap since a loop last took half its queue.
+    #refusing = false;
 
     // Throws TypeError when `secretProvider` gives something that is not a Standard Webhooks secret.
     constructor(context: DriverContext<unknown>, webhook: WebhookOptions, receiver: WebhookReceiver, floorMs: number) {
@@ -182,7 +198,16 @@ class WebhookDriver implements Driver {
         this.#secret = secret;
         this.#mirror = { name, ...(args !== undefined && { arguments: args }) };
         this.#sink = {
-            full: () => context.queue.full,
+            refuses: () => {
+                if (!context.queue.full) return false;
+                // A type without replay cannot get back what the server gives up on meanwhile: one gap per episode, which ends once a loop has taken half its queue.
+                if (this.#loop.cursor === null && !this.#refusing) {
+                    this.#refusing = true;
+                    reportGap(context.subscription, context.connection, null);
+                    void context.queue.room?.().then(() => (this.#refusing = false));
+                }
+                return true;
+            },
             event: occurrence => {
                 if (this.#loop.ended) return;
                 context.queue.push(occurrence);

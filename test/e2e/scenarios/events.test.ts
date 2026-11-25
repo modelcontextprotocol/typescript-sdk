@@ -391,12 +391,17 @@ verifies('events:poll:truncated', async ({ transport }: TestArgs) => {
     const { cursor } = await raw(client, 'events/poll', { name: NOTE, cursor: null });
     for (const text of ['n1', 'n2', 'n3', 'n4']) await note.emit({ data: { text } });
 
+    // The buffer evicted the cursor's events: the poll is a gap from the oldest event kept, with the events from there.
     const gap = await raw(client, 'events/poll', { name: NOTE, cursor });
 
-    expect(gap).toMatchObject({ events: [], truncated: true, cursor: expect.any(String) });
+    expect(gap).toMatchObject({
+        events: [{ data: { text: 'n3' } }, { data: { text: 'n4' } }],
+        truncated: true,
+        cursor: expect.any(String)
+    });
     expect(gap.cursor).not.toBe(cursor);
     const resumed = await raw(client, 'events/poll', { name: NOTE, cursor: gap.cursor });
-    expect(resumed).toMatchObject({ truncated: false, events: [{ data: { text: 'n3' } }, { data: { text: 'n4' } }] });
+    expect(resumed).toMatchObject({ truncated: false, events: [] });
 });
 
 verifies('events:poll:errors', async ({ transport }: TestArgs) => {

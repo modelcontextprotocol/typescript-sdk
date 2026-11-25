@@ -318,6 +318,29 @@ describe('events/subscribe: validation', () => {
         expect(post.requests.map(request => request.url)).toEqual([long.slice(0, 2048)]);
     });
 
+    it('refuses arguments over 65 536 characters of canonical JSON in every mode, before any lease, stream, POST or record', async () => {
+        const onSubscribe = vi.fn();
+        const store = new InMemoryWebhookSubscriptionStore();
+        const { events, post, hook } = replica({ webhookStore: store });
+        events.registerEvent('e', { emitOnly: true, payloadSchema: P, onSubscribe });
+        const alice = client(events);
+        // `{"pad":"…"}` is 10 characters around the padding; an inputSchema that strips `pad` would accept it.
+        const padded = (length: number) => ({ pad: 'x'.repeat(length - 10) });
+        const tooLong = { code: -32_602, message: 'arguments must be at most 65536 characters as canonical JSON' };
+        const args = padded(65_537);
+        expect(errorOf(await alice.rpc('events/poll', { name: 'e', arguments: args }))).toMatchObject(tooLong);
+        expect(errorOf(await alice.rpc('events/stream', { name: 'e', arguments: args }))).toMatchObject(tooLong);
+        expect(errorOf(await alice.subscribe({ arguments: args }))).toMatchObject(tooLong);
+        expect(errorOf(await alice.unsubscribe({ arguments: args }))).toMatchObject(tooLong);
+        expect(hook.state()).toMatchObject({ pollLeases: 0, pushStreams: 0, webhookSubscriptions: 0, webhookExpiryTimers: 0 });
+        expect(post.requests).toHaveLength(0);
+        expect(await stored(store)).toEqual([]);
+        expect(onSubscribe).not.toHaveBeenCalled();
+
+        resultOf(await alice.rpc('events/poll', { name: 'e', arguments: padded(65_536) }));
+        expect(hook.state().pollLeases).toBe(1);
+    });
+
     it('validates the secret', async () => {
         const { events, post } = replica();
         events.registerEvent('e', { emitOnly: true, payloadSchema: P });
@@ -884,10 +907,208 @@ describe('events/subscribe: refreshing', () => {
         expect(healthy.cursor).not.toBe(first.cursor);
         expect(healthy.deliveryStatus).toEqual({ active: true, lastDeliveryAt: new Date().toISOString(), lastError: null });
 
-        // A replica that holds no delivery state for it answers with the client's cursor and no deliveryStatus (Decision 7).
+        // A replica that holds no delivery state for it and cannot serve the client's cursor answers a gap at its own buffer head, and no deliveryStatus (Decision 7).
+        const { cursor: elsewhereHead } = resultOf(
+            await client(b.events).rpc('events/poll', { name: 'e', cursor: null })
+        ) as PollEventsResult;
         const elsewhere = subscribed(await client(b.events).subscribe({ cursor: 'client-cursor' }));
-        expect(elsewhere).toMatchObject({ id: first.id, cursor: 'client-cursor', truncated: false });
+        expect(elsewhere).toMatchObject({ id: first.id, cursor: elsewhereHead, truncated: true });
         expect(elsewhere).not.toHaveProperty('deliveryStatus');
+    });
+
+    it('answers the first refresh after a restart truncated: true at the buffer head, for an emit the old process had not delivered, and its retry after a lost answer too', async () => {
+        const store = new InMemoryWebhookSubscriptionStore();
+        // The receiver refuses every event, so the one emitted before the restart is never acknowledged.
+        const { events, post, hook } = replica({ webhookStore: store, respond: echo(() => ({ status: 503, body: '' })) });
+        const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const alice = client(events);
+        const first = subscribed(await alice.subscribe());
+        await handle.emit({ data: { n: 1 } });
+        await post.until(2);
+        await settle();
+        expect(subscribed(await alice.subscribe({ cursor: first.cursor }))).toMatchObject({ cursor: first.cursor, truncated: false });
+
+        hook.restart();
+        const { cursor: head } = resultOf(await alice.rpc('events/poll', { name: 'e', cursor: null })) as PollEventsResult;
+        expect(head).not.toBe(first.cursor);
+        const refreshed = subscribed(await alice.subscribe({ cursor: first.cursor }));
+        expect(refreshed).toMatchObject({ id: first.id, cursor: head, truncated: true });
+        // That answer was lost: the client refreshes again with the cursor it had, and is told again.
+        expect(subscribed(await alice.subscribe({ cursor: first.cursor }))).toMatchObject({ cursor: head, truncated: true });
+        expect(subscribed(await alice.subscribe({ cursor: refreshed.cursor }))).toMatchObject({ cursor: head, truncated: false });
+        expect(subscribed(await alice.subscribe({ cursor: first.cursor }))).toMatchObject({ cursor: head, truncated: false });
+    });
+
+    it('reports a restart once, by a gap envelope after the first acknowledged delivery, when that comes before any refresh', async () => {
+        const store = new InMemoryWebhookSubscriptionStore();
+        let refuse = true;
+        const { events, post, hook } = replica({ webhookStore: store, respond: echo(() => ({ status: refuse ? 503 : 200, body: '' })) });
+        const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const alice = client(events);
+        const first = subscribed(await alice.subscribe());
+        await handle.emit({ eventId: 'lost', data: { n: 1 } });
+        await post.until(2);
+        await settle();
+
+        // The new process starts after the subscription was created; its first delivery is acknowledged before any refresh.
+        await vi.advanceTimersByTimeAsync(1000);
+        hook.restart();
+        refuse = false;
+        await handle.emit({ eventId: 'after', data: { n: 2 } });
+        await post.until(4);
+        await settle();
+        const sent = post.requests.slice(2).map(request => bodyOf(request));
+        expect(sent.map(body => body.eventId ?? body.type)).toEqual(['after', 'gap']);
+        expect(sent[1]).toEqual({ type: 'gap', cursor: sent[0]!.cursor });
+
+        // The envelope told of the restart: no refresh reports it again, whatever cursor it carries.
+        expect(subscribed(await alice.subscribe({ cursor: first.cursor }))).toMatchObject({ cursor: sent[0]!.cursor, truncated: false });
+        expect(subscribed(await alice.subscribe({ cursor: sent[0]!.cursor as string }))).toMatchObject({ truncated: false });
+        await handle.emit({ eventId: 'later', data: { n: 3 } });
+        await post.until(5);
+        await settle();
+        expect(post.requests.slice(2).map(request => bodyOf(request).eventId ?? bodyOf(request).type)).toEqual(['after', 'gap', 'later']);
+    });
+
+    it('reports a restart once, in the refresh answer, when the refresh comes first, and sends no gap envelope after the deliveries that follow', async () => {
+        const store = new InMemoryWebhookSubscriptionStore();
+        const { events, post, hook } = replica({ webhookStore: store });
+        const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const alice = client(events);
+        const first = subscribed(await alice.subscribe());
+        await post.until(1);
+
+        await vi.advanceTimersByTimeAsync(1000);
+        hook.restart();
+        const refreshed = subscribed(await alice.subscribe({ cursor: first.cursor }));
+        expect(refreshed).toMatchObject({ truncated: true });
+        await handle.emit({ eventId: 'after', data: { n: 1 } });
+        await post.until(2);
+        await settle();
+        expect(post.deliveries().map(request => bodyOf(request).eventId ?? bodyOf(request).type)).toEqual(['after']);
+        expect(subscribed(await alice.subscribe({ cursor: refreshed.cursor }))).toMatchObject({ truncated: false });
+    });
+
+    it('lets a refresh gap answer tell the restart mark of a delivery not yet acknowledged, so no gap envelope follows', async () => {
+        const store = new InMemoryWebhookSubscriptionStore();
+        let refuse = false;
+        const { events, post, hook } = replica({ webhookStore: store, respond: echo(() => ({ status: refuse ? 503 : 200, body: '' })) });
+        const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const alice = client(events);
+        const first = subscribed(await alice.subscribe());
+        await post.until(1);
+
+        await vi.advanceTimersByTimeAsync(1000);
+        hook.restart();
+        refuse = true;
+        await handle.emit({ eventId: 'after', data: { n: 1 } });
+        await post.until(2);
+        await settle();
+        // The client never got the event, so it refreshes with the cursor it had.
+        expect(subscribed(await alice.subscribe({ cursor: first.cursor }))).toMatchObject({ truncated: true });
+        refuse = false;
+        await vi.advanceTimersByTimeAsync(5000);
+        await post.until(3);
+        await settle();
+        expect(post.deliveries().map(request => bodyOf(request).eventId ?? bodyOf(request).type)).toEqual(['after', 'after']);
+    });
+
+    it('reports no gap for a subscription created after the delivering process started, and one once that process restarts', async () => {
+        // Real timers: a gap envelope would follow the acknowledgement off any fake clock.
+        vi.useRealTimers();
+        const quiet = () => new Promise(resolve => setTimeout(resolve, 200));
+        const store = new InMemoryWebhookSubscriptionStore();
+        const [a, b] = [replica({ webhookStore: store }), replica({ webhookStore: store })];
+        a.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const handle = b.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        await new Promise(resolve => setTimeout(resolve, 5));
+        subscribed(await client(a.events).subscribe());
+        await handle.emit({ eventId: 'from-b', data: { n: 1 } });
+        await b.post.until(1);
+        await quiet();
+        expect(b.post.requests.map(request => bodyOf(request).eventId ?? bodyOf(request).type)).toEqual(['from-b']);
+
+        await new Promise(resolve => setTimeout(resolve, 5));
+        b.hook.restart();
+        await handle.emit({ eventId: 'after-restart', data: { n: 2 } });
+        await b.post.until(3);
+        await quiet();
+        expect(b.post.requests.map(request => bodyOf(request).eventId ?? bodyOf(request).type)).toEqual(['from-b', 'after-restart', 'gap']);
+    });
+
+    it('answers refreshes alternating between two replicas, each given the cursor the client adopted, with at most one gap from each', async () => {
+        const store = new InMemoryWebhookSubscriptionStore();
+        const [a, b] = [replica({ webhookStore: store }), replica({ webhookStore: store })];
+        const handle = a.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        b.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const [onA, onB] = [client(a.events), client(b.events)];
+        let { cursor } = subscribed(await onA.subscribe());
+        const gaps = { a: 0, b: 0 };
+        for (let round = 1; round <= 3; round++) {
+            // An emit on the first replica is delivered, and the client adopts the cursor it carries.
+            await handle.emit({ data: { n: round } });
+            await a.post.until(1 + round);
+            await settle();
+            cursor = bodyOf(a.post.deliveries().at(-1)!).cursor as string;
+            const atB = subscribed(await onB.subscribe({ cursor }));
+            if (atB.truncated) gaps.b += 1;
+            const atA = subscribed(await onA.subscribe({ cursor: atB.cursor }));
+            if (atA.truncated) gaps.a += 1;
+            cursor = atA.cursor;
+        }
+        expect(gaps).toEqual({ a: 0, b: 1 });
+    });
+
+    it('answers a quiet alternation between two replicas with one gap from the second and one repeat, as a retry after a lost answer brings back its first cursor', async () => {
+        const store = new InMemoryWebhookSubscriptionStore();
+        const [a, b] = [replica({ webhookStore: store }), replica({ webhookStore: store })];
+        for (const { events } of [a, b]) events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const [onA, onB] = [client(a.events), client(b.events)];
+        let { cursor } = subscribed(await onA.subscribe());
+        const answers: Array<['a' | 'b', boolean]> = [];
+        for (let round = 1; round <= 4; round++) {
+            for (const [name, on] of [
+                ['b', onB],
+                ['a', onA]
+            ] as const) {
+                const answer = subscribed(await on.subscribe({ cursor }));
+                answers.push([name, answer.truncated === true]);
+                cursor = answer.cursor;
+            }
+        }
+        // Nothing moves the first replica's cursor, so the second replica's next refresh carries its first cursor again.
+        expect(answers.filter(([, truncated]) => truncated)).toEqual([
+            ['b', true],
+            ['b', true]
+        ]);
+        expect(answers.slice(0, 4)).toEqual([
+            ['b', true],
+            ['a', false],
+            ['b', true],
+            ['a', false]
+        ]);
+    });
+
+    it('answers the first refresh after a restart at the watermark of the deliveries an emit started there: truncated: true for a cursor of the old buffer, false for one of this buffer', async () => {
+        const store = new InMemoryWebhookSubscriptionStore();
+        const { events, post, hook } = replica({ webhookStore: store });
+        const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const [alice, bob] = [client(events, 'u1'), client(events, 'u2')];
+        const before = subscribed(await alice.subscribe());
+        subscribed(await bob.subscribe());
+        await post.until(2);
+
+        hook.restart();
+        await handle.emit({ eventId: 'after', data: { n: 1 } });
+        await post.until(4);
+        await settle();
+        const cursors = post.deliveries().map(request => bodyOf(request).cursor);
+        expect(new Set(cursors).size).toBe(1);
+        const [delivered] = cursors as [string];
+        expect(delivered).not.toBe(before.cursor);
+
+        expect(subscribed(await alice.subscribe({ cursor: before.cursor }))).toMatchObject({ cursor: delivered, truncated: true });
+        expect(subscribed(await bob.subscribe({ cursor: delivered }))).toMatchObject({ cursor: delivered, truncated: false });
     });
 
     it('answers refreshes after an abandoned event with truncated: true until one carries the cursor such an answer returned, and then sends no gap envelope for it', async () => {

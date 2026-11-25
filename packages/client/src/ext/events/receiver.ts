@@ -10,8 +10,8 @@ import { EventsError, parseWebhookSecret, verifyWebhookSignature } from '@modelc
 
 // Where the receiver routes one subscription's deliveries.
 export interface WebhookSink {
-    // The subscription's loop has fallen behind: it takes no event until the loop takes one.
-    full(): boolean;
+    // Whether to refuse an event now, every loop it goes to having fallen behind; asked once per event POST it would route, so it may report what refusing can lose.
+    refuses(): boolean;
     event(occurrence: EventOccurrence): void;
     gap(cursor: string | null): void;
     // An Events kind arrives as `EventsError`.
@@ -122,8 +122,8 @@ export class WebhookReceiver {
         if (target?.sink === undefined) return status(503);
         if (!(await verifies(target.key))) return status(401);
         if (this.#seen.has(webhookId)) return status(200);
-        // An event for a full queue is refused unremembered, so the server retries it; control bodies always go through.
-        if (!('type' in body) && target.sink.full()) return status(503);
+        // An event the subscription refuses is not remembered, so the server retries it; control bodies always go through.
+        if (!('type' in body) && target.sink.refuses()) return status(503);
         const route = this.#route(body, target.sink);
         if (route === undefined) return status(400);
         this.#remember(webhookId);

@@ -5,6 +5,7 @@ import * as z from 'zod/v4';
 import type { EmitFanOut } from '../../../src/ext/events/extension';
 import type { CheckContext, EventContext, EventsOptions, PollEventsResult } from '../../../src/ext/events/index';
 import { EventsError, EventsExtension } from '../../../src/ext/events/index';
+import { leaseKey } from '../../../src/ext/events/leases';
 import type { EventsTestHook } from '../../../src/ext/events/testHook';
 import { errorOf, resultOf, serve } from './harness';
 
@@ -374,6 +375,26 @@ describe('events/poll for an emit-only type', () => {
         expect(await poll({ name: 'i', cursor: 'garbage' })).toMatchObject({ events: [], cursor: c0, truncated: true });
     });
 
+    it('serves a cursor the buffer evicted from the oldest event it holds, in one poll, while emits keep evicting', async () => {
+        const events = new EventsExtension({ emitBuffer: { maxEvents: 5 } });
+        const h = events.registerEvent('i', { emitOnly: true, payloadSchema: P });
+        const { poll } = poller(events);
+        let { cursor } = await poll({ name: 'i', cursor: null });
+        const received: unknown[] = [];
+        let n = 0;
+        for (let round = 0; round < 3; round++) {
+            // Ten emits between polls evict everything the last poll reached.
+            for (let emitted = 0; emitted < 10; emitted++) await h.emit({ data: { n: ++n } });
+            const result = await poll({ name: 'i', cursor, maxEvents: 3 });
+            expect(result).toMatchObject({ truncated: true, hasMore: true });
+            received.push(...result.events.map(event => event.data.n));
+            cursor = result.cursor;
+        }
+        expect(received).toEqual([6, 7, 8, 16, 17, 18, 26, 27, 28]);
+        // A cursor of another epoch (another replica, or one from before a restart) still reads as a gap without events.
+        expect(await poll({ name: 'i', cursor: 'e00000000.5' })).toMatchObject({ events: [], truncated: true, hasMore: true });
+    });
+
     it('drains with maxEvents and hasMore', async () => {
         const events = new EventsExtension();
         const h = events.registerEvent('i', { emitOnly: true, payloadSchema: P });
@@ -607,6 +628,14 @@ describe('poll leases', () => {
         expect(onSubscribe.mock.calls[0]![1]).toEqual({ a: 1, b: 2 });
         await poll({ name: 't', arguments: { a: 1 } });
         expect(onSubscribe).toHaveBeenCalledTimes(2);
+    });
+
+    it('keys a lease by a digest of the canonical (principal, name, arguments), whose length does not grow with the arguments', async () => {
+        const padded = await leaseKey('u1', 't', { a: 1, pad: 'x'.repeat(60_000) });
+        expect(padded).toHaveLength((await leaseKey(null, 't', {})).length);
+        expect(padded).not.toContain('xxxx');
+        expect(await leaseKey('u1', 't', { a: 1, b: 2 })).toBe(await leaseKey('u1', 't', { b: 2, a: 1 }));
+        expect(await leaseKey(null, 't', {})).not.toBe(await leaseKey('', 't', {}));
     });
 
     it('keys leases by principal', async () => {

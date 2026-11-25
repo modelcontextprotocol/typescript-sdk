@@ -11,7 +11,7 @@ import { occurrence, WEBHOOK_URL, webhookPost } from './scripted';
 type MockSink = { [K in keyof WebhookSink]: Mock<WebhookSink[K]> };
 
 function sink(): MockSink {
-    return { full: vi.fn(() => false), event: vi.fn(), gap: vi.fn(), terminated: vi.fn() };
+    return { refuses: vi.fn(() => false), event: vi.fn(), gap: vi.fn(), terminated: vi.fn() };
 }
 
 /** A receiver routing `sub_1` to a fresh sink. */
@@ -166,16 +166,17 @@ describe('WebhookReceiver', () => {
         expect(target.event).toHaveBeenCalledOnce();
     });
 
-    it('answers 503 to an event for a full subscription without remembering its webhook-id, and takes control bodies', async () => {
+    it('answers 503 to an event the subscription refuses without remembering its webhook-id, and takes control bodies', async () => {
         const { receiver, secret, target } = bound();
-        target.full.mockReturnValue(true);
+        target.refuses.mockReturnValue(true);
         const event = { ...occurrence('e1'), cursor: 'c1' };
         expect(await statusOf(receiver, webhookPost(event, secret, 'sub_1', { webhookId: 'msg_1' }))).toBe(503);
         expect(await statusOf(receiver, webhookPost({ type: 'gap', cursor: 'c0' }, secret, 'sub_1'))).toBe(200);
         expect(target.event).not.toHaveBeenCalled();
         expect(target.gap).toHaveBeenCalledOnce();
 
-        target.full.mockReturnValue(false);
+        expect(target.refuses).toHaveBeenCalledOnce();
+        target.refuses.mockReturnValue(false);
         expect(await statusOf(receiver, webhookPost(event, secret, 'sub_1', { webhookId: 'msg_1' }))).toBe(200);
         expect(target.event).toHaveBeenCalledExactlyOnceWith(event);
     });

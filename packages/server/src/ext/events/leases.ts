@@ -4,6 +4,8 @@ import { canonicalJson } from '@modelcontextprotocol/core-internal/ext/events';
 // setTimeout fires at once for longer delays; a longer lease re-arms when the timer fires early.
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
+const encoder = new TextEncoder();
+
 export interface Lease {
     readonly subscriptionId: string;
     readonly name: string;
@@ -12,9 +14,12 @@ export interface Lease {
     terminated?: EventsError;
 }
 
-// One lease per (principal or null, event name, canonical arguments), as SEP-3415 Appendix A keys poll subscriptions.
-export function leaseKey(principal: string | null, name: string, args: Record<string, unknown>): string {
-    return `${principal ?? ''}\u0000${name}\u0000${canonicalJson(args)}`;
+// One lease per (principal or null, event name, canonical arguments), as SEP-3415 Appendix A keys poll subscriptions: the base64 SHA-256 of their canonical JSON, so a key's size does not grow with the arguments.
+export async function leaseKey(principal: string | null, name: string, args: Record<string, unknown>): Promise<string> {
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', encoder.encode(canonicalJson([principal, name, args])));
+    let binary = '';
+    for (const byte of new Uint8Array(digest)) binary += String.fromCodePoint(byte);
+    return btoa(binary);
 }
 
 interface Slot<L> {

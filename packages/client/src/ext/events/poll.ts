@@ -12,7 +12,7 @@ export class PollDriver<T> implements Driver {
     readonly #loop: DriverLoop<T>;
     readonly #floorMs: number;
     #nextPollMs: number | undefined;
-    // The last result was `truncated`: the results that continue that run report no further gap.
+    // The last result was a `truncated` page with more waiting (`hasMore`): the results that continue that run report no further gap.
     #truncating = false;
 
     constructor(context: DriverContext<T>, floorMs: number) {
@@ -71,9 +71,9 @@ export class PollDriver<T> implements Driver {
         const cursor = result.cursor ?? null;
         this.#nextPollMs = result.nextPollMs;
         const truncated = result.truncated === true;
-        // One `onGap` per run of truncated results (a stale cursor's catch-up under `maxAgeMs`, say); a clean result ends the run.
+        // One `onGap` per run of truncated `hasMore` pages (a stale cursor's catch-up under `maxAgeMs`, say); a clean result, or one with nothing more waiting, ends the run.
         this.#loop.succeeded(cursor, truncated && !this.#truncating);
-        this.#truncating = truncated;
+        this.#truncating = truncated && result.hasMore === true;
         for (const event of result.events) this.#context.queue.push(event);
         this.#loop.setCursor(cursor);
     }

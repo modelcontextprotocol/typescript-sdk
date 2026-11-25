@@ -278,6 +278,58 @@ describe('webhook delivery', () => {
         expect(sub.cursor).toBe('c1001');
     }, 30_000);
 
+    it('reports onGap(null) once per episode of 503s to a type without replay, whose refused events the server may give up on', async () => {
+        const onGap = vi.fn();
+        const { post, subscribe } = await webhookWith(granting({ cursor: null }));
+        const sub = await subscribe({ onGap });
+        let n = 0;
+        const deliver = () => post({ ...occurrence(`e${++n}`), cursor: null });
+        for (let count = 0; count < 1000; count++) expect(await deliver()).toBe(200);
+        expect(await deliver()).toBe(503);
+        expect(await deliver()).toBe(503);
+        expect(onGap).toHaveBeenCalledExactlyOnceWith(null);
+
+        // A loop that takes one makes room for one; the episode goes on until it has taken half the queue.
+        const iterator = sub[Symbol.asyncIterator]();
+        await iterator.next();
+        expect(await deliver()).toBe(200);
+        expect(await deliver()).toBe(503);
+        expect(onGap).toHaveBeenCalledOnce();
+        for (let taken = 0; taken < 500; taken++) await iterator.next();
+        await settle();
+        for (let count = 0; count < 500; count++) expect(await deliver()).toBe(200);
+        expect(await deliver()).toBe(503);
+        expect(onGap.mock.calls).toEqual([[null], [null]]);
+    }, 30_000);
+
+    it('pauses identical webhook subscriptions only while every loop is full; a full one drops its oldest for the others, one gap per episode', async () => {
+        const stalledGap = vi.fn();
+        const healthyGap = vi.fn();
+        const { post, subscribe } = await webhookWith(granting({ cursor: 'c0' }));
+        const stalled = await subscribe({ onGap: stalledGap });
+        const healthy = await subscribe({ onGap: healthyGap });
+        const deliver = (n: number) => post({ ...occurrence(`e${n}`), cursor: `c${n}` });
+        for (let n = 1; n <= 1000; n++) expect(await deliver(n)).toBe(200);
+        // Both loops are 1 000 behind: the receiver refuses, and the server retries.
+        expect(await deliver(1001)).toBe(503);
+
+        const healthyIterator = healthy[Symbol.asyncIterator]();
+        for (let n = 1; n <= 1000; n++) expect(await nextEventId(healthyIterator)).toBe(`e${n}`);
+        for (let n = 1001; n <= 1010; n++) expect(await deliver(n)).toBe(200);
+        for (let n = 1001; n <= 1010; n++) expect(await nextEventId(healthyIterator)).toBe(`e${n}`);
+        expect(stalledGap).toHaveBeenCalledExactlyOnceWith('c1001');
+        expect(healthyGap).not.toHaveBeenCalled();
+
+        // The stalled loop lost its ten oldest; once it has taken half its queue, its next drop is a new episode.
+        const stalledIterator = stalled[Symbol.asyncIterator]();
+        expect(await nextEventId(stalledIterator)).toBe('e11');
+        for (let taken = 1; taken < 500; taken++) await stalledIterator.next();
+        await settle();
+        for (let n = 1011; n <= 1511; n++) expect(await deliver(n)).toBe(200);
+        expect(stalledGap.mock.calls).toEqual([['c1001'], ['c1511']]);
+        expect(healthyGap).not.toHaveBeenCalled();
+    }, 30_000);
+
     it('answers the verification challenge sent during events/subscribe and routes deliveries that precede the response', async () => {
         const challenges: unknown[] = [];
         const early: number[] = [];

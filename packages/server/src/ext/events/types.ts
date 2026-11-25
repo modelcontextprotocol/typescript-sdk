@@ -321,7 +321,11 @@ export interface EventsOptions {
     pollSubscriptionTtlMs?: number;
     /** The push heartbeat interval granted when the client suggests none, and the longest granted. */
     heartbeatMs?: number;
-    /** How often `check` runs for push and webhook subscriptions. */
+    /**
+     * The wait between two `check` runs of a push or webhook subscription, except after a page with more waiting
+     * (`hasMore`) that made progress (it had events or a new cursor): push runs the next `check` at once, and webhook as
+     * soon as every event of that page has been acknowledged or abandoned.
+     */
     checkIntervalMs?: number;
     /** The `nextPollMs` sent when `check` gives none, capped at half of `pollSubscriptionTtlMs`; setting it over that half throws `TypeError`. */
     defaultNextPollMs?: number;
