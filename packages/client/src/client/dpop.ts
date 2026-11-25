@@ -206,13 +206,124 @@ export class DpopSession {
     }
 }
 
+// RFC 9110 §5.6.2 `tchar` alphabet for auth-scheme and auth-param token parsing.
+const TOKEN_CHAR = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]$/;
+
 /**
- * Whether `wwwAuthenticate` advertises a `DPoP` auth-scheme challenge (matched at the start of the
- * header or after a comma, per RFC 9110 §11.6.1 — a server may list several schemes together, e.g.
- * `Bearer …, DPoP …`).
+ * Parses a `WWW-Authenticate` header per RFC 9110 §11.6.1 and reports whether any `DPoP`
+ * challenge carries an `error` auth-param equal to `use_dpop_nonce` (RFC 9449 §9).
  */
-function hasDpopChallenge(wwwAuthenticate: string): boolean {
-    return /(?:^|,)\s*dpop(?:\s|$|,)/i.test(wwwAuthenticate);
+function hasDpopNonceError(wwwAuthenticate: string): boolean {
+    const len = wwwAuthenticate.length;
+    let i = 0;
+    let currentScheme: string | undefined;
+
+    const skipWs = (): void => {
+        while (i < len && (wwwAuthenticate[i] === ' ' || wwwAuthenticate[i] === '\t')) i++;
+    };
+
+    const readToken = (): string => {
+        const start = i;
+        while (i < len && TOKEN_CHAR.test(wwwAuthenticate[i]!)) i++;
+        return wwwAuthenticate.slice(start, i);
+    };
+
+    const readQuotedString = (): string | undefined => {
+        i++;
+        let value = '';
+        while (i < len) {
+            const ch = wwwAuthenticate[i]!;
+            if (ch === '\\') {
+                if (i + 1 >= len) return undefined;
+                value += wwwAuthenticate[i + 1]!;
+                i += 2;
+                continue;
+            }
+            if (ch === '"') {
+                i++;
+                return value;
+            }
+            value += ch;
+            i++;
+        }
+        return undefined;
+    };
+
+    while (i < len) {
+        skipWs();
+        if (i >= len) break;
+        if (wwwAuthenticate[i] === ',') {
+            i++;
+            continue;
+        }
+
+        const token = readToken();
+        if (token.length === 0) {
+            while (i < len && wwwAuthenticate[i] !== ',') i++;
+            currentScheme = undefined;
+            continue;
+        }
+
+        const afterToken = i;
+        skipWs();
+
+        if (wwwAuthenticate[i] === '=') {
+            i++;
+            skipWs();
+            let value: string | undefined;
+            if (wwwAuthenticate[i] === '"') {
+                value = readQuotedString();
+                if (value === undefined) return false;
+            } else {
+                value = readToken();
+            }
+            if (currentScheme === 'dpop' && token.toLowerCase() === 'error' && value === 'use_dpop_nonce') {
+                return true;
+            }
+            skipWs();
+            if (wwwAuthenticate[i] === ',') {
+                i++;
+            } else if (i < len) {
+                while (i < len && wwwAuthenticate[i] !== ',') i++;
+                currentScheme = undefined;
+            }
+            continue;
+        }
+
+        // Not followed by `=`: starts a new `auth-scheme` challenge.
+        const scheme = token.toLowerCase();
+        if (i >= len || wwwAuthenticate[i] === ',') {
+            currentScheme = undefined;
+            if (wwwAuthenticate[i] === ',') i++;
+            continue;
+        }
+        if (i === afterToken) {
+            while (i < len && wwwAuthenticate[i] !== ',') i++;
+            currentScheme = undefined;
+            continue;
+        }
+
+        // Look ahead to distinguish `auth-scheme SP auth-param` from `auth-scheme SP token68`.
+        const saved = i;
+        const nextToken = readToken();
+        skipWs();
+        if (nextToken.length > 0 && wwwAuthenticate[i] === '=') {
+            i++;
+            skipWs();
+            if (i < len && (wwwAuthenticate[i] === '"' || TOKEN_CHAR.test(wwwAuthenticate[i]!))) {
+                currentScheme = scheme;
+                i = saved;
+                continue;
+            }
+        }
+
+        // Token68 challenge (e.g. `Basic dXNlcjpwYXNz==`): consume to the next comma.
+        currentScheme = undefined;
+        while (i < len && wwwAuthenticate[i] !== ',') i++;
+        if (wwwAuthenticate[i] === ',') i++;
+    }
+
+    return false;
 }
 
 /**
@@ -226,5 +337,5 @@ function hasDpopChallenge(wwwAuthenticate: string): boolean {
 export function isDpopNonceChallenge(response: Response): boolean {
     if (response.status !== 401) return false;
     const wwwAuthenticate = response.headers.get('www-authenticate') ?? '';
-    return hasDpopChallenge(wwwAuthenticate) && /use_dpop_nonce/i.test(wwwAuthenticate);
+    return hasDpopNonceError(wwwAuthenticate);
 }
