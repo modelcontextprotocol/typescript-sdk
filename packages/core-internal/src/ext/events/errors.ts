@@ -10,8 +10,7 @@ function kindOf(code: number): EventsErrorKind | undefined {
  * An Events (SEP-3415) error. It crosses the wire as an error response, and inside
  * `notifications/events/error`, `notifications/events/terminated` and the webhook `terminated` body.
  *
- * Branch on {@linkcode EventsError.kind}: it is the API. The inherited `code` is provisional
- * (SEP-3415 open question 5 may renumber these errors or fold them into `-32602` with typed `data`).
+ * Branch on {@linkcode EventsError.kind}: it is the API. The inherited `code` is the SEP's code for that kind.
  * `instanceof` checks are brand-matched and work across separately bundled copies of the SDK.
  *
  * Experimental: Events (SEP-3415) is new; this API may change in a minor release.

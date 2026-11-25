@@ -651,29 +651,70 @@ describe('events/stream: termination', () => {
 });
 
 describe('events/stream: a client that stops reading', () => {
-    it('ends a stream whose client leaves more than 1 MiB unread, and keeps one whose client reads', async () => {
+    it('ends a stream whose client leaves more than 1 MiB unread for a whole heartbeat interval, and keeps one whose client reads', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
         const events = new EventsExtension();
         const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: z.object({ s: z.string() }) });
         const served = serve(events);
-        const stalled = await open(served, { name: 'big', cursor: null });
-        const reading = await open(served, { name: 'big', cursor: null });
+        const stalled = await open(served, { name: 'big', cursor: null, heartbeatMs: 5000 });
+        const reading = await open(served, { name: 'big', cursor: null, heartbeatMs: 5000 });
         expect(await next(stalled)).toMatchObject({ method: ACTIVE });
         expect(await next(reading)).toMatchObject({ method: ACTIVE });
 
-        // 20 events of 100 kB: the stalled client reads none of them.
+        // 20 events of 100 kB: the stalled client reads none of them, and they are written all the same.
         const read: unknown[] = [];
         for (let n = 0; n < 20; n++) {
             await handle.emit({ eventId: `e${n}`, data: { s: 'x'.repeat(100_000) } });
             read.push(paramsOf(await next(reading))['eventId']);
         }
         expect(read).toHaveLength(20);
-        expect(testHook(events).state().pushStreams).toBe(1);
+        expect(testHook(events).state().pushStreams).toBe(2);
 
+        // The heartbeats a grant later: the stalled stream is still over the bound and ends instead.
+        const heartbeat = next(reading);
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(await heartbeat).toMatchObject({ method: HEARTBEAT });
+        expect(testHook(events).state().pushStreams).toBe(1);
         const left = await rest(stalled);
         expect(left.at(-1)).toEqual(finalResult(stalled.id));
+        expect(left.filter(frame => 'method' in frame && frame.method === EVENT)).toHaveLength(20);
+        expect(left.filter(frame => 'method' in frame && frame.method === HEARTBEAT)).toEqual([]);
+    });
+
+    it('ends a stream at once when its client leaves more than 8 MiB unread', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const events = new EventsExtension();
+        const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: z.object({ s: z.string() }) });
+        const stream = await open(serve(events), { name: 'big', cursor: null, heartbeatMs: 5000 });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE });
+
+        // 100 events of 100 kB, well within one grant, before the client reads any.
+        for (let n = 0; n < 100; n++) await handle.emit({ eventId: `e${n}`, data: { s: 'x'.repeat(100_000) } });
+        expect(testHook(events).state().pushStreams).toBe(0);
+        const left = await rest(stream);
+        expect(left.at(-1)).toEqual(finalResult(stream.id));
         const unread = left.filter(frame => 'method' in frame && frame.method === EVENT);
-        expect(unread.length).toBeGreaterThan(9);
-        expect(unread.length).toBeLessThan(15);
+        expect(unread.length).toBeGreaterThan(80);
+        expect(unread.length).toBeLessThan(90);
+    });
+
+    it('keeps a stream open through a burst of more than 1 MiB that its client then reads', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const events = new EventsExtension();
+        const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: z.object({ s: z.string() }) });
+        const stream = await open(serve(events), { name: 'big', cursor: null, heartbeatMs: 5000 });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE });
+
+        // `for (…) await handle.emit(…)` writes every frame before the client can read one.
+        for (let n = 0; n < 20; n++) await handle.emit({ eventId: `e${n}`, data: { s: 'x'.repeat(100_000) } });
+        const read: unknown[] = [];
+        for (let n = 0; n < 20; n++) read.push(paramsOf(await next(stream))['eventId']);
+        expect(read).toEqual(Array.from({ length: 20 }, (_, n) => `e${n}`));
+
+        const heartbeat = next(stream);
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(await heartbeat).toMatchObject({ method: HEARTBEAT });
+        expect(testHook(events).state().pushStreams).toBe(1);
     });
 });
 

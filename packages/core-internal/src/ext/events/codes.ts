@@ -7,7 +7,7 @@
  */
 export type EventsErrorKind = 'invalidParams' | 'notFound' | 'forbidden' | 'resourceExhausted' | 'unsupported' | 'callbackEndpointError';
 
-/** The provisional JSON-RPC code of each {@linkcode EventsErrorKind} (SEP-3415 open question 5 may renumber them). */
+/** The JSON-RPC code of each {@linkcode EventsErrorKind}, as SEP-3415 assigns them. */
 export const EVENTS_ERROR_CODES: Readonly<Record<EventsErrorKind, number>> = {
     invalidParams: -32_602,
     notFound: -32_023,

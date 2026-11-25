@@ -14,7 +14,8 @@ import type {
     SubscribeEventsResult,
     WebhookSendOutcome,
     WebhookSendRequest,
-    WebhookSubscriptionRecord
+    WebhookSubscriptionRecord,
+    WebhookSubscriptionStore
 } from '../../../src/ext/events/index';
 import { EventsError, EventsExtension, InMemoryWebhookSubscriptionStore } from '../../../src/ext/events/index';
 import type { EventsTestHook } from '../../../src/ext/events/testHook';
@@ -201,6 +202,32 @@ class FlakyStore extends InMemoryWebhookSubscriptionStore {
     }
 }
 
+// A store that keeps each record as JSON, as a store on a shared database does.
+class JsonStore implements WebhookSubscriptionStore {
+    readonly #records = new Map<string, string>();
+
+    get(id: string): Promise<WebhookSubscriptionRecord | undefined> {
+        const json = this.#records.get(id);
+        return Promise.resolve(json === undefined ? undefined : (JSON.parse(json) as WebhookSubscriptionRecord));
+    }
+
+    put(record: WebhookSubscriptionRecord): Promise<void> {
+        this.#records.set(record.id, JSON.stringify(record));
+        return Promise.resolve();
+    }
+
+    delete(id: string): Promise<boolean> {
+        return Promise.resolve(this.#records.delete(id));
+    }
+
+    async *listByName(name: string): AsyncIterable<WebhookSubscriptionRecord> {
+        for (const json of this.#records.values()) {
+            const record = JSON.parse(json) as WebhookSubscriptionRecord;
+            if (record.name === name) yield record;
+        }
+    }
+}
+
 beforeEach(() => {
     vi.useFakeTimers();
 });
@@ -291,7 +318,7 @@ describe('events/subscribe: validation', () => {
         expect(new Set([first.id, ...others]).size).toBe(5);
     });
 
-    it('derives the id from the arguments as the client sent them, and keeps the parsed ones for the hooks', async () => {
+    it('derives the id from the arguments as the client sent them, stores those, and gives the hooks the parsed ones', async () => {
         const onSubscribe = vi.fn();
         const store = new InMemoryWebhookSubscriptionStore();
         const { events } = replica({ webhookStore: store });
@@ -302,7 +329,7 @@ describe('events/subscribe: validation', () => {
         expect(plain.id).toBe(idOf(['u1', HOOK, 'e', { a: 1 }]));
         expect(extra.id).toBe(idOf(['u1', HOOK, 'e', { a: 1, x: 2 }]));
         expect(onSubscribe.mock.calls.map(([, args]) => args as unknown)).toEqual([{ a: 1 }, { a: 1 }]);
-        expect((await store.get(extra.id))?.arguments).toEqual({ a: 1 });
+        expect((await store.get(extra.id))?.arguments).toEqual({ a: 1, x: 2 });
 
         // Unsubscribing one key leaves the other.
         resultOf(await alice.unsubscribe({ arguments: { a: 1 } }));
@@ -635,6 +662,40 @@ describe('events/subscribe: creating', () => {
         expect(cursorOf('first')).not.toBe(cursor);
     });
 
+    it('closes the pending fan-out pass on a subscribe, so an emit after its replay read finds the stored record', async () => {
+        const store = new GatedStore();
+        const { events, post } = replica({ webhookStore: store });
+        let resumed!: () => void;
+        const queued = new Promise<void>(resolve => (resumed = resolve));
+        const handle = events.registerEvent('e', {
+            emitOnly: true,
+            payloadSchema: P,
+            onSubscribe: (_ctx, args) => {
+                if (args.k === 2) resumed();
+            }
+        });
+        const alice = client(events);
+        const { cursor } = subscribed(await alice.subscribe({ arguments: { k: 1 } }));
+
+        // `a`'s pass is held at its listing, and `b` waits in the pending pass behind it.
+        const gate = store.hold('listByName');
+        await handle.emit({ eventId: 'a', data: { n: 1 } });
+        await gate.reached;
+        await handle.emit({ eventId: 'b', data: { n: 2 } });
+        const resuming = alice.subscribe({ arguments: { k: 2 }, cursor });
+        await queued;
+        await settle();
+        await handle.emit({ eventId: 'c', data: { n: 3 } });
+        gate.release();
+        const { id } = subscribed(await resuming);
+
+        // The verification, `a`, `b` and `c` to k: 1, and to k: 2 `a` and `b` by replay and `c` by fan-out.
+        await post.until(7);
+        await settle();
+        const sent = post.deliveries().filter(request => request.headers['X-MCP-Subscription-Id'] === id);
+        expect(sent.map(request => bodyOf(request).eventId).sort()).toEqual(['a', 'b', 'c']);
+    });
+
     it('replays a backlog of 50 events at most 10 POSTs at a time, starting them in position order', async () => {
         const answers: Array<() => void> = [];
         let inFlight = 0;
@@ -698,6 +759,27 @@ describe('events/subscribe: creating', () => {
         expect(sent.map(request => bodyOf(request).eventId).sort()).toEqual(['after', 'before', 'during']);
     });
 });
+
+// A subscription whose receiver answered 503 to all five attempts of `lost`, so the event was abandoned; `heal()` makes it answer 200.
+async function afterAnAbandonedEvent() {
+    let healthy = false;
+    const { events, post } = replica({ respond: echo(() => (healthy ? { status: 200, body: '' } : { status: 503, body: '' })) });
+    const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+    const alice = client(events);
+    subscribed(await alice.subscribe());
+    await handle.emit({ eventId: 'lost', data: { n: 1 } });
+    await post.until(2);
+    for (const [index, delay] of [5000, 30_000, 120_000, 300_000].entries()) {
+        await settle();
+        await vi.advanceTimersByTimeAsync(delay);
+        await post.until(index + 3);
+    }
+    await settle();
+    const heal = (): void => {
+        healthy = true;
+    };
+    return { handle, post, alice, heal };
+}
 
 describe('events/subscribe: refreshing', () => {
     it('refreshes idempotently and rotates the secret', async () => {
@@ -775,24 +857,15 @@ describe('events/subscribe: refreshing', () => {
         expect(elsewhere).not.toHaveProperty('deliveryStatus');
     });
 
-    it('answers the refresh after an abandoned event with truncated: true, once, and then sends no gap envelope for it', async () => {
-        let healthy = false;
-        const { events, post } = replica({ respond: echo(() => (healthy ? { status: 200, body: '' } : { status: 503, body: '' })) });
-        const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
-        const alice = client(events);
-        subscribed(await alice.subscribe());
-        await handle.emit({ eventId: 'lost', data: { n: 1 } });
-        await post.until(2);
-        for (const [index, delay] of [5000, 30_000, 120_000, 300_000].entries()) {
-            await settle();
-            await vi.advanceTimersByTimeAsync(delay);
-            await post.until(index + 3);
-        }
-        await settle();
-
+    it('answers refreshes after an abandoned event with truncated: true until one carries the cursor such an answer returned, and then sends no gap envelope for it', async () => {
+        const { handle, post, alice, heal } = await afterAnAbandonedEvent();
         const refreshed = subscribed(await alice.subscribe());
         expect(refreshed).toMatchObject({ truncated: true, cursor: expect.any(String) });
-        healthy = true;
+        // That answer was lost: the client refreshes again with the cursor it had.
+        expect(subscribed(await alice.subscribe())).toMatchObject({ truncated: true, cursor: refreshed.cursor });
+        expect(subscribed(await alice.subscribe({ cursor: refreshed.cursor }))).toMatchObject({ truncated: false });
+
+        heal();
         await handle.emit({ eventId: 'kept', data: { n: 2 } });
         await post.until(7);
         await settle();
@@ -805,6 +878,26 @@ describe('events/subscribe: refreshing', () => {
             'kept'
         ]);
         expect(subscribed(await alice.subscribe())).toMatchObject({ truncated: false });
+    });
+
+    it('tells the subscriber of an abandoned event by a gap envelope when the truncated answer was lost and an event moved its cursor', async () => {
+        const { handle, post, alice, heal } = await afterAnAbandonedEvent();
+        expect(subscribed(await alice.subscribe())).toMatchObject({ truncated: true });
+
+        // The answer was lost; meanwhile the receiver recovers and acknowledges the next event, which moves the client's cursor.
+        heal();
+        await handle.emit({ eventId: 'kept', data: { n: 2 } });
+        await post.until(8);
+        await settle();
+        const kept = post.deliveries().find(request => bodyOf(request).eventId === 'kept')!;
+        expect(
+            post
+                .deliveries()
+                .filter(request => bodyOf(request).type === 'gap')
+                .map(request => bodyOf(request))
+        ).toEqual([{ type: 'gap', cursor: bodyOf(kept).cursor }]);
+        // The client's retry carries that cursor; the acknowledged envelope already told it of the gap.
+        expect(subscribed(await alice.subscribe({ cursor: bodyOf(kept).cursor as string }))).toMatchObject({ truncated: false });
     });
 
     it('reports a suspension on the refresh that ends it', async () => {
@@ -1043,6 +1136,51 @@ describe('several replicas sharing one store', () => {
         expect(b.hook.state().webhookSubscriptions).toBe(0);
     });
 
+    it('stores the arguments as the client sent them, and hands every callback the schema output through a store that keeps JSON', async () => {
+        const store = new JsonStore();
+        const a = replica({ webhookStore: store });
+        const b = replica({ webhookStore: store });
+        const checked: unknown[] = [];
+        const unsubscribed: unknown[] = [];
+        const tags = z.object({ tags: z.array(z.string()).transform(list => new Set(list)) });
+        const define = (events: EventsExtension) => {
+            events.registerEvent('c', {
+                inputSchema: tags,
+                payloadSchema: P,
+                check: (_ctx, args) => {
+                    checked.push(args.tags);
+                    return { events: [], cursor: 'c0' };
+                }
+            });
+            return events.registerEvent('e', {
+                emitOnly: true,
+                inputSchema: tags,
+                payloadSchema: z.object({ tag: z.string() }),
+                match: (_ctx, event, args) => args.tags.has(event.data.tag),
+                onUnsubscribe: (_ctx, args) => void unsubscribed.push(args.tags)
+            });
+        };
+        define(a.events);
+        const handle = define(b.events);
+        const { id } = subscribed(await client(a.events).subscribe({ arguments: { tags: ['red'] } }));
+        expect((await store.get(id))?.arguments).toEqual({ tags: ['red'] });
+
+        // B, which does not watch the subscription, reads its record and matches with the Set.
+        await handle.emit({ eventId: 'evt_red', data: { tag: 'red' } });
+        await handle.emit({ eventId: 'evt_blue', data: { tag: 'blue' } });
+        await b.post.until(1);
+        await settle();
+        expect(b.post.deliveries().map(request => bodyOf(request).eventId)).toEqual(['evt_red']);
+
+        // A check type gets the Set at its first check and at the next, whose record comes from the store.
+        subscribed(await client(a.events).subscribe({ name: 'c', arguments: { tags: ['red'] } }));
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(checked).toEqual([new Set(['red']), new Set(['red'])]);
+
+        resultOf(await client(b.events).unsubscribe({ arguments: { tags: ['red'] } }));
+        expect(unsubscribed).toEqual([new Set(['red'])]);
+    });
+
     it('expires a record lazily where no timer watches it, running onUnsubscribe once (F3b)', async () => {
         const store = new InMemoryWebhookSubscriptionStore();
         const a = replica({ webhookStore: store });
@@ -1163,6 +1301,122 @@ describe('fan-out', () => {
         await post.until(2);
         await settle();
         expect(post.deliveries().map(request => bodyOf(request).eventId)).toEqual(['next']);
+    });
+
+    it('lists the store once for the emits that queue while a listing runs, and delivers each to every subscription', async () => {
+        const store = new GatedStore();
+        const listings = vi.spyOn(store, 'listByName');
+        const { events, post } = replica({ webhookStore: store });
+        const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const alice = client(events);
+        const ids: string[] = [];
+        for (const k of [1, 2]) ids.push(subscribed(await alice.subscribe({ arguments: { k } })).id);
+        listings.mockClear();
+
+        const gate = store.hold('listByName');
+        await handle.emit({ eventId: 'evt_1', data: { n: 1 } });
+        await gate.reached;
+        for (let n = 2; n <= 20; n++) await handle.emit({ eventId: `evt_${n}`, data: { n } });
+        gate.release();
+        await post.until(41);
+        await settle();
+        expect(listings).toHaveBeenCalledTimes(2);
+        for (const id of ids) {
+            const sent = post.deliveries().filter(request => request.headers['X-MCP-Subscription-Id'] === id);
+            expect(sent.map(request => bodyOf(request).eventId).sort()).toEqual(
+                Array.from({ length: 20 }, (_, n) => `evt_${n + 1}`).sort()
+            );
+        }
+        // Every event settled at its own position: the watermark is the buffer head.
+        const { cursor: head } = resultOf(await alice.rpc('events/poll', { name: 'e', cursor: null })) as PollEventsResult;
+        expect(subscribed(await alice.subscribe({ arguments: { k: 1 } })).cursor).toBe(head);
+    });
+
+    it('drops the oldest past 10 000 emits waiting for one listing, reports them at most once a minute, and gives each subscription that listing reaches one gap', async () => {
+        const store = new GatedStore();
+        const onerror = vi.fn();
+        const { events, post } = replica({ webhookStore: store, onerror });
+        const handle = events.registerEvent('e', {
+            emitOnly: true,
+            payloadSchema: P,
+            match: (_ctx, event) => event.data.n > 10_000
+        });
+        const alice = client(events);
+        const ids: string[] = [];
+        for (const k of [1, 2]) ids.push(subscribed(await alice.subscribe({ arguments: { k } })).id);
+
+        const gate = store.hold('listByName');
+        await handle.emit({ eventId: 'evt_1', data: { n: 1 } });
+        await gate.reached;
+        for (let n = 2; n <= 10_003; n++) await handle.emit({ eventId: `evt_${n}`, data: { n } });
+        const reports = () => onerror.mock.calls.map(([error]) => (error as Error).message);
+        expect(reports()).toEqual(["webhook fan-out of 'e': dropped event evt_2, past the 10000 emits waiting for one store listing"]);
+
+        gate.release();
+        // The verification, evt_10001 to evt_10003 to each subscription, and one gap envelope each after an acknowledged event.
+        await post.until(1 + 6 + 2);
+        await settle();
+        const gaps = post.deliveries().filter(request => bodyOf(request).type === 'gap');
+        expect(gaps.map(request => request.headers['X-MCP-Subscription-Id']).sort()).toEqual([...ids].sort());
+        expect(post.deliveries().filter(request => bodyOf(request).type === undefined)).toHaveLength(6);
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(reports()).toEqual([
+            "webhook fan-out of 'e': dropped event evt_2, past the 10000 emits waiting for one store listing",
+            "webhook fan-out of 'e': dropped 1 more event since the last report, the latest evt_3"
+        ]);
+    });
+
+    it('does no fan-out work for an event type that offers no webhook delivery', async () => {
+        const store = new InMemoryWebhookSubscriptionStore();
+        const listings = vi.spyOn(store, 'listByName');
+        const reads = vi.spyOn(store, 'get');
+        const { events } = replica({ webhookStore: store });
+        const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P, delivery: { webhook: false } });
+        await handle.emit({ data: { n: 1 } });
+        await handle.emit({ data: { n: 2 } }, { subscriptionId: 'sub_elsewhere' });
+        await settle();
+        expect(listings).not.toHaveBeenCalled();
+        expect(reads).not.toHaveBeenCalled();
+    });
+
+    it('reports and skips a stored record whose arguments no longer parse, for emit delivery and onUnsubscribe', async () => {
+        const store = new InMemoryWebhookSubscriptionStore();
+        const onerror = vi.fn();
+        const onUnsubscribe = vi.fn();
+        const { events, post } = replica({ webhookStore: store, onerror });
+        const handle = events.registerEvent('e', {
+            emitOnly: true,
+            inputSchema: z.object({ a: z.number() }),
+            payloadSchema: P,
+            onUnsubscribe
+        });
+        const { id } = subscribed(await client(events).subscribe({ arguments: { a: 1 } }));
+        const now = Date.now();
+        await store.put({
+            id: 'sub_stale',
+            principal: 'u1',
+            name: 'e',
+            arguments: { a: 'one' },
+            url: HOOK,
+            secret: SECRET,
+            expiresAt: now + 600_000,
+            createdAt: now
+        });
+        const skipped = () =>
+            onerror.mock.calls
+                .map(([error]) => (error as Error).message)
+                .filter(message => message.startsWith('webhook subscription sub_stale: skipped, its stored arguments do not parse'));
+
+        await handle.emit({ eventId: 'evt_1', data: { n: 1 } });
+        await post.until(2);
+        await settle();
+        expect(post.deliveries().map(request => request.headers['X-MCP-Subscription-Id'])).toEqual([id]);
+        expect(skipped()).toHaveLength(1);
+
+        await handle.terminate(revoked());
+        expect(onUnsubscribe.mock.calls.map(([ctx, args]) => [(ctx as EventContext).subscriptionId, args])).toEqual([[id, { a: 1 }]]);
+        expect(skipped()).toHaveLength(2);
     });
 
     it('drops a transform output that fails payloadSchema and reports it', async () => {

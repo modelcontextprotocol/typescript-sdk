@@ -4,10 +4,12 @@ import type { JSONRPCMessage, JSONRPCRequest, RequestId, ServerCapabilities, Tra
 import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
 import { generateWebhookId, parseWebhookSecret, signWebhook } from '@modelcontextprotocol/core-internal/ext/events';
 
+import type { AuthProvider } from '../../../src/client/auth';
 import { UnauthorizedError } from '../../../src/client/auth';
 import { markAuthSeamEscape } from '../../../src/client/authSeam';
 import type { ClientOptions } from '../../../src/client/client';
 import { Client } from '../../../src/client/client';
+import { StreamableHTTPClientTransport } from '../../../src/client/streamableHttp';
 import type { EventsClientOptions } from '../../../src/ext/events/index';
 import { EventsClientExtension } from '../../../src/ext/events/index';
 
@@ -157,6 +159,55 @@ export async function connectEvents(
     const events = new EventsClientExtension(options.events);
     const connected = await scriptedClient(handlers, { ...options, clientOptions: { ...options.clientOptions, extensions: [events] } });
     return { events, ...connected };
+}
+
+/**
+ * An `EventsClientExtension` in a client on a real `StreamableHTTPClientTransport` with `authProvider`, whose fetch
+ * answers `401` to any request but `server/discover` whose bearer token `authorized` refuses, and every other request
+ * with `handlers`, as the scripted server does.
+ */
+export async function httpEvents(
+    handlers: Record<string, Handler>,
+    authProvider: AuthProvider,
+    authorized: (token: string | null) => boolean
+): Promise<{ events: EventsClientExtension; client: Client; calls: Call[] }> {
+    const calls: Call[] = [];
+    const reply = (id: RequestId, answer: { result: Record<string, unknown> } | { error: Record<string, unknown> }): Response =>
+        new Response(JSON.stringify({ jsonrpc: '2.0', id, ...answer }), { status: 200, headers: { 'content-type': 'application/json' } });
+    const fetchStub = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        if (init?.method !== 'POST') return new Response(null, { status: 405 });
+        const request = JSON.parse(String(init.body)) as JSONRPCRequest;
+        if (request.id === undefined) return new Response(null, { status: 202 });
+        if (request.method === 'server/discover') {
+            return reply(request.id, {
+                result: {
+                    resultType: 'complete',
+                    supportedVersions: [MODERN],
+                    capabilities: EVENTS_CAPABILITIES,
+                    _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'scripted', version: '1.0.0' } }
+                }
+            });
+        }
+        const bearer = new Headers(init.headers).get('authorization')?.replace(/^Bearer /, '') ?? null;
+        if (!authorized(bearer)) return new Response('Unauthorized', { status: 401 });
+        const call = { id: request.id, method: request.method, params: (request.params ?? {}) as Record<string, unknown>, headers: {} };
+        calls.push(call);
+        try {
+            const handler = handlers[request.method];
+            if (handler === undefined) throw new RpcError(-32_601, `Method not found: ${request.method}`);
+            return reply(request.id, { result: { resultType: 'complete', ...(await handler(call.params, call)) } });
+        } catch (error) {
+            const code = error instanceof RpcError ? error.code : -32_603;
+            return reply(request.id, { error: { code, message: error instanceof Error ? error.message : String(error) } });
+        }
+    };
+    const events = new EventsClientExtension();
+    const client = new Client(
+        { name: 'events-test-client', version: '1.0.0' },
+        { versionNegotiation: { mode: { pin: MODERN } }, extensions: [events] }
+    );
+    await client.connect(new StreamableHTTPClientTransport(new URL('https://mcp.example.com/mcp'), { authProvider, fetch: fetchStub }));
+    return { events, client, calls };
 }
 
 export function descriptor(name: string, overrides: Partial<EventDescriptor> = {}): EventDescriptor {

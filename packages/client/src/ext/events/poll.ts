@@ -6,7 +6,7 @@ import type { Driver, DriverContext } from './subscription';
 
 const MAX_RETRY_DELAY_MS = 60_000;
 
-// Poll delivery (spec §6.3): one `events/poll` loop, again at once on `hasMore`, otherwise after `nextPollMs` but never sooner than the floor.
+// Poll delivery (spec §6.3): one `events/poll` loop, again at once on `hasMore` with events, otherwise after `nextPollMs` (the floor on `hasMore` without events) but never sooner than the floor.
 export class PollDriver<T> implements Driver {
     readonly #context: DriverContext<T>;
     readonly #loop: DriverLoop<T>;
@@ -46,6 +46,8 @@ export class PollDriver<T> implements Driver {
             this.#deliver(result);
             loop.subscribed();
             if (result.hasMore !== true) await loop.sleep(Math.max(result.nextPollMs ?? this.#floorMs, this.#floorMs));
+            // A `hasMore` page without events made no progress (a replica that does not know the cursor, say), so it waits the floor.
+            else if (result.events.length === 0) await loop.sleep(this.#floorMs);
         }
     }
 
@@ -60,6 +62,8 @@ export class PollDriver<T> implements Driver {
     #deliver(result: PollEventsResult): void {
         const cursor = result.cursor ?? null;
         this.#nextPollMs = result.nextPollMs;
+        // A page is atomic, so the first one completes the replay `maxAgeMs` applies to.
+        this.#loop.replayed();
         this.#loop.succeeded(cursor, result.truncated === true);
         for (const event of result.events) this.#context.queue.push(event);
         this.#loop.setCursor(cursor);

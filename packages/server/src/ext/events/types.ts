@@ -194,7 +194,12 @@ export interface EventHandle {
  * @experimental
  */
 export interface EmitOnlyEventHandle<P> extends EventHandle {
-    /** Publishes one event to every matching subscription, or to the one with `options.subscriptionId`. */
+    /**
+     * Publishes one event to every matching subscription, or to the one with `options.subscriptionId`. A targeted
+     * event reaches only a live subscription: a push stream that reconnects, or a poll client whose lease lapsed,
+     * starts a new subscription with a new id, and targeted events are not replayed to it. Use `match` for events
+     * a client must not miss.
+     */
     emit(input: EventInput<P>, options?: { subscriptionId?: string }): Promise<void>;
 }
 
@@ -248,6 +253,7 @@ export interface WebhookSubscriptionRecord {
     id: string;
     principal: string;
     name: string;
+    /** The subscription arguments as the client sent them (JSON); the SDK parses them with the event type's `inputSchema` before it passes them to a callback. */
     arguments: Record<string, unknown>;
     url: string;
     secret: string;

@@ -4,6 +4,7 @@ import type { MockInstance } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { UnauthorizedError } from '../../../src/client/auth';
+import { markAuthSeamEscape } from '../../../src/client/authSeam';
 import type { EventSubscription, SubscribeOptions } from '../../../src/ext/events/index';
 import { EventsError, NoCompatibleDeliveryModeError } from '../../../src/ext/events/index';
 import type { Call, Handler } from './scripted';
@@ -286,6 +287,70 @@ describe('push delivery', () => {
         expect(sub.cursor).toBe('c2');
     });
 
+    it('retries and reports a reopened stream that ends before its active, and reopens quietly after one that ends after it', async () => {
+        const { client, last, streams, subscribe } = await pushWith();
+        const errors: Error[] = [];
+        client.onerror = error => void errors.push(error);
+        const sub = await subscribe({}, s => s.active({ cursor: 'c1' }));
+
+        await last().end();
+        await vi.advanceTimersByTimeAsync(500);
+        expect(streams()).toHaveLength(2);
+        expect(errors).toEqual([]);
+
+        await last().end();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(streams()).toHaveLength(3);
+        expect(last().call.params['cursor']).toBe('c1');
+        expect(errors).toEqual([
+            expect.objectContaining({
+                message:
+                    "push subscription to 'tick' failed and is retried: events/stream ended before its first valid notifications/events/active",
+                cause: expect.objectContaining({ code: SdkErrorCode.InvalidResult })
+            })
+        ]);
+        await last().active({ cursor: 'c2' });
+        await last().frame('notifications/events/event', { ...occurrence('e1'), cursor: 'c3' });
+        expect(await nextEventId(sub[Symbol.asyncIterator]())).toBe('e1');
+    });
+
+    it('stops sending maxAgeMs once a heartbeat follows the first batch, though the cursor has not moved', async () => {
+        const { last, subscribe } = await pushWith();
+        await subscribe({ cursor: 'h1', maxAgeMs: 300_000 }, s => s.active({ cursor: 'h1' }));
+        await last().frame('notifications/events/heartbeat', { cursor: 'h1' });
+
+        await last().end();
+        await vi.advanceTimersByTimeAsync(500);
+        expect(last().call.params['cursor']).toBe('h1');
+        expect(last().call.params).not.toHaveProperty('maxAgeMs');
+    });
+
+    it('keeps sending maxAgeMs until the cursor moves, so a reopen within the batch it cut stays cut', async () => {
+        const { last, subscribe } = await pushWith();
+        // As the SDK server answers a check from h1 whose `old` event is older than maxAgeMs: without it, `old` comes too.
+        const replay = async () => {
+            const { maxAgeMs } = last().call.params;
+            await last().active({ cursor: 'h1', truncated: true });
+            if (maxAgeMs === undefined) await last().frame('notifications/events/event', { ...occurrence('old'), cursor: 'h1' });
+            await last().frame('notifications/events/event', { ...occurrence('new'), cursor: 'h1' });
+        };
+        const sub = await subscribe({ cursor: 'h1', maxAgeMs: 300_000 }, replay);
+
+        // The stream drops after the batch's first event, whose cursor is still the batch start.
+        await last().end();
+        await vi.advanceTimersByTimeAsync(500);
+        expect(last().call.params).toMatchObject({ cursor: 'h1', maxAgeMs: 300_000 });
+        await replay();
+        await last().frame('notifications/events/event', { ...occurrence('newer'), cursor: 'h2' });
+
+        await last().end();
+        await vi.advanceTimersByTimeAsync(500);
+        expect(last().call.params['cursor']).toBe('h2');
+        expect(last().call.params).not.toHaveProperty('maxAgeMs');
+        const iterator = sub[Symbol.asyncIterator]();
+        expect([await nextEventId(iterator), await nextEventId(iterator)]).toEqual(['new', 'newer']);
+    });
+
     it('reconnects with the last cursor after an error that is not an Events kind', async () => {
         const { last, streams, subscribe } = await pushWith();
         const sub = await subscribe({}, s => s.active({ cursor: 'c1' }));
@@ -564,6 +629,20 @@ describe('push delivery', () => {
         expect(vi.getTimerCount()).toBe(0);
     });
 
+    it('rejects subscribe() when the first stream ends before its active, as when none arrives in time', async () => {
+        const { events, last, streams } = await pushWith();
+        const subscribing = events.subscribe({ name: 'tick', delivery: 'push' }).catch((error_: unknown) => error_);
+        await settle();
+        await last().end();
+
+        const error = await subscribing;
+        expect(error).toBeInstanceOf(SdkError);
+        expect(error).toMatchObject({ code: SdkErrorCode.InvalidResult });
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(streams()).toHaveLength(1);
+    });
+
     it('rejects subscribe() when no valid active arrives within the request timeout, and reopens once subscribed', async () => {
         const first = await pushWith();
         let settled = false;
@@ -625,7 +704,8 @@ describe('push delivery', () => {
                 'the stream fails with an error that is not an Events kind',
                 script(new RpcError(-32_603, 'Internal error')),
                 { code: -32_603 }
-            ]
+            ],
+            ['the stream ends before its first active', script({}), { code: SdkErrorCode.InvalidResult }]
         ])('subscribes by poll when %s, and reports the push failure', async (_case, stream, cause) => {
             const { events, errors, streams, polls } = await pushOrPoll(stream);
             const subscribing = events.subscribe({ name: 'tick', cursor: 'c0' });
@@ -680,6 +760,7 @@ describe('push delivery', () => {
 
         it.each([
             ['an auth failure', authFailure, UnauthorizedError],
+            ['a network error of the auth seam', () => markAuthSeamEscape(new TypeError('fetch failed')), TypeError],
             ['-32601', () => new ProtocolError(-32_601, 'Method not found'), ProtocolError]
         ])('rejects without falling back when the first stream fails with %s', async (_case, failure, type) => {
             const { client, events, errors, polls } = await pushOrPoll(() => new Promise<never>(() => {}));

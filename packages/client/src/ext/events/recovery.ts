@@ -1,8 +1,10 @@
 import type { DeliveryMode } from '@modelcontextprotocol/core/ext/events';
 import { HEADER_MISMATCH_ERROR_CODE, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core-internal';
 import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
-import { SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal/public';
+import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal/public';
 
+import { UnauthorizedError } from '../../client/auth';
+import { OAuthClientFlowError } from '../../client/authErrors';
 import { isAuthSeamEscape } from '../../client/authSeam';
 import { NoCompatibleDeliveryModeError } from './errors';
 import type { EventsConnection } from './request';
@@ -17,14 +19,27 @@ const RETRY_REPORT_INTERVAL_MS = 60_000;
 // JSON-RPC codes that end a subscription: the server no longer serves the method, or rejects its params.
 const FINAL_CODES: ReadonlySet<number> = new Set([ProtocolErrorCode.MethodNotFound, ProtocolErrorCode.InvalidParams]);
 
-// An error that ends a subscription whenever it comes: an auth failure (a retry would run auth() again), a -32601 or a -32602.
-export function endsSubscription(error: unknown): boolean {
-    return isAuthSeamEscape(error) || (error instanceof ProtocolError && FINAL_CODES.has(error.code));
+// OAuth error codes of a token source that passes with time.
+const TRANSIENT_OAUTH_CODES: ReadonlySet<string> = new Set([
+    OAuthErrorCode.ServerError,
+    OAuthErrorCode.TemporarilyUnavailable,
+    OAuthErrorCode.TooManyRequests
+]);
+
+// An auth failure only the user or the configuration can fix (a retry would run auth() again for nothing); any other, such as a network failure of the token source, passes with time.
+function isFinalAuthFailure(error: unknown): boolean {
+    if (error instanceof UnauthorizedError || error instanceof SdkError || error instanceof OAuthClientFlowError) return true;
+    return error instanceof OAuthError && !TRANSIENT_OAUTH_CODES.has(error.code);
 }
 
-// An error of the first exchange that subscribe() rejects with (a -32020 only once its re-list is spent); any other (transport, an HTTP 5xx or 429, another non-Events JSON-RPC error, a verification limit) is retried in the background.
+// An error that ends a live subscription: a final auth failure of the transport, a -32601 or a -32602; any other auth failure is retried like a transport failure.
+export function endsSubscription(error: unknown): boolean {
+    return (isAuthSeamEscape(error) && isFinalAuthFailure(error)) || (error instanceof ProtocolError && FINAL_CODES.has(error.code));
+}
+
+// An error of the first exchange that subscribe() rejects with: any auth failure of the transport, so a misconfigured provider rejects, and a -32020 only once its re-list is spent; any other (transport, an HTTP 5xx or 429, another non-Events JSON-RPC error, a verification limit) is retried in the background.
 export function refusesSubscription(error: unknown): boolean {
-    if (endsSubscription(error)) return true;
+    if (isAuthSeamEscape(error) || endsSubscription(error)) return true;
     if (error instanceof SdkHttpError) return !(error.status >= 500 || error.status === 429);
     return (error instanceof EventsError && !isVerificationLimit(error)) || error instanceof SdkError || isHeaderMismatch(error);
 }
@@ -81,7 +96,7 @@ export function isModeRefusal(error: unknown): boolean {
     );
 }
 
-// Every mode's recovery once subscribed (spec §6.3): `relist` and go on while still offered, `mismatch` (re-list and retry once, then end), `fail` (end with the error), or `retry` later (anything but an Events kind or an endsSubscription() error, and a verification limit).
+// Every mode's recovery once subscribed (spec §6.3): `relist` and go on while still offered, `mismatch` (re-list and retry once, then end), `fail` (end with the error), or `retry` later (anything but an Events kind or an endsSubscription() error, such as a transport or non-final auth failure, and a verification limit).
 export function recoveryFor(error: unknown): 'relist' | 'mismatch' | 'fail' | 'retry' {
     if (endsSubscription(error)) return 'fail';
     if (isHeaderMismatch(error)) return 'mismatch';
@@ -148,7 +163,8 @@ export class DriverLoop<T> {
     // Aborts requests in flight on stop().
     readonly #abort = new AbortController();
     #cursor: string | null;
-    // Sent until an exchange succeeds.
+    // The cursor subscribe() was given; `maxAgeMs` is sent until the cursor moves off it or the first replay is known complete.
+    readonly #startCursor: string | null;
     #maxAgeMs: number | undefined;
     // Until an exchange succeeds, or the first one fails transiently.
     #first = true;
@@ -173,6 +189,7 @@ export class DriverLoop<T> {
         this.#context = context;
         this.#mode = mode;
         this.#cursor = context.subscription.cursor ?? null;
+        this.#startCursor = this.#cursor;
         this.#maxAgeMs = context.subscription.maxAgeMs;
     }
 
@@ -233,17 +250,23 @@ export class DriverLoop<T> {
         this.#settle.resolve();
     }
 
-    // An exchange succeeded at `cursor`: `maxAgeMs` is no longer sent, and a gap is reported on `truncated` or after a reset to now.
+    // An exchange succeeded at `cursor`: a gap is reported on `truncated` or after a reset to now.
     succeeded(cursor: string | null, truncated: boolean): void {
         const reset = this.#reset;
-        this.#maxAgeMs = undefined;
         this.#schemaChanged = false;
         this.#reset = false;
         // A type without replay has no position to have skipped past (SEP: ignore `truncated`).
         if (reset || (truncated && cursor !== null)) reportGap(this.#context.subscription, this.#context.connection, cursor);
     }
 
+    // The subscription's first replay is known complete (a push heartbeat, a poll result, a webhook refresh after the subscribe): `maxAgeMs` is no longer sent.
+    replayed(): void {
+        this.#maxAgeMs = undefined;
+    }
+
+    // A cursor other than the one subscribe() was given stops `maxAgeMs` being sent.
     setCursor(cursor: string | null): void {
+        if (cursor !== this.#startCursor) this.#maxAgeMs = undefined;
         this.#cursor = cursor;
         this.#context.queue.setCursor(cursor);
     }

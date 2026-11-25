@@ -88,6 +88,41 @@ describe('poll delivery', () => {
         expect([await nextEventId(iterator), await nextEventId(iterator)]).toEqual(['e1', 'e2']);
     });
 
+    it('polls again after the floor on hasMore without events, and at once on hasMore with events', async () => {
+        // As two replicas with their own emit buffers answer a cursor the other one gave.
+        const { polls, subscribe } = await pollWith(
+            script(
+                { events: [], cursor: 'b0', truncated: true, hasMore: true, nextPollMs: 0 },
+                { events: [], cursor: 'a0', truncated: true, hasMore: true, nextPollMs: 0 },
+                { events: [occurrence('e1')], cursor: 'a1', hasMore: true, nextPollMs: 0 },
+                { events: [occurrence('e2')], cursor: 'a2', nextPollMs: 60_000 }
+            )
+        );
+        await subscribe();
+        expect(polls()).toHaveLength(1);
+
+        await vi.advanceTimersByTimeAsync(999);
+        expect(polls()).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(polls()).toHaveLength(2);
+        await vi.advanceTimersByTimeAsync(999);
+        expect(polls()).toHaveLength(2);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(polls().map(call => call.params['cursor'])).toEqual([null, 'b0', 'a0', 'a1']);
+    });
+
+    it('stops sending maxAgeMs after the first poll result, though the cursor has not moved', async () => {
+        const { polls, subscribe } = await pollWith(
+            script({ events: [], cursor: 'c0', nextPollMs: 0 }, { events: [], cursor: 'c0', nextPollMs: 60_000 })
+        );
+        await subscribe({ cursor: 'c0', maxAgeMs: 300_000 });
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(polls().map(call => [call.params['cursor'], call.params['maxAgeMs']])).toEqual([
+            ['c0', 300_000],
+            ['c0', undefined]
+        ]);
+    });
+
     it('reports truncated through onGap and persists the fresh cursor', async () => {
         const onGap = vi.fn();
         const { polls, subscribe } = await pollWith(script({ events: [], cursor: 'c5', truncated: true, nextPollMs: 60_000 }));

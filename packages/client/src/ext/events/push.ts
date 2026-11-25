@@ -16,6 +16,7 @@ import { EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 import { DEFAULT_REQUEST_TIMEOUT_MSEC, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal/public';
 import type * as z from 'zod/v4';
 
+import { isAuthSeamEscape } from '../../client/authSeam';
 import type { StreamEnd, StreamHandle } from '../../client/client';
 import { clientInternals } from '../../client/client';
 import { connectionClosed, DriverLoop, endsSubscription, isHeaderMismatch, jitteredDelay, MAX_TIMER_DELAY_MS } from './recovery';
@@ -65,7 +66,7 @@ export class PushDriver<T> implements Driver {
     #handle: StreamHandle | undefined;
     // Ends the wait for the open stream.
     #end: ((ending: Ending) => void) | undefined;
-    // The open stream's heartbeat grant, from its last `active`.
+    // The open (or last) stream's heartbeat grant, from its last `active`; `undefined` until it has had one.
     #grantMs: number | undefined;
     // Until the first valid `active`, the wait for it; from then on, the countdown to declaring the stream dead.
     #dead: ReturnType<typeof setTimeout> | undefined;
@@ -92,8 +93,16 @@ export class PushDriver<T> implements Driver {
         while (!loop.ended) {
             const { error } = await this.#open();
             if (loop.ended) return;
-            if (error === undefined) loop.subscribed();
-            else await this.#recover(error);
+            // A stream that ends before its first valid `active` (no grant yet) failed, as one that times out waiting for it does.
+            const failure =
+                error ??
+                (this.#grantMs === undefined
+                    ? new SdkError(
+                          SdkErrorCode.InvalidResult,
+                          `${EVENTS_STREAM_METHOD} ended before its first valid ${EVENTS_ACTIVE_NOTIFICATION}`
+                      )
+                    : undefined);
+            if (failure !== undefined) await this.#recover(failure);
             await loop.sleep(jitteredDelay(this.#attempt++));
         }
     }
@@ -107,8 +116,12 @@ export class PushDriver<T> implements Driver {
             return;
         }
         const { connection, subscription } = this.#context;
+        // An auth failure, even one retried, says nothing about push itself.
         const unavailable =
-            !(error instanceof EventsError) && !endsSubscription(error) && connectionClosed(connection, error) === undefined;
+            !(error instanceof EventsError) &&
+            !isAuthSeamEscape(error) &&
+            !endsSubscription(error) &&
+            connectionClosed(connection, error) === undefined;
         if (this.#fallback && this.#loop.first && unavailable) throw new PushUnavailableError(subscription.name, error);
         await this.#loop.recover(error);
     }
@@ -192,7 +205,10 @@ export class PushDriver<T> implements Driver {
             }
             case EVENTS_HEARTBEAT_NOTIFICATION: {
                 const params = this.#parse(EventsHeartbeatNotificationParamsSchema, notification);
-                if (params !== undefined) this.#loop.setCursor(params.cursor ?? null);
+                if (params === undefined) break;
+                // A heartbeat follows the whole batch sent after `active`.
+                this.#loop.replayed();
+                this.#loop.setCursor(params.cursor ?? null);
                 break;
             }
             case EVENTS_TERMINATED_NOTIFICATION: {

@@ -1,6 +1,8 @@
-import { ProtocolError, SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
+import { OAuthError, OAuthErrorCode, ProtocolError, SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
+import { InsecureTokenEndpointError } from '../../../src/client/authErrors';
+import { markAuthSeamEscape } from '../../../src/client/authSeam';
 import { EventsError } from '../../../src/ext/events/index';
 import { recoveryFor, refusesSubscription, reportGap } from '../../../src/ext/events/recovery';
 import type { EventsConnection } from '../../../src/ext/events/request';
@@ -39,6 +41,41 @@ describe('the recovery rules every delivery mode shares', () => {
         ['-32601', 'fail', true, new ProtocolError(-32_601, 'Method not found')],
         ['another JSON-RPC error', 'retry', false, new ProtocolError(-32_603, 'Internal error')],
         ['an auth failure', 'fail', true, authFailure()],
+        [
+            'a 401 after re-authentication',
+            'fail',
+            true,
+            markAuthSeamEscape(
+                new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', { status: 401 })
+            )
+        ],
+        ['an OAuthError of the auth seam', 'fail', true, markAuthSeamEscape(new OAuthError(OAuthErrorCode.InvalidGrant, 'Bad grant'))],
+        [
+            'an OAuth flow error of the auth seam',
+            'fail',
+            true,
+            markAuthSeamEscape(new InsecureTokenEndpointError('http://as.example.com/token'))
+        ],
+        [
+            'an OAuthError server_error of the auth seam',
+            'retry',
+            true,
+            markAuthSeamEscape(new OAuthError(OAuthErrorCode.ServerError, 'HTTP 503: Invalid OAuth error response'))
+        ],
+        [
+            'an OAuthError temporarily_unavailable of the auth seam',
+            'retry',
+            true,
+            markAuthSeamEscape(new OAuthError(OAuthErrorCode.TemporarilyUnavailable, 'Try again later'))
+        ],
+        [
+            'an OAuthError too_many_requests of the auth seam',
+            'retry',
+            true,
+            markAuthSeamEscape(new OAuthError(OAuthErrorCode.TooManyRequests, 'Slow down'))
+        ],
+        ['a network error of the auth seam', 'retry', true, markAuthSeamEscape(new TypeError('fetch failed'))],
+        ['a custom error of the auth seam', 'retry', true, markAuthSeamEscape(new Error('token service unavailable'))],
         ['an SDK error', 'retry', true, new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out')],
         ['an HTTP 503', 'retry', false, httpError(503)],
         ['an HTTP 429', 'retry', false, httpError(429)],

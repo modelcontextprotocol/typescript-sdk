@@ -512,32 +512,91 @@ describe('event delivery', () => {
         expect(gaps().at(-1)).toEqual({ type: 'gap', cursor: 'p4' });
     });
 
-    it('answers a refresh with the mark instead, so no envelope follows; a type without replay gets neither', async () => {
+    it('answers every refresh with the mark until one carries the watermark a truncated answer returned, and sends the envelope whatever refreshes answered; a type without replay gets neither', async () => {
         const answers: WebhookSendOutcome[] = [{ status: 413, body: '' }];
         const { engine, record, requests, until } = setup(() => answers.shift() ?? { status: 200, body: '' });
+        const gaps = () => requests.map(request => bodyOf(request)).filter(body => body.type === 'gap');
         engine.track(ID, 'p0');
         engine.deliver(record, occurrence('evt_1'), 'p1', null);
         await until(1);
         await settle();
-        expect(engine.takeGap(ID)).toBe(true);
-        expect(engine.takeGap(ID)).toBe(false);
+        // The answer carrying p1 was lost, so the same cursor comes again; then a refresh with p1 shows it arrived.
+        expect(engine.answerGap(ID, 'p0')).toBe(true);
+        expect(engine.answerGap(ID, 'p0')).toBe(true);
+        expect(engine.answerGap(ID, 'p1')).toBe(false);
         engine.deliver(record, occurrence('evt_2'), 'p2', null);
         await until(2);
         await settle();
-        expect(requests.filter(request => bodyOf(request).type === 'gap')).toEqual([]);
+        expect(gaps()).toEqual([]);
+
+        // A loss after a truncated answer is marked again: the watermark that answer returned no longer clears it.
+        answers.push({ status: 413, body: '' });
+        engine.deliver(record, occurrence('evt_3'), 'p3', null);
+        await until(3);
+        await settle();
+        expect(engine.answerGap(ID, 'p2')).toBe(true);
+        answers.push({ status: 413, body: '' });
+        engine.deliver(record, occurrence('evt_4'), 'p4', null);
+        await until(4);
+        await settle();
+        expect(engine.answerGap(ID, 'p3')).toBe(true);
+        // The envelope goes after the next acknowledged delivery whatever refreshes answered, and its 2xx clears the mark.
+        engine.deliver(record, occurrence('evt_5'), 'p5', null);
+        await until(6);
+        await settle();
+        expect(gaps()).toEqual([{ type: 'gap', cursor: 'p5' }]);
+        expect(engine.answerGap(ID, 'p3')).toBe(false);
 
         engine.track(ID, null);
         answers.push({ status: 413, body: '' });
-        engine.deliver(record, occurrence('evt_3'), null, null);
-        engine.deliver(record, occurrence('evt_4'), null, null);
-        await until(4);
+        engine.deliver(record, occurrence('evt_6'), null, null);
+        engine.deliver(record, occurrence('evt_7'), null, null);
+        await until(8);
         await settle();
-        expect(requests.filter(request => bodyOf(request).type === 'gap')).toEqual([]);
+        expect(gaps()).toHaveLength(1);
         answers.push({ status: 413, body: '' });
-        engine.deliver(record, occurrence('evt_5'), null, null);
-        await until(5);
+        engine.deliver(record, occurrence('evt_8'), null, null);
+        await until(9);
         await settle();
-        expect(engine.takeGap(ID)).toBe(false);
+        expect(engine.answerGap(ID, null)).toBe(false);
+    });
+
+    it('keeps the mark when every POST of the gap envelope fails, and sends it again after the next acknowledged delivery', async () => {
+        let gapAnswer: WebhookSendOutcome = { status: 503, body: '' };
+        const answers: WebhookSendOutcome[] = [{ status: 413, body: '' }];
+        const { engine, record, requests, until } = setup(request =>
+            bodyOf(request).type === 'gap' ? gapAnswer : (answers.shift() ?? { status: 200, body: '' })
+        );
+        const gaps = () => requests.filter(request => bodyOf(request).type === 'gap');
+        engine.track(ID, 'p0');
+        engine.deliver(record, occurrence('evt_1'), 'p1', null);
+        await until(1);
+        await settle();
+        engine.deliver(record, occurrence('evt_2'), 'p2', null);
+        await until(3);
+        for (const [index, delay] of DELAYS.entries()) {
+            await settle();
+            await vi.advanceTimersByTimeAsync(delay);
+            await until(index + 4);
+        }
+        await settle();
+        expect(gaps()).toHaveLength(5);
+        expect(new Set(gaps().map(request => request.headers['webhook-id'])).size).toBe(1);
+
+        gapAnswer = { status: 200, body: '' };
+        engine.deliver(record, occurrence('evt_3'), 'p3', null);
+        await until(9);
+        await settle();
+        expect(gaps().map(request => bodyOf(request))).toEqual([
+            ...Array.from({ length: 5 }, () => ({ type: 'gap', cursor: 'p2' })),
+            { type: 'gap', cursor: 'p3' }
+        ]);
+        // Acknowledged: no envelope after the next delivery, and a refresh answers truncated: false.
+        engine.deliver(record, occurrence('evt_4'), 'p4', null);
+        await until(10);
+        await settle();
+        expect(gaps()).toHaveLength(6);
+        expect(engine.answerGap(ID, 'p0')).toBe(false);
     });
 
     it.each([410, 413])('treats %i as final for the message', async status => {

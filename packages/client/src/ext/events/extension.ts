@@ -153,12 +153,14 @@ export class EventsClientExtension implements ClientExtension {
      * `delivery`, a push subscription whose first stream fails before its
      * first `active` with anything but an `EventsError`, an auth failure or a
      * `-32601` (no valid `active` within the request timeout, as behind a host
-     * that buffers whole responses, a transport error, or an `active` that
-     * fails its schema) reports that failure to the client's `onerror` and
-     * subscribes by poll instead, once, when the event type offers poll. An
-     * auth failure of the transport (such as the `UnauthorizedError` of a
-     * `401` its `authProvider` could not resolve) rejects, and so does a
-     * `-32601`. When the server refuses the selected delivery mode
+     * that buffers whole responses, a stream that ends before it, a transport
+     * error, or an `active` that fails its schema) reports that failure to the
+     * client's `onerror` and subscribes by poll instead, once, when the event
+     * type offers poll. Any auth failure of the transport (such as the
+     * `UnauthorizedError` of a `401` its `authProvider` could not resolve, or
+     * an error the `authProvider` throws while it fetches a token) rejects, so
+     * a misconfigured provider fails here, and so does a `-32601`. When the
+     * server refuses the selected delivery mode
      * (`unsupported` with `data.feature: 'deliveryMode'`), the event types are
      * listed again once and the mode selected again from that listing; a
      * `delivery` the server refuses is not changed to another mode. A `cursor`
@@ -187,11 +189,12 @@ export class EventsClientExtension implements ClientExtension {
      *   `ConnectionClosed` when the client closes before the first exchange answers, or another code when that
      *   exchange fails in the SDK (for example `RequestTimeout`, also when a push stream that does not fall back to
      *   poll sends no valid `notifications/events/active` in time, `InvalidResult` for an `active` that fails its
-     *   schema, or an `SdkHttpError` for an HTTP error status other than `5xx` and `429`).
+     *   schema or a stream that ends before its first valid `active`, or an `SdkHttpError` for an HTTP error
+     *   status other than `5xx` and `429`, also a `401` after re-authentication).
      * @throws {ProtocolError} `-32020` when the server rejects the `Mcp-Param` headers again after a re-list, or
      *   `-32601` when it does not serve the method.
-     * @throws {Error} the transport's auth failure (such as `UnauthorizedError`) when the first exchange is not
-     *   authorized.
+     * @throws {Error} the transport's auth failure (such as `UnauthorizedError`, or an error the `authProvider` throws)
+     *   when the first exchange is not authorized.
      * @throws {TypeError} when `webhook.secretProvider` returns something that is not a Standard Webhooks secret, or a
      *   secret another open server subscription signs with.
      */

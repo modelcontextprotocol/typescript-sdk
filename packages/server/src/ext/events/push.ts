@@ -26,8 +26,10 @@ import type { SubscriptionValidator } from './validation';
 
 // The shortest heartbeat granted, whatever the client suggests (D33).
 const HEARTBEAT_FLOOR_MS = 5000;
-// A stream whose client has left more than this unread ends before its next write.
+// A stream whose client has left more than this unread for its whole heartbeat interval ends at its next write.
 const MAX_STREAM_BACKLOG_BYTES = 1_048_576;
+// A stream whose client has left more than this unread ends at its next write, however short the stall.
+const STREAM_BACKLOG_CEILING_BYTES = 8 * MAX_STREAM_BACKLOG_BYTES;
 
 // A check that throws one of these ends its subscription; any other error leaves the loop running.
 export const TERMINAL_KINDS: ReadonlySet<EventsErrorKind> = new Set(['forbidden', 'notFound', 'unsupported']);
@@ -48,8 +50,9 @@ interface PushStream {
     readonly requestId: RequestId;
     readonly grant: number;
     readonly notify: ServerContext['mcpReq']['notify'];
-    // The bytes written that the client has not read yet, where the transport tells.
+    // The bytes written that the client has not read yet, where the transport tells, and since when that has been over the bound.
     readonly backlog?: () => number;
+    overSince?: number;
     // Aborts when the stream ends; the `signal` of every callback's ctx.
     readonly ended: AbortController;
     readonly ctx: CheckContext;
@@ -329,7 +332,7 @@ export class StreamSet implements SubscriptionSource {
     // Params that resolve to `undefined` (a dropped event) send nothing; an event's own `_meta` keys stay beside the stream's id.
     #write(stream: PushStream, method: string, params: Record<string, unknown> | Promise<Record<string, unknown> | undefined>): void {
         // A client that stopped reading is treated as gone, as after a failed write; it reconnects from its cursor.
-        if ((stream.backlog?.() ?? 0) > MAX_STREAM_BACKLOG_BYTES) {
+        if (this.#stalled(stream)) {
             void this.#end(stream);
             return;
         }
@@ -347,6 +350,19 @@ export class StreamSet implements SubscriptionSource {
         stream.heartbeat = unref(
             setTimeout(() => this.#write(stream, EVENTS_HEARTBEAT_NOTIFICATION, { cursor: stream.position }), stream.grant)
         );
+    }
+
+    // Over the backlog bound at every reading for a whole grant, or over the ceiling: a burst the client goes on reading drains below the bound first, and the heartbeat re-reads a quiet stream.
+    #stalled(stream: PushStream): boolean {
+        const backlog = stream.backlog?.() ?? 0;
+        if (backlog <= MAX_STREAM_BACKLOG_BYTES) {
+            stream.overSince = undefined;
+            return false;
+        }
+        if (backlog > STREAM_BACKLOG_CEILING_BYTES) return true;
+        const now = Date.now();
+        stream.overSince ??= now;
+        return now - stream.overSince >= stream.grant;
     }
 
     // Ends a stream once. A live one sends `terminated` for an error, runs onUnsubscribe, then lets `open` return.

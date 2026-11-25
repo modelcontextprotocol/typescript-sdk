@@ -289,6 +289,8 @@ class WebhookDriver implements Driver {
         const loop = this.#loop;
         const cursor = result.cursor ?? null;
         this.#attempt = 0;
+        // A refresh of the live subscription: its create's replay is behind it.
+        if (this.#live) loop.replayed();
         this.#live = true;
         this.#bind(result.id);
         this.#withdrawPending?.();

@@ -15,7 +15,7 @@ describe('EventsError', () => {
         expect(EventsError.isInstance(new ProtocolError(-32024, 'Forbidden'))).toBe(false);
     });
 
-    it('uses the provisional code table for every kind', () => {
+    it('uses the SEP-3415 code table for every kind', () => {
         expect(EVENTS_ERROR_CODES).toEqual({
             invalidParams: -32602,
             notFound: -32023,

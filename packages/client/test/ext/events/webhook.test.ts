@@ -157,6 +157,18 @@ describe('webhook delivery', () => {
         expect(secretOf(subscribes()[2]!)).not.toBe(secretOf(first));
     });
 
+    it('sends maxAgeMs until a refresh after the subscribe succeeds, though the cursor has not moved', async () => {
+        const { subscribes, subscribe } = await webhookWith(granting({ cursor: 'c0' }, { cursor: 'c0' }, { cursor: 'c0' }));
+        await subscribe({ cursor: 'c0', maxAgeMs: 300_000 });
+        await vi.advanceTimersByTimeAsync(45_000);
+        await vi.advanceTimersByTimeAsync(45_000);
+        expect(subscribes().map(call => [call.params['cursor'], call.params['maxAgeMs']])).toEqual([
+            ['c0', 300_000],
+            ['c0', 300_000],
+            ['c0', undefined]
+        ]);
+    });
+
     it('exposes deliveryStatus from the refresh', async () => {
         const failing = {
             active: false,

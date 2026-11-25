@@ -16,7 +16,7 @@ import { checkedBatch, errorObject, replayBuffer, startCheck, TERMINAL_KINDS } f
 import type { EventRegistry, RegisteredEvent } from './registry';
 import type { CheckContext, WebhookSender, WebhookSubscriptionRecord, WebhookSubscriptionStore } from './types';
 import type { SubscriptionValidator, ValidSubscription } from './validation';
-import { WebhookEngine } from './webhookEngine';
+import { MAX_HELD_MESSAGES, WebhookEngine } from './webhookEngine';
 
 // The shortest TTL granted, whatever the client suggests.
 const TTL_FLOOR_MS = 60_000;
@@ -24,8 +24,10 @@ const TTL_FLOOR_MS = 60_000;
 const ROTATION_GRACE_MS = 300_000;
 // setTimeout fires at once for longer delays; a longer grant re-arms when the timer fires early.
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
-// The waits between the three attempts of an emit's fan-out whose store read fails; after the last the failure is reported.
+// The waits between the three attempts of a fan-out pass whose store read fails; after the last the failure is reported.
 const FAN_OUT_RETRY_DELAYS_MS = [100, 200];
+// Emits a pending fan-out pass dropped are reported at once, then counted and reported together at most this often per event type.
+const DROP_REPORT_INTERVAL_MS = 60_000;
 
 const encoder = new TextEncoder();
 let unwatched: AbortSignal | undefined;
@@ -58,6 +60,8 @@ interface Watched {
     // Aborts when this process stops serving the subscription; the `signal` of its callbacks.
     readonly ended: AbortController;
     readonly ctx: CheckContext;
+    // The arguments as the event type's inputSchema outputs them, for its callbacks.
+    readonly args: Record<string, unknown>;
     expiry?: ReturnType<typeof setTimeout>;
     // A check type's loop: the position checked up to, and the next check.
     position: string | null;
@@ -76,6 +80,28 @@ interface Subscribing {
 }
 
 type Queues = Map<string, Promise<unknown>>;
+
+// One emit for a fan-out pass: the event and the positions after and before it.
+interface Emitted {
+    readonly buffered: BufferedEvent;
+    readonly cursor: string;
+    readonly previous: string;
+}
+
+// The emits of one event type that one store listing delivers, in emit order; `dropped` when its cap dropped some, so every subscription it lists gets a gap.
+interface Pass {
+    readonly entry: RegisteredEvent;
+    readonly emits: Emitted[];
+    dropped: boolean;
+}
+
+// One event type's dropped emits since the last report and the latest of them, when that report went out, and the timer of the next.
+interface Drops {
+    count: number;
+    latest?: string;
+    reportedAt?: number;
+    timer?: ReturnType<typeof setTimeout>;
+}
 
 // Takes the termination that reached a subscribe in flight, so it is applied once.
 function takeTermination(subscribing: Subscribing): EventsError | undefined {
@@ -136,8 +162,11 @@ export class WebhookSubscriptions implements SubscriptionSource {
     readonly #subscribing = new Set<Subscribing>();
     // Creates past the quota check that have no watch yet.
     readonly #starting = new Set<Subscribing>();
-    // The fan-out of one event type runs one emit at a time, so each subscription's deliveries reach the engine in position order.
+    // The fan-out of one event type runs one pass at a time, so each subscription's deliveries reach the engine in position order.
     readonly #byName: Queues = new Map();
+    // By event type: the pass not yet started, which the type's next emits join.
+    readonly #pending = new Map<string, Pass>();
+    readonly #drops = new Map<string, Drops>();
 
     constructor(deps: WebhookDeps) {
         this.#deps = deps;
@@ -191,7 +220,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
                 const existing = await this.#unexpired(id);
                 return existing === undefined
                     ? this.#create(id, valid, params, ttl, subscribing)
-                    : this.#refresh(existing, valid.entry, params, ttl, subscribing);
+                    : this.#refresh(existing, valid, params, ttl, subscribing);
             });
         } finally {
             this.#subscribing.delete(subscribing);
@@ -214,13 +243,27 @@ export class WebhookSubscriptions implements SubscriptionSource {
         });
     }
 
-    // Hands an emitted event to the engine for each matching stored subscription, after the earlier emits of its type; it never waits on a receiver.
+    // Hands an emitted event to the engine for each matching stored subscription, after the earlier emits of its type; it never waits on a receiver or the store.
     fanOut(name: string, buffered: BufferedEvent, { cursor, previous }: { cursor: string; previous: string }): void {
         const entry = this.#deps.registry.get(name);
-        if (entry === undefined) return;
-        enqueue(this.#byName, name, () => this.#deliverEmitted(entry, buffered, cursor, previous)).catch((error: unknown) =>
-            this.#deps.report(error)
-        );
+        // A type that offers no webhook delivery has no webhook subscriptions to list.
+        if (entry === undefined || entry.definition.delivery?.webhook === false) return;
+        let pass = this.#pending.get(name);
+        // An emit of an updated or re-registered type starts a pass of its own.
+        if (pass?.entry !== entry) {
+            const started: Pass = { entry, emits: [], dropped: false };
+            this.#pending.set(name, started);
+            enqueue(this.#byName, name, () => {
+                if (this.#pending.get(name) === started) this.#pending.delete(name);
+                return this.#deliverPass(started);
+            }).catch((error: unknown) => this.#deps.report(error));
+            pass = started;
+        }
+        pass.emits.push({ buffered, cursor, previous });
+        if (pass.emits.length <= MAX_HELD_MESSAGES) return;
+        const oldest = pass.emits.shift()!;
+        pass.dropped = true;
+        this.#reportDrop(name, oldest.buffered.occurrence.eventId);
     }
 
     // Moves the watches of `previous` to its updated registration, so their next check parses with its schemas.
@@ -247,6 +290,9 @@ export class WebhookSubscriptions implements SubscriptionSource {
         this.#watched.clear();
         this.#subscribing.clear();
         this.#starting.clear();
+        this.#pending.clear();
+        for (const drops of this.#drops.values()) clearTimeout(drops.timer);
+        this.#drops.clear();
         this.#engine.clear();
     }
 
@@ -280,7 +326,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
         this.#starting.add(subscribing);
         try {
             await this.#engine.verify(principal, url, secret, id, subscribing.signal);
-            const watched = this.#watch(id, entry, principal);
+            const watched = this.#watch(id, entry, principal, args);
             try {
                 await entry.definition.onSubscribe?.(watched.ctx, args);
             } catch (error) {
@@ -294,7 +340,8 @@ export class WebhookSubscriptions implements SubscriptionSource {
                 id,
                 principal,
                 name: entry.name,
-                arguments: args,
+                // As the client sent them, so a store that serialises records keeps them; callbacks get them parsed.
+                arguments: params.arguments ?? {},
                 url,
                 secret,
                 expiresAt: now + ttl,
@@ -337,7 +384,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
         maxAgeMs: number | undefined,
         subscribing: Subscribing
     ): Promise<Batch> {
-        const start = await startCheck(watched.entry, watched.ctx, record.arguments, from, maxAgeMs, this.#deps.report);
+        const start = await startCheck(watched.entry, watched.ctx, watched.args, from, maxAgeMs, this.#deps.report);
         const terminated = takeTermination(subscribing);
         if (terminated !== undefined) throw terminated;
         this.#engine.track(record.id, start.cursor);
@@ -354,7 +401,9 @@ export class WebhookSubscriptions implements SubscriptionSource {
         subscribing: Subscribing
     ): Promise<Batch> {
         const { buffer, report } = this.#deps;
-        const replay = replayBuffer(buffer, watched.entry, watched.ctx, record.arguments, from, maxAgeMs, report);
+        const replay = replayBuffer(buffer, watched.entry, watched.ctx, watched.args, from, maxAgeMs, report);
+        // Emits after the replay read start a pass behind this task, which they find the record from.
+        this.#pending.delete(record.name);
         return enqueue(this.#byName, record.name, async () => {
             const terminated = takeTermination(subscribing);
             if (terminated !== undefined) throw terminated;
@@ -369,7 +418,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
     // A new grant and a rotated secret; the client's cursor seeds the watermark only where this process tracks none.
     async #refresh(
         record: WebhookSubscriptionRecord,
-        entry: RegisteredEvent,
+        valid: ValidSubscription,
         params: SubscribeEventsRequestParams,
         ttl: number,
         subscribing: Subscribing
@@ -388,22 +437,22 @@ export class WebhookSubscriptions implements SubscriptionSource {
         const from = params.cursor ?? null;
         if (this.#engine.watermark(id) === undefined) this.#engine.track(id, from);
         this.#engine.resume(id);
-        this.#keep(refreshed, entry, from);
+        this.#keep(refreshed, valid, from);
         return {
             id,
             refreshBefore: new Date(refreshed.expiresAt).toISOString(),
             cursor: this.#engine.watermark(id) ?? null,
-            // Events this process abandoned since the subscriber was last told.
-            truncated: this.#engine.takeGap(id),
+            // Events this process lost since the subscriber was last told.
+            truncated: this.#engine.answerGap(id, from),
             ...(deliveryStatus === undefined ? {} : { deliveryStatus })
         };
     }
 
     // Re-arms a refreshed subscription's timer, or starts watching it here (a check type's loop from `from`) when this process had not.
-    #keep(record: WebhookSubscriptionRecord, entry: RegisteredEvent, from: string | null): void {
+    #keep(record: WebhookSubscriptionRecord, { entry, args }: ValidSubscription, from: string | null): void {
         let watched = this.#watched.get(record.id);
         if (watched === undefined) {
-            watched = this.#watch(record.id, entry, record.principal);
+            watched = this.#watch(record.id, entry, record.principal, args);
             watched.position = from;
             this.#watched.set(record.id, watched);
             if (entry.kind === 'check') this.#schedule(watched);
@@ -411,10 +460,10 @@ export class WebhookSubscriptions implements SubscriptionSource {
         this.#arm(watched, record.expiresAt);
     }
 
-    #watch(id: string, entry: RegisteredEvent, principal: string): Watched {
+    #watch(id: string, entry: RegisteredEvent, principal: string, args: Record<string, unknown>): Watched {
         const ended = new AbortController();
         const ctx = makeContext({ name: entry.name, subscriptionId: id, principal, mode: 'webhook', signal: ended.signal });
-        return { id, entry, ended, ctx, position: null };
+        return { id, entry, ended, ctx, args, position: null };
     }
 
     #arm(watched: Watched, expiresAt: number): void {
@@ -514,11 +563,27 @@ export class WebhookSubscriptions implements SubscriptionSource {
 
     async #unsubscribed(record: WebhookSubscriptionRecord, watched: Watched | undefined): Promise<void> {
         const entry = watched?.entry ?? this.#deps.registry.get(record.name);
+        if (entry?.definition.onUnsubscribe === undefined) return;
+        const args = watched?.args ?? (await this.#argumentsOf(entry, record));
+        if (args === undefined) return;
         const ctx = watched?.ctx ?? this.#contextOf(record, AbortSignal.abort());
         try {
-            await entry?.definition.onUnsubscribe?.(ctx, record.arguments);
+            await entry.definition.onUnsubscribe(ctx, args);
         } catch (error) {
             this.#deps.report(error);
+        }
+    }
+
+    // A stored record's arguments as the event type's inputSchema outputs them, or `undefined` (reported) when they no longer parse.
+    async #argumentsOf(entry: RegisteredEvent, record: WebhookSubscriptionRecord): Promise<Record<string, unknown> | undefined> {
+        try {
+            return await entry.parseArguments(record.arguments);
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            this.#deps.report(
+                new Error(`webhook subscription ${record.id}: skipped, its stored arguments do not parse: ${reason}`, { cause: error })
+            );
+            return undefined;
         }
     }
 
@@ -526,22 +591,19 @@ export class WebhookSubscriptions implements SubscriptionSource {
         return makeContext({ name: record.name, subscriptionId: record.id, principal: record.principal, mode: 'webhook', signal });
     }
 
-    // A failed store read lists the subscriptions again after a wait, skipping those this emit already reached; the last failure throws.
-    async #deliverEmitted(entry: RegisteredEvent, buffered: BufferedEvent, cursor: string, previous: string): Promise<void> {
+    // One store listing delivers the pass; a failed store read lists again after a wait, skipping the subscriptions already reached; the last failure throws.
+    async #deliverPass(pass: Pass): Promise<void> {
         const reached = new Set<string>();
         for (let attempt = 0; ; attempt++) {
             try {
-                for await (const record of this.#recordsFor(entry.name, buffered.target)) {
+                for await (const record of this.#recordsFor(pass)) {
                     if (reached.has(record.id)) continue;
                     reached.add(record.id);
                     if (isExpired(record)) {
                         this.#later(record.id, () => this.#recheck(record.id));
                         continue;
                     }
-                    const ctx = this.#watched.get(record.id)?.ctx ?? this.#contextOf(record, unwatchedSignal());
-                    const selected = selectEvent(entry, ctx, record.arguments, buffered, this.#deps.report);
-                    const occurrence = selected === undefined ? undefined : await checkedSelection(entry, selected, this.#deps.report);
-                    if (occurrence !== undefined) this.#engine.deliver(record, occurrence, cursor, previous);
+                    await this.#deliverTo(record, pass);
                 }
                 return;
             } catch (error) {
@@ -552,14 +614,64 @@ export class WebhookSubscriptions implements SubscriptionSource {
         }
     }
 
-    // Every stored subscription of the type, or only the target of a targeted emit.
-    async *#recordsFor(name: string, target: string | undefined): AsyncIterable<WebhookSubscriptionRecord> {
-        if (target === undefined) {
-            yield* this.#deps.store.listByName(name);
+    // The pass's events to one subscription, in emit order, after a gap for the emits its cap dropped.
+    async #deliverTo(record: WebhookSubscriptionRecord, { entry, emits, dropped }: Pass): Promise<void> {
+        const { report } = this.#deps;
+        if (dropped) this.#engine.markGap(record, emits[0]!.previous);
+        const watched = this.#watched.get(record.id);
+        const args = watched?.args ?? (await this.#argumentsOf(entry, record));
+        if (args === undefined) return;
+        const ctx = watched?.ctx ?? this.#contextOf(record, unwatchedSignal());
+        for (const { buffered, cursor, previous } of emits) {
+            const selected = selectEvent(entry, ctx, args, buffered, report);
+            const occurrence = selected === undefined ? undefined : await checkedSelection(entry, selected, report);
+            if (occurrence !== undefined) this.#engine.deliver(record, occurrence, cursor, previous);
+        }
+    }
+
+    // Every stored subscription of the type, or, when every emit of the pass is targeted and none was dropped, only their targets.
+    async *#recordsFor({ entry, emits, dropped }: Pass): AsyncIterable<WebhookSubscriptionRecord> {
+        if (dropped || emits.some(({ buffered }) => buffered.target === undefined)) {
+            yield* this.#deps.store.listByName(entry.name);
             return;
         }
-        const record = await this.#deps.store.get(target);
-        if (record?.name === name) yield record;
+        for (const target of new Set(emits.map(({ buffered }) => buffered.target!))) {
+            const record = await this.#deps.store.get(target);
+            if (record?.name === entry.name) yield record;
+        }
+    }
+
+    // Reports an emit a pending pass dropped at once, unless a report for the type went out in the last DROP_REPORT_INTERVAL_MS; then it counts towards the next.
+    #reportDrop(name: string, eventId: string): void {
+        const drops = this.#drops.get(name) ?? { count: 0 };
+        this.#drops.set(name, drops);
+        const now = Date.now();
+        if (drops.timer === undefined && (drops.reportedAt === undefined || now - drops.reportedAt >= DROP_REPORT_INTERVAL_MS)) {
+            drops.reportedAt = now;
+            this.#deps.report(
+                new Error(
+                    `webhook fan-out of '${name}': dropped event ${eventId}, past the ${MAX_HELD_MESSAGES} emits waiting for one store listing`
+                )
+            );
+            return;
+        }
+        drops.count += 1;
+        drops.latest = eventId;
+        drops.timer ??= unref(setTimeout(() => this.#reportDrops(name, drops), drops.reportedAt! + DROP_REPORT_INTERVAL_MS - now));
+    }
+
+    // Reports how many emits of the type were dropped since the last report, and the latest.
+    #reportDrops(name: string, drops: Drops): void {
+        const { count, latest } = drops;
+        drops.timer = undefined;
+        drops.reportedAt = Date.now();
+        drops.count = 0;
+        drops.latest = undefined;
+        this.#deps.report(
+            new Error(
+                `webhook fan-out of '${name}': dropped ${count} more ${count === 1 ? 'event' : 'events'} since the last report, the latest ${latest}`
+            )
+        );
     }
 
     #send(record: WebhookSubscriptionRecord, batch: Batch, seed: string | null): void {
@@ -581,7 +693,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
                 // The expiry path decides; it stops this loop unless the record was refreshed meanwhile.
                 this.#later(id, () => this.#recheck(id));
             } else {
-                const result = await entry.definition.check!(watched.ctx, record.arguments, from);
+                const result = await entry.definition.check!(watched.ctx, watched.args, from);
                 const batch = await checkedBatch(entry, from, result, undefined, this.#deps.report);
                 if (this.#watched.get(id) !== watched) return;
                 this.#send(record, batch, from);
