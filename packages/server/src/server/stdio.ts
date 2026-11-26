@@ -189,32 +189,38 @@ export class StdioServerTransport implements Transport {
         }
         return new Promise((resolve, reject) => {
             const json = serializeMessage(message);
-
+            let returned = false;
+            let written = false;
+            let failure: Error | undefined;
             let settled = false;
+            const cleanup = () => {
+                this._stdout.off('error', onError);
+            };
+            const finish = () => {
+                if (settled || !returned || !written) return;
+                settled = true;
+                cleanup();
+                if (failure) reject(failure);
+                else resolve();
+            };
             const onError = (error: Error) => {
-                if (settled) return;
-                settled = true;
-                this._stdout.off('error', onError);
-                this._stdout.off('drain', onDrain);
+                failure = error;
+                finish();
+            };
+            this._stdout.prependOnceListener('error', onError);
+            try {
+                // The callback owns this chunk. A drain event is global flow control
+                // and may never occur when the stream ends or is destroyed.
+                this._stdout.write(json, error => {
+                    written = true;
+                    if (error) failure = error;
+                    finish();
+                });
+                returned = true;
+                finish();
+            } catch (error) {
+                cleanup();
                 reject(error);
-            };
-            const onDrain = () => {
-                if (settled) return;
-                settled = true;
-                this._stdout.off('error', onError);
-                this._stdout.off('drain', onDrain);
-                resolve();
-            };
-
-            this._stdout.once('error', onError);
-
-            if (this._stdout.write(json)) {
-                if (settled) return;
-                settled = true;
-                this._stdout.off('error', onError);
-                resolve();
-            } else if (!settled) {
-                this._stdout.once('drain', onDrain);
             }
         });
     }
