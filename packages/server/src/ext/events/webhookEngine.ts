@@ -265,8 +265,8 @@ export class WebhookEngine {
     readonly #hostFailures = new Map<string, number[]>();
     // Aborts verification sends in flight on clear(); made at first use, as Cloudflare Workers refuse it at module scope.
     #lifetime: AbortController | undefined;
-    // When this engine started, or clear() started it again as a restart would.
-    #startedAt: number;
+    // When this engine started, or clear() started it again as a restart would; a reading of 0 waits for the first use, as deployed Cloudflare Workers read 0 from the clock at module scope.
+    #startedAt: number | undefined;
 
     constructor(options: WebhookEngineOptions) {
         this.#sender = options.sender;
@@ -275,7 +275,7 @@ export class WebhookEngine {
         this.#onerror = options.onerror;
         this.#watches = options.watches ?? (() => false);
         this.#now = options.now ?? (() => Date.now());
-        this.#startedAt = this.#now();
+        this.#startedAt = this.#now() || undefined;
     }
 
     // Subscriptions this process holds delivery state for.
@@ -290,6 +290,7 @@ export class WebhookEngine {
 
     // One attempt, which the subscribe call waits for, after the host's verification in flight; throws `callbackEndpointError` with the failure category as `data.reason`, or `resourceExhausted` at the host's limit or once the principal's verifications to the host failed too often.
     async verify(principal: string, url: string, secret: string, subscriptionId: string, signal?: AbortSignal): Promise<void> {
+        this.#use();
         const key = `${principal}\u0000${url}`;
         if (!this.#verified.has(key)) await this.#verifyPair(principal, key, url, secret, subscriptionId, signal);
         let covered = this.#verified.get(key);
@@ -303,12 +304,14 @@ export class WebhookEngine {
 
     // Starts the subscription's watermark at `startCursor`, dropping whatever this process held for it.
     track(id: string, startCursor: string | null): void {
+        this.#use();
         this.#drop(id);
         this.#start(id, startCursor);
     }
 
     // Queues one event POST and returns; calls for one subscription come in position order, and `seed` starts the watermark of an untracked id.
     deliver(record: WebhookSubscriptionRecord, occurrence: EventOccurrence, position: string | null, seed: string | null): void {
+        this.#use();
         const tracked = this.#trackedFor(record, seed);
         tracked.advanceTo = undefined;
         const message: Message = { webhookId: generateWebhookId(), occurrence, position, attempts: 0, place: 'waiting' };
@@ -318,25 +321,30 @@ export class WebhookEngine {
 
     // Marks events lost before they reached this engine (a fan-out past its cap); `seed` starts the watermark of an untracked id.
     markGap(record: WebhookSubscriptionRecord, seed: string | null): void {
+        this.#use();
         this.#mark(this.#trackedFor(record, seed));
     }
 
     // Queues a control body, retried like an event, and resolves with its last answer (`undefined` without one); request paths must not await it.
     sendControl(record: WebhookSubscriptionRecord, body: WebhookControlBody): Promise<WebhookSendOutcome | undefined> {
+        this.#use();
         return this.#queueControl(record, body.type, () => body, false);
     }
 
     // Queues a `gap` body as sendControl() does; no attempt starts while an event POST of the subscription is in flight, and each carries the watermark as it starts (`fallback` without one).
     sendGap(record: WebhookSubscriptionRecord, fallback: string | null): Promise<WebhookSendOutcome | undefined> {
+        this.#use();
         return this.#queueControl(record, 'gap', () => ({ type: 'gap', cursor: this.watermark(record.id) ?? fallback }), true);
     }
 
     watermark(id: string): string | null | undefined {
+        this.#use();
         return this.#tracked.get(id)?.watermark;
     }
 
     // Whether a refresh with `cursor` answers `truncated: true`: every refresh does while events lost since the subscriber was last told are marked, until one carries the watermark such an answer carried to a refresh with another cursor.
     answerGap(id: string, cursor: string | null): boolean {
+        this.#use();
         const tracked = this.#tracked.get(id);
         if (tracked === undefined || tracked.told === tracked.marked) return false;
         const { answered, watermark } = tracked;
@@ -352,18 +360,21 @@ export class WebhookEngine {
 
     // A refresh answered `truncated: true` at the watermark, which tells the subscriber of every loss marked so far.
     gapAnswered(id: string): void {
+        this.#use();
         const tracked = this.#tracked.get(id);
         if (tracked !== undefined) this.#told(tracked, tracked.marked);
     }
 
     // Whether the subscriber was already told of the gap this process marked as it began delivering to a subscription created before it started.
     restartTold(id: string): boolean {
+        this.#use();
         const tracked = this.#tracked.get(id);
         return tracked?.restart !== undefined && tracked.told >= tracked.restart;
     }
 
     // Moves the watermark to `position`, at once or once the pending messages settle, so a quiet upstream or a skipped event still advances it; it never passes an unsettled message, and starts no state for an untracked id.
     advance(id: string, position: string | null): void {
+        this.#use();
         const tracked = this.#tracked.get(id);
         if (tracked === undefined) return;
         if (tracked.pending.length === 0) tracked.watermark = position;
@@ -372,12 +383,14 @@ export class WebhookEngine {
 
     // Calls `listener` once no message of the subscription awaits an answer: at once when none does or the id is untracked, and on a drop.
     whenIdle(id: string, listener: () => void): void {
+        this.#use();
         const tracked = this.#tracked.get(id);
         if (tracked === undefined || tracked.pending.length === 0) listener();
         else tracked.drained.push(listener);
     }
 
     status(id: string): DeliveryStatus | undefined {
+        this.#use();
         const tracked = this.#tracked.get(id);
         if (tracked === undefined) return undefined;
         const { active, lastDeliveryAt, lastError, failedSince } = tracked;
@@ -386,6 +399,7 @@ export class WebhookEngine {
 
     // Reactivates a suspended subscription and retries the messages that waited, in position order as slots free.
     resume(id: string): void {
+        this.#use();
         const tracked = this.#tracked.get(id);
         if (tracked === undefined || tracked.active) return;
         tracked.active = true;
@@ -403,6 +417,7 @@ export class WebhookEngine {
 
     // Drops the subscription's delivery state and stops its control bodies; its last subscription also drops a (principal, url) verification.
     forget(id: string): void {
+        this.#use();
         this.#drop(id);
         for (const control of this.#controls) if (control.record.id === id) this.#stopControl(control);
         const key = this.#verifiedKeyOf.get(id);
@@ -428,7 +443,12 @@ export class WebhookEngine {
         this.#hostFailures.clear();
         this.#lifetime?.abort();
         this.#lifetime = undefined;
-        this.#startedAt = this.#now();
+        this.#startedAt = this.#now() || undefined;
+    }
+
+    // The start time, taken at the first use when the clock read 0 at construction or clear(); every public method calls it first, except clear() and the getters.
+    #use(): number {
+        return (this.#startedAt ??= this.#now());
     }
 
     // The pair's handshake in flight, or a new one; `signal` (the subscribe request's) stops this caller waiting for it.
@@ -609,7 +629,7 @@ export class WebhookEngine {
             tracked.createdAt = record.createdAt;
             this.#sweepAt(tracked, record);
             // The process this one replaced, or the one beside it, may have held undelivered events.
-            if (record.createdAt < this.#startedAt) {
+            if (record.createdAt < this.#use()) {
                 this.#mark(tracked);
                 tracked.restart = tracked.marked;
             }
@@ -755,7 +775,9 @@ export class WebhookEngine {
 
     async #try(tracked: Tracked, message: Message, supplied: WebhookSubscriptionRecord | undefined): Promise<void> {
         message.attempts += 1;
-        const record = supplied ?? (await this.#store.get(tracked.id));
+        // A copy that looks expired may predate a refresh, so the store's record decides.
+        const fresh = supplied !== undefined && supplied.expiresAt > this.#now() ? supplied : undefined;
+        const record = fresh ?? (await this.#store.get(tracked.id));
         if (!this.#isCurrent(tracked)) return;
         // A record gone from the store, or expired, ends what this process holds for the subscription.
         if (record === undefined || record.expiresAt <= this.#now()) {

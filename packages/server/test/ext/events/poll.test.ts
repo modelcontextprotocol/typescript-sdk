@@ -293,6 +293,17 @@ describe('events/poll for a check type', () => {
         await poller(anonymous, { authInfo }).poll({ name: 't', cursor: null });
         expect(anonymousCheck.mock.calls[0]![0].principal).toBeNull();
     });
+
+    it('caps ctx.maxEvents at 1 000 whatever maxEvents the poll asks for', async () => {
+        const events = new EventsExtension();
+        const check = vi.fn<(ctx: CheckContext) => { events: never[]; cursor: string }>(() => ({ events: [], cursor: 'h1' }));
+        events.registerEvent('t', { payloadSchema: P, check });
+        const { poll } = poller(events);
+        await poll({ name: 't', cursor: 'h0', maxEvents: Number.MAX_SAFE_INTEGER });
+        await poll({ name: 't', cursor: 'h0', maxEvents: 1000 });
+        await poll({ name: 't', cursor: 'h0', maxEvents: 999 });
+        expect(check.mock.calls.map(([ctx]) => ctx.maxEvents)).toEqual([1000, 1000, 999]);
+    });
 });
 
 describe('events/poll for an emit-only type', () => {
@@ -406,6 +417,21 @@ describe('events/poll for an emit-only type', () => {
         expect(first.hasMore).toBe(true);
         const second = await poll({ name: 'i', cursor: first.cursor, maxEvents: 2 });
         expect(second.events.map(event => event.data)).toEqual([{ n: 3 }]);
+        expect(second.hasMore).toBe(false);
+    });
+
+    it('caps a poll at 1 000 events whatever maxEvents asks for, and reports the rest through hasMore', async () => {
+        const events = new EventsExtension();
+        const h = events.registerEvent('i', { emitOnly: true, payloadSchema: P });
+        const { poll } = poller(events);
+        const { cursor } = await poll({ name: 'i', cursor: null });
+        for (let n = 1; n <= 1001; n++) await h.emit({ data: { n } });
+        const first = await poll({ name: 'i', cursor, maxEvents: Number.MAX_SAFE_INTEGER });
+        expect(first.events).toHaveLength(1000);
+        expect(first.events.at(-1)!.data).toEqual({ n: 1000 });
+        expect(first.hasMore).toBe(true);
+        const second = await poll({ name: 'i', cursor: first.cursor, maxEvents: Number.MAX_SAFE_INTEGER });
+        expect(second.events.map(event => event.data)).toEqual([{ n: 1001 }]);
         expect(second.hasMore).toBe(false);
     });
 

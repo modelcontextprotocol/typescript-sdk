@@ -202,6 +202,29 @@ class FlakyStore extends InMemoryWebhookSubscriptionStore {
     }
 }
 
+// A store whose next `get` or `delete` rejects once, as a remote store's call can.
+class FailingStore extends InMemoryWebhookSubscriptionStore {
+    #failing: 'get' | 'delete' | undefined;
+
+    failNext(method: 'get' | 'delete'): void {
+        this.#failing = method;
+    }
+
+    override get(id: string): Promise<WebhookSubscriptionRecord | undefined> {
+        return this.#fails('get') ?? super.get(id);
+    }
+
+    override delete(id: string): Promise<boolean> {
+        return this.#fails('delete') ?? super.delete(id);
+    }
+
+    #fails(method: 'get' | 'delete'): Promise<never> | undefined {
+        if (this.#failing !== method) return undefined;
+        this.#failing = undefined;
+        return Promise.reject(new Error(`store ${method} failed`));
+    }
+}
+
 // A store that keeps each record as JSON, as a store on a shared database does.
 class JsonStore implements WebhookSubscriptionStore {
     readonly #records = new Map<string, string>();
@@ -1231,6 +1254,35 @@ describe('several replicas sharing one store', () => {
         expect(a.hook.state().webhookExpiryTimers + b.hook.state().webhookExpiryTimers).toBe(0);
     });
 
+    it.each(['get', 'delete'] as const)(
+        'arms the expiry timer again after the store %s fails at expiry, so the watch ends, onUnsubscribe runs once and its slot is freed',
+        async method => {
+            const store = new FailingStore();
+            const onerror = vi.fn();
+            const onUnsubscribe = vi.fn();
+            const { events, hook } = replica({ webhookStore: store, onerror, maxSubscriptions: 1 });
+            events.registerEvent('e', { emitOnly: true, payloadSchema: P, onUnsubscribe });
+            const alice = client(events);
+            const { id } = subscribed(await alice.subscribe({ ttlMs: 60_000 }));
+            store.failNext(method);
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(onerror).toHaveBeenCalledOnce();
+            expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: `store ${method} failed` }));
+            expect(onUnsubscribe).not.toHaveBeenCalled();
+            expect(hook.state().webhookExpiryTimers).toBe(1);
+            expect(errorOf(await alice.subscribe({ url: OTHER_HOOK }))).toMatchObject({ code: -32_025, data: { limit: 'subscriptions' } });
+
+            // The retry a minute later finds the store answering.
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(onUnsubscribe).toHaveBeenCalledOnce();
+            expect(onUnsubscribe.mock.calls[0]![0]).toMatchObject({ subscriptionId: id, mode: 'webhook' });
+            expect(await store.get(id)).toBeUndefined();
+            expect(hook.state()).toMatchObject({ webhookSubscriptions: 0, webhookExpiryTimers: 0 });
+            subscribed(await alice.subscribe({ url: OTHER_HOOK }));
+            expect(onerror).toHaveBeenCalledOnce();
+        }
+    );
+
     it('delivers an emit made on another replica', async () => {
         const store = new InMemoryWebhookSubscriptionStore();
         const a = replica({ webhookStore: store });
@@ -1802,6 +1854,33 @@ describe('check-kind webhook subscriptions', () => {
         await vi.advanceTimersByTimeAsync(60_000);
         expect(check).toHaveBeenCalledTimes(calls);
         expect(post.requests).toHaveLength(2);
+    });
+
+    it('delivers the batch of a check run that outlasts the rest of the old grant while the client refreshes', async () => {
+        let release!: () => void;
+        const slow = new Promise<void>(resolve => (release = resolve));
+        const check = vi.fn(async (_ctx: CheckContext, _args: unknown, cursor: string | null): Promise<EventResult<{ n: number }>> => {
+            if (cursor === null) return { events: [], cursor: 'c0' };
+            if (cursor !== 'c0') return { events: [], cursor };
+            await slow;
+            return { events: [{ eventId: 'slow', data: { n: 1 } }], cursor: 'c1' };
+        });
+        const { events, post, hook } = replica({ webhookTtlMs: 60_000 });
+        events.registerEvent('t', { payloadSchema: P, check });
+        const alice = client(events);
+        const first = subscribed(await alice.subscribe({ name: 't' }));
+        // The loop's run from c0 starts at 5 s with the record of the first grant, and waits on its upstream.
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(check).toHaveBeenCalledTimes(2);
+        // The client refreshes at ¾ of the grant; the run returns after the first grant has passed.
+        await vi.advanceTimersByTimeAsync(40_000);
+        subscribed(await alice.subscribe({ name: 't', cursor: first.cursor }));
+        await vi.advanceTimersByTimeAsync(16_000);
+        release();
+        await post.until(2);
+        await settle();
+        expect(post.deliveries().map(request => bodyOf(request).eventId)).toEqual(['slow']);
+        expect(hook.state()).toMatchObject({ webhookSubscriptions: 1, webhookExpiryTimers: 1 });
     });
 
     it('parses the next check of a watched subscription with the payloadSchema of an update()', async () => {

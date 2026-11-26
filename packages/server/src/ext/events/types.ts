@@ -96,9 +96,19 @@ export interface EventDefinitionBase<I extends StandardSchemaWithJSON, P extends
     /** Schema for `data` in delivered events. It must describe an object, as `data` always is: any other JSON Schema root throws `TypeError`. */
     payloadSchema: P;
     _meta?: Record<string, unknown>;
-    /** Runs when a subscription starts. Throw an `EventsError` to refuse it. */
+    /**
+     * Runs when a subscription starts, on the process that starts it. Throw an `EventsError` to refuse it. Other
+     * processes (after a restart, or other replicas) deliver to a webhook subscription in a store that outlives the
+     * process or is shared, refresh it and may end it (running `onUnsubscribe`) without running `onSubscribe`, so keep
+     * what its delivery needs (an upstream watcher that calls `emit()`, say) outside any one process.
+     */
     onSubscribe?(ctx: EventContext, args: InferOutput<I>): void | Promise<void>;
-    /** Runs when a subscription ends, by request, expiry or termination. */
+    /**
+     * Runs when a subscription ends, by request, expiry or termination; keep it idempotent. For a webhook subscription
+     * in a store that outlives the process or is shared, it may run on a process that never ran its `onSubscribe`,
+     * on each of several replicas racing on a `delete()` that is not atomic, or not at all for a record the store
+     * dropped first.
+     */
     onUnsubscribe?(ctx: EventContext, args: InferOutput<I>): void | Promise<void>;
     /** Turns delivery modes off; every mode the server offers is on otherwise. */
     delivery?: { poll?: false; push?: false; webhook?: false };
@@ -126,10 +136,10 @@ export interface CheckEventDefinition<I extends StandardSchemaWithJSON, P extend
      * split its events between them, and a client's first poll on an existing lease can return events from
      * before it subscribed. A poll client that waits longer than `pollSubscriptionTtlMs` between polls starts
      * a new lease each time and gets nothing. Clients that need every event use push or webhook. Every mode sets
-     * `ctx.maxEvents` (poll from the request, 100 by default; push and webhook to 100): return at most that many
-     * events and set `hasMore` when more are waiting. After a page with more waiting that moved on (had events or
-     * a new cursor), push runs the next `check` at once, and webhook once every event of that page has been
-     * acknowledged or abandoned.
+     * `ctx.maxEvents` (poll from the request, 100 by default, which the server caps at 1 000; push and webhook to
+     * 100): return at most that many events and set `hasMore` when more are waiting. After a page with more
+     * waiting that moved on (had events or a new cursor), push runs the next `check` at once, and webhook once
+     * every event of that page has been acknowledged or abandoned.
      */
     check(ctx: CheckContext, args: InferOutput<I>, cursor: string | null): EventResult<InferInput<P>> | Promise<EventResult<InferInput<P>>>;
     match?: never;

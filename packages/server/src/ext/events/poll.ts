@@ -13,6 +13,8 @@ import type { SubscriptionValidator } from './validation';
 
 // The page a poll gives when the client asks for none, and every push `check` run's `ctx.maxEvents`.
 export const DEFAULT_MAX_EVENTS = 100;
+// The largest page one poll reads from the buffer, and a `check` type's `ctx.maxEvents`, whatever `maxEvents` it asks for; `hasMore` reports the rest (SEP-3415: `maxEvents` is a cap).
+const MAX_POLL_EVENTS = 1000;
 // A `check` event without a timestamp under a `maxAgeMs` floor is reported at once, then at most this often per event type.
 const UNTIMED_REPORT_INTERVAL_MS = 60_000;
 
@@ -184,7 +186,7 @@ export class PollSource implements SubscriptionSource {
             mode: 'poll' as const,
             signal: ctx.mcpReq.signal
         };
-        const maxEvents = params.maxEvents ?? DEFAULT_MAX_EVENTS;
+        const maxEvents = Math.min(params.maxEvents ?? DEFAULT_MAX_EVENTS, MAX_POLL_EVENTS);
         const cursor = params.cursor ?? null;
         const { check } = entry.definition;
         if (check === undefined) {

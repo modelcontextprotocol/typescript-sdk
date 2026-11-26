@@ -14,6 +14,7 @@ import type {
     WebhookSubscriptionRecord,
     WebhookSubscriptionStore
 } from '../../../src/ext/events/types';
+import type { WebhookEngineOptions } from '../../../src/ext/events/webhookEngine';
 import { WebhookEngine } from '../../../src/ext/events/webhookEngine';
 
 const HOOK_URL = 'https://hooks.example.com/mcp';
@@ -73,8 +74,12 @@ function recordFor(overrides: Partial<WebhookSubscriptionRecord> = {}): WebhookS
     };
 }
 
-// An engine over a store holding `recordFor()`, with a sender that records each request and answers with `respond`.
-function setup(respond: Respond = ok, trustedOrigins: Set<string> = new Set()) {
+// An engine over a store holding `recordFor()`, with a sender that records each request and answers with `respond`; `options` sets `watches` and `now`.
+function setup(
+    respond: Respond = ok,
+    trustedOrigins: Set<string> = new Set(),
+    options: Pick<WebhookEngineOptions, 'watches' | 'now'> = {}
+) {
     const store = new MapStore();
     const record = recordFor();
     store.records.set(record.id, record);
@@ -92,7 +97,7 @@ function setup(respond: Respond = ok, trustedOrigins: Set<string> = new Set()) {
             else waiters.push({ count, resolve });
         });
     const onerror = vi.fn();
-    const engine = new WebhookEngine({ sender, store, trustedOrigins, onerror });
+    const engine = new WebhookEngine({ sender, store, trustedOrigins, onerror, ...options });
     engines.push(engine);
     return { engine, store, record, sender, requests, until, onerror };
 }
@@ -1083,6 +1088,36 @@ describe('event delivery', () => {
         expect(engine.watermark(ID)).toBeUndefined();
     });
 
+    it('delivers by the record in the store, read once, when the copy handed to a delivery looks expired but a refresh extended it', async () => {
+        const { engine, store, record, requests, until } = setup(ok, new Set(), { watches: () => true });
+        const get = vi.spyOn(store, 'get');
+        engine.track(ID, 'p0');
+        // The copy a slow `check` run read before the refresh.
+        engine.deliver({ ...record, expiresAt: Date.now() }, occurrence('evt_1'), 'p1', 'p0');
+        await until(1);
+        await settle();
+        expect(get).toHaveBeenCalledOnce();
+        expect(bodyOf(requests[0]!).eventId).toBe('evt_1');
+        expect(engine.watermark(ID)).toBe('p1');
+    });
+
+    it.each(['gone', 'expired'])(
+        'forgets the subscription without a POST when the copy handed to a delivery looks expired and the record in the store is %s',
+        async change => {
+            const { engine, store, record, requests } = setup(ok, new Set(), { watches: () => true });
+            const get = vi.spyOn(store, 'get');
+            const lapsed = { ...record, expiresAt: Date.now() };
+            if (change === 'gone') store.records.delete(ID);
+            else store.records.set(ID, lapsed);
+            engine.track(ID, 'p0');
+            engine.deliver(lapsed, occurrence('evt_1'), 'p1', 'p0');
+            await settle();
+            expect(get).toHaveBeenCalledOnce();
+            expect(engine.size).toBe(0);
+            expect(requests).toHaveLength(0);
+        }
+    );
+
     it('never sends a body over 256 KiB', async () => {
         const { engine, record, requests, until, onerror } = setup();
         const empty = JSON.stringify({ ...occurrence('evt_max', { blob: '' }), cursor: 'p0' });
@@ -1512,6 +1547,58 @@ describe('forget and clear', () => {
             else engine.clear();
             expect(vi.getTimerCount()).toBe(0);
         }
+    });
+
+    it('takes its start time at first use when the clock reads 0 where it is built or cleared, so a record created before that use begins with a gap mark', async () => {
+        // Deployed Cloudflare Workers return 0 from Date.now() at module scope, where the engine is built.
+        let zero = true;
+        const { engine, store, record, requests, until } = setup(ok, new Set(), { now: () => (zero ? 0 : Date.now()) });
+        zero = false;
+        await vi.advanceTimersByTimeAsync(1000);
+        engine.deliver(record, occurrence('evt_1'), 'p1', 'p0');
+        await until(2);
+        await settle();
+
+        // A record created after the first use starts without one.
+        await vi.advanceTimersByTimeAsync(1000);
+        const later = recordFor({ id: 'sub_2' });
+        await store.put(later);
+        engine.deliver(later, occurrence('evt_2'), 'p1', 'p0');
+        await until(3);
+        await settle();
+
+        // clear() starts the engine again, as a restart would; a reading of 0 there waits for the next use too.
+        zero = true;
+        engine.clear();
+        zero = false;
+        await vi.advanceTimersByTimeAsync(1000);
+        engine.deliver(later, occurrence('evt_3'), 'p2', 'p1');
+        await until(5);
+        await settle();
+        const sent = requests.map(request => [request.headers['X-MCP-Subscription-Id'], bodyOf(request).eventId ?? bodyOf(request).type]);
+        expect(sent).toEqual([
+            [ID, 'evt_1'],
+            [ID, 'gap'],
+            ['sub_2', 'evt_2'],
+            ['sub_2', 'evt_3'],
+            ['sub_2', 'gap']
+        ]);
+    });
+
+    it('takes a non-zero clock reading at construction as its start time, so a record created after it but before the first use starts without a gap mark', async () => {
+        const { engine, store, requests, until } = setup();
+        await vi.advanceTimersByTimeAsync(1000);
+        const later = recordFor({ id: 'sub_2' });
+        await store.put(later);
+        await vi.advanceTimersByTimeAsync(1000);
+        engine.deliver(later, occurrence('evt_1'), 'p1', 'p0');
+        await until(1);
+        await settle();
+        // A gap envelope would go out after the first acknowledgement, ahead of the next event.
+        engine.deliver(later, occurrence('evt_2'), 'p2', 'p1');
+        await until(2);
+        await settle();
+        expect(requests.map(request => bodyOf(request).eventId ?? bodyOf(request).type)).toEqual(['evt_1', 'evt_2']);
     });
 
     it('track() starts the watermark again for a subscription it already tracks', async () => {

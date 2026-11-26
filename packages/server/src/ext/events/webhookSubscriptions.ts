@@ -24,6 +24,8 @@ const TTL_FLOOR_MS = 60_000;
 const ROTATION_GRACE_MS = 300_000;
 // setTimeout fires at once for longer delays; a longer grant re-arms when the timer fires early.
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+// After a store call at expiry fails, the expiry timer reads the record again this much later, as the engine's sweep does.
+const EXPIRY_RETRY_MS = 60_000;
 // The waits between the three attempts of a fan-out pass whose store read fails; after the last the failure is reported.
 const FAN_OUT_RETRY_DELAYS_MS = [100, 200];
 // Emits a pending fan-out pass dropped are reported at once, then counted and reported together at most this often per event type.
@@ -503,9 +505,20 @@ export class WebhookSubscriptions implements SubscriptionSource {
     }
 
     #arm(watched: Watched, expiresAt: number): void {
+        this.#armIn(watched, Math.min(Math.max(expiresAt - Date.now(), 0), MAX_TIMER_DELAY_MS));
+    }
+
+    // The expiry timer; a failed store call is reported and checked again EXPIRY_RETRY_MS later while this watch is current, so every watch ends once the store answers.
+    #armIn(watched: Watched, delay: number): void {
         clearTimeout(watched.expiry);
-        const delay = Math.min(Math.max(expiresAt - Date.now(), 0), MAX_TIMER_DELAY_MS);
-        watched.expiry = unref(setTimeout(() => this.#later(watched.id, () => this.#recheck(watched.id)), delay));
+        watched.expiry = unref(
+            setTimeout(() => {
+                enqueue(this.#byId, watched.id, () => this.#recheck(watched.id)).catch((error: unknown) => {
+                    this.#deps.report(error);
+                    if (this.#watched.get(watched.id) === watched) this.#armIn(watched, EXPIRY_RETRY_MS);
+                });
+            }, delay)
+        );
     }
 
     // Queues a task for one subscription off the caller's path; a failure goes to onerror.
