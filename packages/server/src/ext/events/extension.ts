@@ -33,7 +33,7 @@ import { InMemoryWebhookSubscriptionStore } from './store';
 import { installTestHook } from './testHook';
 import type { CheckEventDefinition, EmitOnlyEventDefinition, EmitOnlyEventHandle, EventHandle, EventInput, EventsOptions } from './types';
 import type { SubscriptionRequest } from './validation';
-import { SubscriptionValidator } from './validation';
+import { assertRequestLength, SubscriptionValidator } from './validation';
 import { WebhookSubscriptions } from './webhookSubscriptions';
 
 // The live subscriptions of one delivery mode, which `remove()`, a schema change and `terminate()` end.
@@ -250,7 +250,7 @@ export class EventsExtension implements ServerExtension {
      * `extensions`: the server calls it once, while it is constructed, and
      * advertises the extension as `{}`. A legacy `initialize` result does not
      * advertise Events, and a server serving an earlier revision than
-     * `2026-07-28` answers `events/*` requests with `-32601`.
+     * `2026-07-28` answers well-formed `events/*` requests with `-32601`.
      */
     setup(ctx: ServerExtensionContext): void {
         const server = ctx.mcp.server;
@@ -273,6 +273,13 @@ export class EventsExtension implements ServerExtension {
                 this.#webhooks === undefined ? this.#refuseWebhook(params, requestCtx) : this.#webhooks.unsubscribe(params, requestCtx)
             )
         );
+        // Measured as the protocol layer keeps it, as a push stream does, before the params parse drops anything.
+        for (const method of NAMED_EVENT_METHODS) {
+            ctx.use(method, (request, requestCtx, next) => {
+                assertRequestLength(request, requestCtx);
+                return next(request, requestCtx);
+            });
+        }
         markModernOnlyExtension(server, EVENTS_EXTENSION_ID);
         markStreamingMethod(server, EVENTS_STREAM_METHOD);
         registerParamHeaderSource(ctx.mcp, NAMED_EVENT_METHODS, name => this.#registry.get(name)?.inputJson);

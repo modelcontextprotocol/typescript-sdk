@@ -1,5 +1,5 @@
 import type { DeliveryMode } from '@modelcontextprotocol/core/ext/events';
-import type { ServerContext } from '@modelcontextprotocol/core-internal';
+import type { JSONRPCRequest, ServerContext } from '@modelcontextprotocol/core-internal';
 import { canonicalJson, EventsError } from '@modelcontextprotocol/core-internal/ext/events';
 
 import type { EventRegistry, RegisteredEvent } from './registry';
@@ -9,8 +9,8 @@ import type { EventsOptions } from './types';
 const PRINCIPAL_SHARE_DIVISOR = 4;
 // The longest canonical JSON of a request's `arguments`, which bounds what a lease, a stream or a stored record keeps of them.
 const MAX_ARGUMENTS_LENGTH = 65_536;
-// The longest canonical JSON of a request's whole params, which bounds what a push stream keeps of its request.
-const MAX_PARAMS_LENGTH = 131_072;
+// The longest canonical JSON of a request as the protocol layer keeps it, with the material it lifted onto `ctx.mcpReq`, which bounds what a push stream keeps of its request.
+const MAX_REQUEST_LENGTH = 131_072;
 
 export interface ValidatorDeps {
     readonly registry: EventRegistry;
@@ -25,6 +25,15 @@ export interface ValidatorDeps {
 
 function notOffered(message: string, mode: DeliveryMode): EventsError {
     return new EventsError('unsupported', message, { feature: 'deliveryMode', value: mode });
+}
+
+// Refuses a request longer than MAX_REQUEST_LENGTH as the protocol layer keeps it, before its params are parsed: the request it passes on, and the `_meta` envelope and retry material it lifted onto `ctx.mcpReq`.
+export function assertRequestLength(request: JSONRPCRequest, { mcpReq }: ServerContext): void {
+    const { envelope, inputResponses, droppedInputResponseKeys } = mcpReq;
+    const kept = { request, envelope, inputResponses, droppedInputResponseKeys, requestState: mcpReq.requestState() };
+    if (canonicalJson(kept).length > MAX_REQUEST_LENGTH) {
+        throw new EventsError('invalidParams', `request must be at most ${MAX_REQUEST_LENGTH} characters as canonical JSON`);
+    }
 }
 
 export interface SubscriptionRequest {
@@ -46,16 +55,13 @@ export class SubscriptionValidator {
         this.#deps = deps;
     }
 
-    // After the era gate in `setup`'s handlers: the size of `params` (the whole request params), webhook mode (webhook only), principal (required for webhook), event exists, mode offered, the arguments' size, `beforeParse`, then the arguments.
+    // After the era gate in `setup`'s handlers: webhook mode (webhook only), principal (required for webhook), event exists, mode offered, the arguments' size, `beforeParse`, then the arguments.
     async validate(
         mode: DeliveryMode,
         params: SubscriptionRequest,
         ctx: ServerContext,
         beforeParse?: (principal: string | null, rawArgs: Record<string, unknown>) => void | Promise<void>
     ): Promise<ValidSubscription> {
-        if (canonicalJson(params).length > MAX_PARAMS_LENGTH) {
-            throw new EventsError('invalidParams', `params must be at most ${MAX_PARAMS_LENGTH} characters as canonical JSON`);
-        }
         const webhook = mode === 'webhook';
         if (webhook && !this.#deps.webhookEnabled) throw notOffered('This server does not offer webhook delivery', mode);
         const principal = await this.principalOf(ctx);
@@ -78,8 +84,8 @@ export class SubscriptionValidator {
         return (await this.#deps.getPrincipal?.(ctx)) ?? null;
     }
 
-    // The `maxSubscriptions` quota and, with `getPrincipal`, the principal's share of it; call it before a new subscription's `onSubscribe`.
-    assertCapacity(principal: string | null): void {
+    // The `maxSubscriptions` quota and, with `getPrincipal`, the principal's share of it, which also counts its `adopted` webhook subscriptions (served here, not created here); call it before a new subscription's `onSubscribe`.
+    assertCapacity(principal: string | null, adopted = 0): void {
         const max = this.#deps.maxSubscriptions;
         if (this.#deps.subscriptionCount() >= max) {
             throw new EventsError('resourceExhausted', 'Subscription limit reached', { limit: 'subscriptions', max });
@@ -87,7 +93,7 @@ export class SubscriptionValidator {
         // Without getPrincipal every caller is in one bucket, so a share would only shrink the quota.
         if (this.#deps.getPrincipal === undefined) return;
         const share = Math.max(1, Math.floor(max / PRINCIPAL_SHARE_DIVISOR));
-        if (this.#deps.principalSubscriptionCount(principal) >= share) {
+        if (this.#deps.principalSubscriptionCount(principal) + adopted >= share) {
             throw new EventsError('resourceExhausted', 'Subscription limit for this principal reached', {
                 limit: 'principalSubscriptions',
                 max: share

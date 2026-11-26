@@ -26,11 +26,12 @@ const ENVELOPE = {
     [CLIENT_CAPABILITIES_META_KEY]: {}
 };
 
-/** Per-request options: the era (default `'modern'`), extra headers, and an abort signal. */
+/** Per-request options: the era (default `'modern'`), extra headers, an abort signal, and the id `rpc` sends (default: the next number). */
 export interface PostInit {
     era?: 'modern' | 'legacy';
     headers?: Record<string, string>;
     signal?: AbortSignal;
+    id?: string | number;
 }
 
 export interface Served {
@@ -88,7 +89,7 @@ export function serve(
     };
 
     const rpc = async (method: string, params: object = {}, init?: PostInit): Promise<JSONRPCResponse> => {
-        const id = nextId++;
+        const id = init?.id ?? nextId++;
         const response = await post({ jsonrpc: '2.0', id, method, params } as JSONRPCRequest, init);
         if (!(response.headers.get('content-type') ?? '').includes('text/event-stream')) return (await response.json()) as JSONRPCResponse;
         for await (const message of readFrames(response)) {

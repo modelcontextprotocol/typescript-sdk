@@ -66,7 +66,7 @@ interface Watched {
     readonly ctx: CheckContext;
     // The arguments as the event type's inputSchema outputs them, for its callbacks.
     readonly args: Record<string, unknown>;
-    // This process created the subscription, so it counts toward `maxSubscriptions`; one it only refreshes does not.
+    // This process created the subscription, so it counts toward `maxSubscriptions`; one it only refreshes counts only toward its principal's share when that principal creates a webhook subscription.
     readonly created: boolean;
     // The record's expiry as last read, and when the expiry timer reads the record next; a count that finds either passed treats the watch as the timer would (Cloudflare Workers drop a request's timers once it is answered).
     expiresAt: number;
@@ -344,7 +344,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
         const { url, secret } = params.delivery;
         // A watch left over here belongs to a subscription that ended elsewhere: its record is gone.
         this.#release(id);
-        this.#deps.validator.assertCapacity(principal);
+        this.#deps.validator.assertCapacity(principal, this.#adopted(principal));
         // Counted from the quota check on, so concurrent creates cannot all pass it; the watch takes the count over in one step.
         this.#starting.add(subscribing);
         try {
@@ -522,6 +522,16 @@ export class WebhookSubscriptions implements SubscriptionSource {
             if (watched.created && watched.expiresAt > now && matches(watched.ctx.principal)) count += 1;
         }
         for (const subscribing of this.#starting) if (matches(subscribing.principal)) count += 1;
+        return count;
+    }
+
+    // The watches `principal` holds here within their grant that this process did not create, which its share counts when it creates another; after a restart the share holds once its subscriptions are refreshed here, and until then it may create more.
+    #adopted(principal: string): number {
+        const now = Date.now();
+        let count = 0;
+        for (const watched of this.#watched.values()) {
+            if (!watched.created && watched.expiresAt > now && watched.ctx.principal === principal) count += 1;
+        }
         return count;
     }
 

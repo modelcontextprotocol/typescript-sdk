@@ -344,7 +344,8 @@ export interface EventsOptions {
      * The most subscriptions this process serves at once, counting poll leases, push streams and the webhook
      * subscriptions it created or is still creating (not those it only refreshes); more are refused with `resourceExhausted`
      * (`data.limit: 'subscriptions'`). With `getPrincipal` set, each principal may hold a quarter of them (at least
-     * one), and so may all callers without a principal together; more are refused with
+     * one; for a new webhook subscription, counting also the webhook subscriptions this process only refreshes for it),
+     * and so may all callers without a principal together; more are refused with
      * `data.limit: 'principalSubscriptions'`. Without `getPrincipal` only the process-wide limit applies.
      * @default 1024
      */

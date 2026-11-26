@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import { CLIENT_INFO_META_KEY } from '@modelcontextprotocol/core-internal';
 import { generateWebhookSecret, parseWebhookSecret, verifyWebhookSignature } from '@modelcontextprotocol/core-internal/ext/events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
@@ -19,7 +20,7 @@ import type {
 } from '../../../src/ext/events/index';
 import { EventsError, EventsExtension, InMemoryWebhookSubscriptionStore } from '../../../src/ext/events/index';
 import type { EventsTestHook } from '../../../src/ext/events/testHook';
-import { errorOf, resultOf, serve } from './harness';
+import { errorOf, readFrames, resultOf, serve } from './harness';
 
 const P = z.object({ n: z.number() });
 const HOOK = 'https://hooks.example.com/mcp';
@@ -364,27 +365,45 @@ describe('events/subscribe: validation', () => {
         expect(hook.state().pollLeases).toBe(1);
     });
 
-    it('refuses request params over 131 072 characters of canonical JSON in every mode, before any lease, stream, POST or record', async () => {
-        const onSubscribe = vi.fn();
-        const store = new InMemoryWebhookSubscriptionStore();
-        const { events, post, hook } = replica({ webhookStore: store });
-        events.registerEvent('e', { emitOnly: true, payloadSchema: P, onSubscribe });
-        const alice = client(events);
-        const cursor = 'x'.repeat(131_073);
-        const tooLong = { code: -32_602, message: 'params must be at most 131072 characters as canonical JSON' };
-        expect(errorOf(await alice.rpc('events/poll', { name: 'e', cursor }))).toMatchObject(tooLong);
-        expect(errorOf(await alice.rpc('events/stream', { name: 'e', cursor }))).toMatchObject(tooLong);
-        expect(errorOf(await alice.subscribe({ cursor }))).toMatchObject(tooLong);
-        expect(errorOf(await alice.rpc('events/unsubscribe', { name: 'e', delivery: { url: HOOK }, cursor }))).toMatchObject(tooLong);
-        expect(hook.state()).toMatchObject({ pollLeases: 0, pushStreams: 0, webhookSubscriptions: 0, webhookExpiryTimers: 0 });
-        expect(post.requests).toHaveLength(0);
-        expect(await stored(store)).toEqual([]);
-        expect(onSubscribe).not.toHaveBeenCalled();
+    const PAD = 'x'.repeat(131_073);
 
-        resultOf(await alice.rpc('events/poll', { name: 'e', cursor: null }));
-        subscribed(await alice.subscribe({ cursor: null }));
-        expect(hook.state()).toMatchObject({ pollLeases: 1, webhookExpiryTimers: 1 });
-    });
+    it.each([
+        ['its params', {}, { cursor: PAD }],
+        ['a string id', { id: PAD }, {}],
+        ['the clientInfo name of its _meta envelope', {}, { _meta: { [CLIENT_INFO_META_KEY]: { name: PAD, version: '1.0.0' } } }],
+        ['inputResponses', {}, { inputResponses: { r1: { pad: PAD } } }],
+        ['requestState', {}, { requestState: PAD }],
+        // Keys the params parse drops, which the request the protocol layer keeps still holds.
+        ['an unknown key of its related-task _meta', {}, { _meta: { 'io.modelcontextprotocol/related-task': { taskId: 't', pad: PAD } } }],
+        ['an own "__proto__" key in its params', {}, JSON.parse(`{"__proto__":"${PAD}"}`) as object],
+        ['an own "__proto__" key in its _meta', {}, { _meta: JSON.parse(`{"__proto__":{"p":"${PAD}"}}`) as object }]
+    ])(
+        'refuses a request over 131 072 characters of canonical JSON by %s in every mode, before any lease, stream, POST or record',
+        async (_, init, padding) => {
+            const onSubscribe = vi.fn();
+            const store = new InMemoryWebhookSubscriptionStore();
+            const { events, post, hook } = replica({ webhookStore: store });
+            events.registerEvent('e', { emitOnly: true, payloadSchema: P, onSubscribe });
+            const alice = client(events);
+            const tooLong = { code: -32_602, message: 'request must be at most 131072 characters as canonical JSON' };
+            const requests: Array<[string, object]> = [
+                ['events/poll', { name: 'e' }],
+                ['events/subscribe', { name: 'e', delivery: { mode: 'webhook', url: HOOK, secret: SECRET } }],
+                ['events/unsubscribe', { name: 'e', delivery: { url: HOOK } }],
+                ['events/stream', { name: 'e' }]
+            ];
+            for (const [method, params] of requests)
+                expect(errorOf(await alice.rpc(method, { ...params, ...padding }, init))).toMatchObject(tooLong);
+            expect(hook.state()).toMatchObject({ pollLeases: 0, pushStreams: 0, webhookSubscriptions: 0, webhookExpiryTimers: 0 });
+            expect(post.requests).toHaveLength(0);
+            expect(await stored(store)).toEqual([]);
+            expect(onSubscribe).not.toHaveBeenCalled();
+
+            resultOf(await alice.rpc('events/poll', { name: 'e', cursor: null }, { id: 'x'.repeat(64) }));
+            subscribed(await alice.subscribe({ cursor: null }));
+            expect(hook.state()).toMatchObject({ pollLeases: 1, webhookExpiryTimers: 1 });
+        }
+    );
 
     it('validates the secret', async () => {
         const { events, post } = replica();
@@ -1349,7 +1368,7 @@ describe('several replicas sharing one store', () => {
     it('counts toward maxSubscriptions only the webhook subscriptions a replica created, so one that answers the refreshes of many keeps its places', async () => {
         const store = new InMemoryWebhookSubscriptionStore();
         const a = replica({ webhookStore: store });
-        const b = replica({ webhookStore: store, maxSubscriptions: 4 });
+        const b = replica({ webhookStore: store, maxSubscriptions: 8 });
         a.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
         b.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
         const principals = ['u1', 'u2', 'u3', 'u4', 'u5', 'u6'];
@@ -1357,12 +1376,42 @@ describe('several replicas sharing one store', () => {
         for (const principal of principals) subscribed(await client(b.events, principal).subscribe());
         expect(b.hook.state().webhookExpiryTimers).toBe(6);
 
-        // B's four places, a quarter of them per principal, are all free, u1's included.
-        for (const principal of ['u1', 'v2', 'v3', 'v4']) subscribed(await client(b.events, principal).subscribe({ arguments: { k: 2 } }));
-        expect(errorOf(await client(b.events, 'v5').subscribe({ arguments: { k: 2 } }))).toMatchObject({
+        // B's eight places are all free; u1, with one subscription B serves, is under its share of two.
+        const creators = ['u1', 'v2', 'v3', 'v4', 'v5', 'v6', 'v7', 'v8'];
+        for (const principal of creators) subscribed(await client(b.events, principal).subscribe({ arguments: { k: 2 } }));
+        expect(errorOf(await client(b.events, 'v9').subscribe({ arguments: { k: 2 } }))).toMatchObject({
             code: -32_025,
-            data: { limit: 'subscriptions', max: 4 }
+            data: { limit: 'subscriptions', max: 8 }
         });
+    });
+
+    it('holds a principal to its share of webhook subscriptions after a restart over a durable store, counting those refreshed since, but not toward its poll and push', async () => {
+        const store = new InMemoryWebhookSubscriptionStore();
+        const { events, hook } = replica({ webhookStore: store, maxSubscriptions: 8 });
+        events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const [alice, bob] = [client(events, 'alice'), client(events, 'bob')];
+        const share = { code: -32_025, data: { limit: 'principalSubscriptions', max: 2 } };
+        for (const k of [1, 2]) subscribed(await alice.subscribe({ arguments: { k } }));
+        expect(errorOf(await alice.subscribe({ arguments: { k: 3 } }))).toMatchObject(share);
+
+        // The new process serves both once her client refreshes them, though it did not create them.
+        hook.restart();
+        for (const k of [1, 2]) subscribed(await alice.subscribe({ arguments: { k } }));
+        expect(errorOf(await alice.subscribe({ arguments: { k: 3 } }))).toMatchObject(share);
+        for (const k of [1, 2]) subscribed(await alice.subscribe({ arguments: { k } }));
+        subscribed(await bob.subscribe({ arguments: { k: 1 } }));
+
+        // Her poll and push are not charged for them.
+        resultOf(await alice.rpc('events/poll', { name: 'e' }));
+        const stream = new AbortController();
+        const authInfo = { token: 'tok', clientId: 'app', scopes: [], extra: { sub: 'alice' } };
+        const response = await serve(events, { authInfo }).post(
+            { jsonrpc: '2.0', id: 1, method: 'events/stream', params: { name: 'e' } },
+            { signal: stream.signal }
+        );
+        const { value: active } = await readFrames(response).next();
+        expect(active).toMatchObject({ method: 'notifications/events/active' });
+        stream.abort();
     });
 
     it('delivers an emit made on another replica', async () => {

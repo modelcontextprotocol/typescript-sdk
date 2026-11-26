@@ -1,4 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod/v4';
@@ -337,5 +339,43 @@ describe('Protocol instrumentation', () => {
 
         expect(calls).toBe(1);
         expect(errors.map(e => e.message)).toEqual(['Instrumentation failed: scope.run() did not call fn']);
+    });
+
+    it('keeps no inbound request as received while its handler runs, so params the wire-only lift copied can be collected', async () => {
+        setFlagsFromString('--expose-gc');
+        const gc = runInNewContext('gc') as () => void;
+        const [peer, transport] = InMemoryTransport.createLinkedPair();
+        const b = new TestProtocol();
+        // A scope that keeps nothing of its operation.
+        setProtocolInstrumentation(b, { receive: () => ({ run: fn => fn(), end: () => {} }) });
+        let release!: () => void;
+        const held = new Promise<void>(resolve => (release = resolve));
+        let started!: () => void;
+        const running = new Promise<void>(resolve => (started = resolve));
+        b.setRequestHandler('acme/hold', { params: z.looseObject({}) }, async () => {
+            started();
+            await held;
+            return { ok: true };
+        });
+        await b.connect(transport);
+        peer.onmessage = () => {};
+        // `requestState` makes the lift copy the params, so only the request as received holds this object.
+        const send = (): WeakRef<object> => {
+            const params = { requestState: 'state', pad: 'x'.repeat(100_000) };
+            void peer.send({ jsonrpc: '2.0', id: 1, method: 'acme/hold', params });
+            return new WeakRef(params);
+        };
+        const sent = send();
+        await running;
+
+        // Each pass collects in a fresh task, so no `deref()` of an earlier pass keeps the object alive.
+        let collected = false;
+        for (let pass = 0; pass < 10 && !collected; pass++) {
+            await tick();
+            gc();
+            collected = sent.deref() === undefined;
+        }
+        expect(collected).toBe(true);
+        release();
     });
 });
