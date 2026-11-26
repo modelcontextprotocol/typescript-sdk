@@ -719,6 +719,16 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
                     return;
                 }
                 if (state.phase === 'probe') {
+                    if (isJSONRPCNotification(message)) {
+                        // Notifications carry no era claim (a 2026-07-28
+                        // notifications/cancelled has no protocol version in
+                        // its _meta), so a claim-less one is not a fallback to
+                        // the 2025 handshake. As with an enveloped
+                        // notification, deliver it to the probe instance
+                        // without committing the era.
+                        state.instance.channel.deliver(message);
+                        return;
+                    }
                     // Probe-then-fallback: the client probed, found no
                     // mutually supported modern revision, and fell back to
                     // the 2025 handshake on the same connection. The probe
