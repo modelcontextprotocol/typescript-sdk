@@ -76,7 +76,7 @@ export function retryAfterOf(error: unknown): number | undefined {
     return typeof retryAfterMs === 'number' && retryAfterMs >= 0 ? retryAfterMs : undefined;
 }
 
-// A -32020: the request's `Mcp-Param` headers do not match its arguments (D26).
+// A -32020: the request's `Mcp-Param` headers do not match its arguments.
 export function isHeaderMismatch(error: unknown): boolean {
     return error instanceof ProtocolError && error.code === HEADER_MISMATCH_ERROR_CODE;
 }
@@ -112,7 +112,7 @@ export function isModeRefusal(error: unknown): boolean {
     );
 }
 
-// Every mode's recovery once subscribed (spec §6.3): `relist` and go on while still offered (a `notFound` only once in a row), `mismatch` (re-list and retry once, then end), `fail` (end with the error), or `retry` later (anything but an Events kind or an endsSubscription() error, such as a transport or non-final auth failure, and a verification limit).
+// Every mode's recovery once subscribed: `relist` and go on while still offered (a `notFound` only once in a row), `mismatch` (re-list and retry once, then end), `fail` (end with the error), or `retry` later (anything but an Events kind or an endsSubscription() error, such as a transport or non-final auth failure, and a verification limit).
 export function recoveryFor(error: unknown): 'relist' | 'mismatch' | 'fail' | 'retry' {
     if (endsSubscription(error)) return 'fail';
     if (isHeaderMismatch(error)) return 'mismatch';
@@ -177,7 +177,7 @@ export interface LoopHooks {
     closed?: () => void;
 }
 
-// The loop every mode's driver runs (spec §6.3): its cursor and the reset to now, the first exchange that settles start(), waits that stop() or a closed connection end at once, and the recovery rules.
+// The loop every mode's driver runs: its cursor and the reset to now, the first exchange that settles start(), waits that stop() or a closed connection end at once, and the recovery rules.
 export class DriverLoop<T> {
     readonly #context: DriverContext<T>;
     readonly #mode: DeliveryMode;
@@ -324,7 +324,7 @@ export class DriverLoop<T> {
         this.#retrying(error);
     }
 
-    // After an exchange failed with `error` (spec §6.3): throws when that ends the subscription; `restarted` when the first exchange's stale cursor was dropped for now.
+    // After an exchange failed with `error`: throws when that ends the subscription; `restarted` when the first exchange's stale cursor was dropped for now.
     async recover(error: unknown): Promise<'restarted' | 'retry'> {
         const { connection, subscription } = this.#context;
         const closed = connectionClosed(connection, error);

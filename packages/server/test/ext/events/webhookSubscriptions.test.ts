@@ -261,7 +261,7 @@ afterEach(() => {
 });
 
 describe('events/subscribe: validation', () => {
-    it('needs webhook mode and a principal, checked before the event type (F12)', async () => {
+    it('needs webhook mode and a principal, checked before the event type', async () => {
         const plain = new EventsExtension({ getPrincipal });
         plain.registerEvent('e', { emitOnly: true, payloadSchema: P });
         const off = client(plain);
@@ -364,6 +364,28 @@ describe('events/subscribe: validation', () => {
         expect(hook.state().pollLeases).toBe(1);
     });
 
+    it('refuses request params over 131 072 characters of canonical JSON in every mode, before any lease, stream, POST or record', async () => {
+        const onSubscribe = vi.fn();
+        const store = new InMemoryWebhookSubscriptionStore();
+        const { events, post, hook } = replica({ webhookStore: store });
+        events.registerEvent('e', { emitOnly: true, payloadSchema: P, onSubscribe });
+        const alice = client(events);
+        const cursor = 'x'.repeat(131_073);
+        const tooLong = { code: -32_602, message: 'params must be at most 131072 characters as canonical JSON' };
+        expect(errorOf(await alice.rpc('events/poll', { name: 'e', cursor }))).toMatchObject(tooLong);
+        expect(errorOf(await alice.rpc('events/stream', { name: 'e', cursor }))).toMatchObject(tooLong);
+        expect(errorOf(await alice.subscribe({ cursor }))).toMatchObject(tooLong);
+        expect(errorOf(await alice.rpc('events/unsubscribe', { name: 'e', delivery: { url: HOOK }, cursor }))).toMatchObject(tooLong);
+        expect(hook.state()).toMatchObject({ pollLeases: 0, pushStreams: 0, webhookSubscriptions: 0, webhookExpiryTimers: 0 });
+        expect(post.requests).toHaveLength(0);
+        expect(await stored(store)).toEqual([]);
+        expect(onSubscribe).not.toHaveBeenCalled();
+
+        resultOf(await alice.rpc('events/poll', { name: 'e', cursor: null }));
+        subscribed(await alice.subscribe({ cursor: null }));
+        expect(hook.state()).toMatchObject({ pollLeases: 1, webhookExpiryTimers: 1 });
+    });
+
     it('validates the secret', async () => {
         const { events, post } = replica();
         events.registerEvent('e', { emitOnly: true, payloadSchema: P });
@@ -373,7 +395,7 @@ describe('events/subscribe: validation', () => {
         expect(post.requests).toHaveLength(0);
     });
 
-    it('derives one stable id per (principal, url, name, arguments) (Review Focus 4)', async () => {
+    it('derives one stable id per (principal, url, name, arguments)', async () => {
         const onSubscribe = vi.fn();
         const { events, post } = replica();
         events.registerEvent('e', { emitOnly: true, payloadSchema: P, onSubscribe });
@@ -930,7 +952,7 @@ describe('events/subscribe: refreshing', () => {
         expect(healthy.cursor).not.toBe(first.cursor);
         expect(healthy.deliveryStatus).toEqual({ active: true, lastDeliveryAt: new Date().toISOString(), lastError: null });
 
-        // A replica that holds no delivery state for it and cannot serve the client's cursor answers a gap at its own buffer head, and no deliveryStatus (Decision 7).
+        // A replica that holds no delivery state for it and cannot serve the client's cursor answers a gap at its own buffer head, and no deliveryStatus.
         const { cursor: elsewhereHead } = resultOf(
             await client(b.events).rpc('events/poll', { name: 'e', cursor: null })
         ) as PollEventsResult;
@@ -1270,7 +1292,6 @@ describe('several replicas sharing one store', () => {
             expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: `store ${method} failed` }));
             expect(onUnsubscribe).not.toHaveBeenCalled();
             expect(hook.state().webhookExpiryTimers).toBe(1);
-            expect(errorOf(await alice.subscribe({ url: OTHER_HOOK }))).toMatchObject({ code: -32_025, data: { limit: 'subscriptions' } });
 
             // The retry a minute later finds the store answering.
             await vi.advanceTimersByTimeAsync(60_000);
@@ -1282,6 +1303,67 @@ describe('several replicas sharing one store', () => {
             expect(onerror).toHaveBeenCalledOnce();
         }
     );
+
+    it('counts no watch past its expiry whose timer has not fired, and reads its record then, so an expired subscription ends and frees its place', async () => {
+        const store = new InMemoryWebhookSubscriptionStore();
+        const onUnsubscribe = vi.fn();
+        const { events, hook } = replica({ webhookStore: store, maxSubscriptions: 1 });
+        events.registerEvent('e', { emitOnly: true, payloadSchema: P, onUnsubscribe });
+        const alice = client(events);
+        const { id } = subscribed(await alice.subscribe({ ttlMs: 60_000 }));
+
+        // The clock passes the grant without running a timer, as on a runtime that drops a request's timers once it is answered.
+        vi.setSystemTime(Date.now() + 60_000);
+        subscribed(await alice.subscribe({ url: OTHER_HOOK }));
+        await settle();
+        expect(onUnsubscribe).toHaveBeenCalledOnce();
+        expect(onUnsubscribe.mock.calls[0]![0]).toMatchObject({ subscriptionId: id, mode: 'webhook' });
+        expect(await store.get(id)).toBeUndefined();
+        expect(hook.state().webhookExpiryTimers).toBe(1);
+    });
+
+    it('counts a watch past its expiry again once the read its count queued finds the record refreshed on another replica', async () => {
+        const store = new InMemoryWebhookSubscriptionStore();
+        const onUnsubscribe = vi.fn();
+        const a = replica({ webhookStore: store, maxSubscriptions: 2 });
+        const b = replica({ webhookStore: store });
+        a.events.registerEvent('e', { emitOnly: true, payloadSchema: P, onUnsubscribe });
+        b.events.registerEvent('e', { emitOnly: true, payloadSchema: P, onUnsubscribe });
+        const { id } = subscribed(await client(a.events).subscribe({ ttlMs: 60_000 }));
+        await vi.advanceTimersByTimeAsync(30_000);
+        subscribed(await client(b.events).subscribe({ ttlMs: 60_000 }));
+
+        // Past the expiry A last read, without its timer: A's count leaves the watch out and reads the record, which B moved on.
+        vi.setSystemTime(Date.now() + 30_000);
+        const anonymous = client(a.events, null);
+        resultOf(await anonymous.rpc('events/poll', { name: 'e', arguments: { k: 1 } }));
+        await settle();
+        expect(await store.get(id)).toBeDefined();
+        expect(onUnsubscribe).not.toHaveBeenCalled();
+        expect(errorOf(await anonymous.rpc('events/poll', { name: 'e', arguments: { k: 2 } }))).toMatchObject({
+            code: -32_025,
+            data: { limit: 'subscriptions', max: 2 }
+        });
+    });
+
+    it('counts toward maxSubscriptions only the webhook subscriptions a replica created, so one that answers the refreshes of many keeps its places', async () => {
+        const store = new InMemoryWebhookSubscriptionStore();
+        const a = replica({ webhookStore: store });
+        const b = replica({ webhookStore: store, maxSubscriptions: 4 });
+        a.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        b.events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const principals = ['u1', 'u2', 'u3', 'u4', 'u5', 'u6'];
+        for (const principal of principals) subscribed(await client(a.events, principal).subscribe());
+        for (const principal of principals) subscribed(await client(b.events, principal).subscribe());
+        expect(b.hook.state().webhookExpiryTimers).toBe(6);
+
+        // B's four places, a quarter of them per principal, are all free, u1's included.
+        for (const principal of ['u1', 'v2', 'v3', 'v4']) subscribed(await client(b.events, principal).subscribe({ arguments: { k: 2 } }));
+        expect(errorOf(await client(b.events, 'v5').subscribe({ arguments: { k: 2 } }))).toMatchObject({
+            code: -32_025,
+            data: { limit: 'subscriptions', max: 4 }
+        });
+    });
 
     it('delivers an emit made on another replica', async () => {
         const store = new InMemoryWebhookSubscriptionStore();
@@ -2293,6 +2375,35 @@ describe('termination', () => {
         expect(post.requests.filter(request => isVerification(request))).toHaveLength(2);
     });
 
+    it('sends a terminated body without error data JSON cannot carry, reports it once, and leaves no rejection unhandled', async () => {
+        const unhandled = vi.fn();
+        process.on('unhandledRejection', unhandled);
+        try {
+            const onerror = vi.fn();
+            const store = new InMemoryWebhookSubscriptionStore();
+            const { events, post } = replica({ webhookStore: store, onerror });
+            const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+            const { id } = subscribed(await client(events).subscribe());
+            await handle.terminate(new EventsError('forbidden', 'Forbidden', { userId: 1n }));
+            expect(await store.get(id)).toBeUndefined();
+
+            await post.until(2);
+            expect(bodyOf(post.requests[1]!)).toEqual({ type: 'terminated', error: { code: -32_024, message: 'Forbidden' } });
+            expect(await verifies(post.requests[1]!, SECRET)).toBe(true);
+            expect(onerror).toHaveBeenCalledOnce();
+            expect(onerror).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining(`webhook subscription ${id}: sent its terminated body without`)
+                })
+            );
+            vi.useRealTimers();
+            await new Promise(resolve => setImmediate(resolve));
+            expect(unhandled).not.toHaveBeenCalled();
+        } finally {
+            process.off('unhandledRejection', unhandled);
+        }
+    });
+
     it('terminates only the subscription with the given subscriptionId, and remove() ends the rest', async () => {
         const store = new InMemoryWebhookSubscriptionStore();
         const { events, post } = replica({ webhookStore: store });
@@ -2472,7 +2583,7 @@ describe('termination', () => {
 });
 
 describe('test hook', () => {
-    it('drops its webhook state on restart() and keeps the store (F4)', async () => {
+    it('drops its webhook state on restart() and keeps the store', async () => {
         const onSubscribe = vi.fn();
         const store = new InMemoryWebhookSubscriptionStore();
         const { events, post, hook } = replica({ webhookStore: store, respond: echo(() => ({ status: 500, body: '' })) });
@@ -2496,7 +2607,7 @@ describe('test hook', () => {
         expect(hook.state().webhookExpiryTimers).toBe(1);
     });
 
-    it('admits a callback whose origin the test hook trusted (F5)', async () => {
+    it('admits a callback whose origin the test hook trusted', async () => {
         const { events, post, hook } = replica();
         events.registerEvent('e', { emitOnly: true, payloadSchema: P });
         const url = 'http://127.0.0.1:9000/hook';

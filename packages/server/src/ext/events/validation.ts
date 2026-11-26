@@ -9,13 +9,15 @@ import type { EventsOptions } from './types';
 const PRINCIPAL_SHARE_DIVISOR = 4;
 // The longest canonical JSON of a request's `arguments`, which bounds what a lease, a stream or a stored record keeps of them.
 const MAX_ARGUMENTS_LENGTH = 65_536;
+// The longest canonical JSON of a request's whole params, which bounds what a push stream keeps of its request.
+const MAX_PARAMS_LENGTH = 131_072;
 
 export interface ValidatorDeps {
     readonly registry: EventRegistry;
     readonly webhookEnabled: boolean;
     readonly getPrincipal: EventsOptions['getPrincipal'];
     readonly maxSubscriptions: number;
-    // Subscriptions this process serves now: poll leases, push streams, and the webhook subscriptions whose subscribe or refresh it handled or is still creating.
+    // Subscriptions this process serves now: poll leases, push streams, and the webhook subscriptions it created or is still creating.
     subscriptionCount(): number;
     // Those of them held by `principal` (`null`: the callers without one).
     principalSubscriptionCount(principal: string | null): number;
@@ -44,13 +46,16 @@ export class SubscriptionValidator {
         this.#deps = deps;
     }
 
-    // After the era gate in `setup`'s handlers: webhook mode (webhook only), principal (required for webhook), event exists, mode offered, the arguments' size, `beforeParse`, then the arguments.
+    // After the era gate in `setup`'s handlers: the size of `params` (the whole request params), webhook mode (webhook only), principal (required for webhook), event exists, mode offered, the arguments' size, `beforeParse`, then the arguments.
     async validate(
         mode: DeliveryMode,
         params: SubscriptionRequest,
         ctx: ServerContext,
         beforeParse?: (principal: string | null, rawArgs: Record<string, unknown>) => void | Promise<void>
     ): Promise<ValidSubscription> {
+        if (canonicalJson(params).length > MAX_PARAMS_LENGTH) {
+            throw new EventsError('invalidParams', `params must be at most ${MAX_PARAMS_LENGTH} characters as canonical JSON`);
+        }
         const webhook = mode === 'webhook';
         if (webhook && !this.#deps.webhookEnabled) throw notOffered('This server does not offer webhook delivery', mode);
         const principal = await this.principalOf(ctx);

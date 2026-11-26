@@ -28,7 +28,7 @@ interface Slot<L> {
     timer?: ReturnType<typeof setTimeout>;
 }
 
-// Poll leases: `touch` creates or renews one, and a lease expires `ttlMs` after its last touch.
+// Poll leases: `touch` creates or renews one, and a lease expires `ttlMs` after its last touch, when the table is next read or counted, or earlier by its timer (a runtime such as Cloudflare Workers drops a request's timers once it is answered).
 export class LeaseTable<L extends Lease = Lease> {
     readonly #slots = new Map<string, Slot<L>>();
     readonly #ttlMs: number;
@@ -42,21 +42,25 @@ export class LeaseTable<L extends Lease = Lease> {
     }
 
     get size(): number {
+        this.#expireDue();
         return this.#slots.size;
     }
 
     get(key: string): L | undefined {
+        this.#expireIfDue(key);
         return this.#slots.get(key)?.lease;
     }
 
     // The leases `principal` holds.
     countOf(principal: string | null): number {
+        this.#expireDue();
         let count = 0;
         for (const { lease } of this.#slots.values()) if (lease.principal === principal) count += 1;
         return count;
     }
 
     touch(key: string, create: () => L): { lease: L; created: boolean } {
+        this.#expireIfDue(key);
         const existing = this.#slots.get(key);
         if (existing !== undefined) {
             existing.expiresAt = this.#now() + this.#ttlMs;
@@ -69,6 +73,7 @@ export class LeaseTable<L extends Lease = Lease> {
     }
 
     forEach(name: string, fn: (lease: L) => void): void {
+        this.#expireDue();
         for (const { lease } of this.#slots.values()) {
             if (lease.name === name) fn(lease);
         }
@@ -100,6 +105,25 @@ export class LeaseTable<L extends Lease = Lease> {
             this.#arm(key, slot);
             return;
         }
+        this.#expire(key, slot);
+    }
+
+    #expireIfDue(key: string): void {
+        const slot = this.#slots.get(key);
+        if (slot !== undefined && slot.expiresAt <= this.#now()) this.#expire(key, slot);
+    }
+
+    // Every lease past its `expiresAt`, found before any expires, so an `onExpire` that reads the table meanwhile changes nothing here.
+    #expireDue(): void {
+        const now = this.#now();
+        const due = [...this.#slots].filter(([, slot]) => slot.expiresAt <= now);
+        for (const [key, slot] of due) this.#expire(key, slot);
+    }
+
+    // Once per lease: an `onExpire` that already expired it, by reading the table, leaves nothing to do.
+    #expire(key: string, slot: Slot<L>): void {
+        if (this.#slots.get(key) !== slot) return;
+        clearTimeout(slot.timer);
         this.#slots.delete(key);
         this.#onExpire(slot.lease);
     }

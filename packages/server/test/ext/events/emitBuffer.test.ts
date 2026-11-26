@@ -162,7 +162,7 @@ describe('EmitBuffer', () => {
         ['from another EmitBuffer', () => filled(1).head('i')],
         ['garbage', () => 'garbage'],
         ['ahead of the head', (buffer: EmitBuffer) => buffer.head('i').replace(/\.\d+$/, '.99')]
-    ])('reads a cursor %s as a gap from the oldest retained position, with no events (Review Focus 5)', (_label, cursorOf) => {
+    ])('reads a cursor %s as a gap from the oldest retained position, with no events', (_label, cursorOf) => {
         const buffer = new EmitBuffer({ maxAgeMs: 60_000, maxEvents: 2 });
         const cursor = cursorOf(buffer);
         const positions = [1, 2, 3].map(n => buffer.append('i', { occurrence: occurrence(n) }));

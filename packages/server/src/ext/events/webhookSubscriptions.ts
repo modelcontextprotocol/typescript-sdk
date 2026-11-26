@@ -22,7 +22,7 @@ import { MAX_HELD_MESSAGES, WebhookEngine } from './webhookEngine';
 const TTL_FLOOR_MS = 60_000;
 // How long deliveries stay signed with the previous secret too after a rotation.
 const ROTATION_GRACE_MS = 300_000;
-// setTimeout fires at once for longer delays; a longer grant re-arms when the timer fires early.
+// setTimeout fires at once for longer delays; a longer grant re-arms when the timer fires early, and a longer check interval runs early.
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 // After a store call at expiry fails, the expiry timer reads the record again this much later, as the engine's sweep does.
 const EXPIRY_RETRY_MS = 60_000;
@@ -66,6 +66,13 @@ interface Watched {
     readonly ctx: CheckContext;
     // The arguments as the event type's inputSchema outputs them, for its callbacks.
     readonly args: Record<string, unknown>;
+    // This process created the subscription, so it counts toward `maxSubscriptions`; one it only refreshes does not.
+    readonly created: boolean;
+    // The record's expiry as last read, and when the expiry timer reads the record next; a count that finds either passed treats the watch as the timer would (Cloudflare Workers drop a request's timers once it is answered).
+    expiresAt: number;
+    readAt: number;
+    // That read is queued.
+    reading?: boolean;
     expiry?: ReturnType<typeof setTimeout>;
     // A check type's loop: the position checked up to, and the next check.
     position: string | null;
@@ -168,7 +175,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
     readonly #watched = new Map<string, Watched>();
     // Subscribe, unsubscribe and expiry of one subscription run one at a time in this process; termination does not queue, so a hook that terminates never waits on itself.
     readonly #byId: Queues = new Map();
-    // Subscribes in flight: a termination that reaches one is applied by it, never stored over. Replicas can still race: the store has no compare-and-set (§5.9).
+    // Subscribes in flight: a termination that reaches one is applied by it, never stored over. Replicas can still race: the store has no compare-and-set.
     readonly #subscribing = new Set<Subscribing>();
     // Creates past the quota check that have no watch yet.
     readonly #starting = new Set<Subscribing>();
@@ -191,17 +198,14 @@ export class WebhookSubscriptions implements SubscriptionSource {
         });
     }
 
-    // What `maxSubscriptions` counts here: the subscriptions this process watches, and the creates still starting.
+    // What `maxSubscriptions` counts here: the subscriptions this process created and watches within their grant, and the creates still starting.
     get size(): number {
-        return this.#watched.size + this.#starting.size;
+        return this.#count(() => true);
     }
 
     // Those of them `principal` holds.
     countOf(principal: string | null): number {
-        let count = 0;
-        for (const watched of this.#watched.values()) if (watched.ctx.principal === principal) count += 1;
-        for (const subscribing of this.#starting) if (subscribing.principal === principal) count += 1;
-        return count;
+        return this.#count(held => held === principal);
     }
 
     // Subscriptions this process watches (an expiry timer each), after handling their subscribe or refresh.
@@ -345,7 +349,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
         this.#starting.add(subscribing);
         try {
             await this.#engine.verify(principal, url, secret, id, subscribing.signal);
-            const watched = this.#watch(id, entry, principal, args);
+            const watched = this.#watch(id, entry, principal, args, true);
             try {
                 await entry.definition.onSubscribe?.(watched.ctx, args);
             } catch (error) {
@@ -488,11 +492,11 @@ export class WebhookSubscriptions implements SubscriptionSource {
         };
     }
 
-    // Re-arms a refreshed subscription's timer and returns its watch, or starts watching it here (a check type's loop from `from`, kept to `floor`) when this process had not.
+    // Re-arms a refreshed subscription's timer and returns its watch, or starts watching it here (a check type's loop from `from`, kept to `floor`, and no `maxSubscriptions` place) when this process had not.
     #keep(record: WebhookSubscriptionRecord, { entry, args }: ValidSubscription, from: string | null, floor: number | undefined): Watched {
         let watched = this.#watched.get(record.id);
         if (watched === undefined) {
-            watched = this.#watch(record.id, entry, record.principal, args);
+            watched = this.#watch(record.id, entry, record.principal, args, false);
             watched.position = from;
             watched.floor = floor;
             this.#watched.set(record.id, watched);
@@ -502,27 +506,46 @@ export class WebhookSubscriptions implements SubscriptionSource {
         return watched;
     }
 
-    #watch(id: string, entry: RegisteredEvent, principal: string, args: Record<string, unknown>): Watched {
+    #watch(id: string, entry: RegisteredEvent, principal: string, args: Record<string, unknown>, created: boolean): Watched {
         const ended = new AbortController();
         const ctx = makeContext({ name: entry.name, subscriptionId: id, principal, mode: 'webhook', signal: ended.signal });
-        return { id, entry, ended, ctx, args, position: null };
+        const unarmed = Number.POSITIVE_INFINITY;
+        return { id, entry, ended, ctx, args, created, expiresAt: unarmed, readAt: unarmed, position: null };
+    }
+
+    // The watches this process created within their grant whose principal `matches`, and the creates still starting; a watch whose read at expiry is due gets it queued.
+    #count(matches: (principal: string | null) => boolean): number {
+        const now = Date.now();
+        let count = 0;
+        for (const watched of this.#watched.values()) {
+            if (watched.readAt <= now) this.#readAtExpiry(watched);
+            if (watched.created && watched.expiresAt > now && matches(watched.ctx.principal)) count += 1;
+        }
+        for (const subscribing of this.#starting) if (matches(subscribing.principal)) count += 1;
+        return count;
     }
 
     #arm(watched: Watched, expiresAt: number): void {
+        watched.expiresAt = expiresAt;
         this.#armIn(watched, Math.min(Math.max(expiresAt - Date.now(), 0), MAX_TIMER_DELAY_MS));
     }
 
-    // The expiry timer; a failed store call is reported and checked again EXPIRY_RETRY_MS later while this watch is current, so every watch ends once the store answers.
     #armIn(watched: Watched, delay: number): void {
         clearTimeout(watched.expiry);
-        watched.expiry = unref(
-            setTimeout(() => {
-                enqueue(this.#byId, watched.id, () => this.#recheck(watched.id)).catch((error: unknown) => {
-                    this.#deps.report(error);
-                    if (this.#watched.get(watched.id) === watched) this.#armIn(watched, EXPIRY_RETRY_MS);
-                });
-            }, delay)
-        );
+        watched.readAt = Date.now() + delay;
+        watched.expiry = unref(setTimeout(() => this.#readAtExpiry(watched), delay));
+    }
+
+    // The expiry timer's read, queued once; a failed store call is reported and read again EXPIRY_RETRY_MS later while this watch is current, so every watch ends once the store answers.
+    #readAtExpiry(watched: Watched): void {
+        if (watched.reading === true) return;
+        watched.reading = true;
+        void enqueue(this.#byId, watched.id, () => this.#recheck(watched.id))
+            .catch((error: unknown) => {
+                this.#deps.report(error);
+                if (this.#watched.get(watched.id) === watched) this.#armIn(watched, EXPIRY_RETRY_MS);
+            })
+            .finally(() => (watched.reading = false));
     }
 
     // Queues a task for one subscription off the caller's path; a failure goes to onerror.
@@ -727,7 +750,9 @@ export class WebhookSubscriptions implements SubscriptionSource {
     // The next run of a check type's loop: after a page with more waiting that moved on, at once once the engine has delivered everything of the subscription; otherwise an interval later.
     #schedule(watched: Watched, more = false): void {
         if (!more) {
-            watched.checkTimer = unref(setTimeout(() => void this.#check(watched), this.#deps.checkIntervalMs));
+            watched.checkTimer = unref(
+                setTimeout(() => void this.#check(watched), Math.min(this.#deps.checkIntervalMs, MAX_TIMER_DELAY_MS))
+            );
             return;
         }
         this.#engine.whenIdle(watched.id, () => {

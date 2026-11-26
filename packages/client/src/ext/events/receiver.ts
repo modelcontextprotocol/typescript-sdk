@@ -68,7 +68,7 @@ function jsonObject(text: string): object | undefined {
     }
 }
 
-// One client's webhook endpoint (spec §6.4): verifies Standard Webhooks signatures, answers the verification challenge, and routes deliveries by `X-MCP-Subscription-Id`.
+// One client's webhook endpoint (SEP-3415 #webhook-security): verifies Standard Webhooks signatures, answers the verification challenge, and routes deliveries by `X-MCP-Subscription-Id`.
 export class WebhookReceiver {
     // Secrets of subscriptions whose id is not known yet.
     readonly #pending = new Set<{ key: Uint8Array; onBind(id: string): void }>();

@@ -33,9 +33,10 @@ export interface SubscribeOptions {
      * that cannot resume (`null`: delivery paused, or push dropped the oldest
      * queued events), delivery of such a type started again from now (`null`:
      * its push stream was reopened after it ended or went silent, or its
-     * webhook subscription was made again after refreshes failed past its
-     * grant), or a webhook loop 1 000 events behind dropped its oldest queued
-     * events while an identical subscription kept up.
+     * webhook subscription was made again after the server stopped holding it,
+     * by a `terminated` body the loop carries on from or a grant that ended
+     * before the next refresh went out), or a webhook loop 1 000 events behind
+     * dropped its oldest queued events while an identical subscription kept up.
      * An error it throws goes to the client's `onerror`, and delivery goes on.
      */
     onGap?: (cursor: string | null) => void;

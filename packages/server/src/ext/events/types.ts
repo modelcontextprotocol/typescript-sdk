@@ -202,10 +202,11 @@ export interface EventHandle {
     remove(): void;
     /**
      * Ends one subscription (`options.subscriptionId`), or every subscription of the type, with `error`. A push
-     * stream whose client has more than 1 MiB unread, or reaches that while its last messages go out, gets no
-     * `terminated` notification: it is abandoned at once and its unread bytes dropped. Its response body errors, which
-     * a runtime serving the web `Response` turns into an aborted HTTP response; under `toNodeHandler` the response
-     * ends once the client reads what its socket already holds, or closes when the client disconnects.
+     * stream gets the events emitted before it ahead of its `terminated` notification, unless the stream is being
+     * abandoned: one whose client has more than 1 MiB unread, or reaches that while its last messages go out, gets
+     * neither, as it is abandoned at once and its unread bytes dropped. Its response body errors, which a runtime
+     * serving the web `Response` turns into an aborted HTTP response; under `toNodeHandler` the response ends once
+     * the client reads what its socket already holds, or closes when the client disconnects.
      */
     terminate(error: EventsError, options?: { subscriptionId?: string }): Promise<void>;
 }
@@ -341,7 +342,7 @@ export interface EventsOptions {
     defaultNextPollMs?: number;
     /**
      * The most subscriptions this process serves at once, counting poll leases, push streams and the webhook
-     * subscriptions whose subscribe or refresh it handled or is still creating; more are refused with `resourceExhausted`
+     * subscriptions it created or is still creating (not those it only refreshes); more are refused with `resourceExhausted`
      * (`data.limit: 'subscriptions'`). With `getPrincipal` set, each principal may hold a quarter of them (at least
      * one), and so may all callers without a principal together; more are refused with
      * `data.limit: 'principalSubscriptions'`. Without `getPrincipal` only the process-wide limit applies.

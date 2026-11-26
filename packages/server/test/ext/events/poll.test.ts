@@ -5,12 +5,14 @@ import * as z from 'zod/v4';
 import type { EmitFanOut } from '../../../src/ext/events/extension';
 import type { CheckContext, EventContext, EventsOptions, PollEventsResult } from '../../../src/ext/events/index';
 import { EventsError, EventsExtension } from '../../../src/ext/events/index';
-import { leaseKey } from '../../../src/ext/events/leases';
+import type { Lease } from '../../../src/ext/events/leases';
+import { leaseKey, LeaseTable } from '../../../src/ext/events/leases';
 import type { EventsTestHook } from '../../../src/ext/events/testHook';
 import { errorOf, resultOf, serve } from './harness';
 
 const P = z.object({ n: z.number() });
 const tick = () => ({ events: [], cursor: 'h0' });
+const lease = (subscriptionId: string): Lease => ({ subscriptionId, name: 't', principal: 'alice', args: {} });
 
 function testHook(events: EventsExtension): EventsTestHook {
     return (events as unknown as Record<symbol, EventsTestHook>)[Symbol.for('mcp.events.testHook')]!;
@@ -341,7 +343,7 @@ describe('events/poll for an emit-only type', () => {
         ]);
     });
 
-    it('resolves emit() with no subscribers and serves it later (Review Focus 2)', async () => {
+    it('resolves emit() with no subscribers and serves it later', async () => {
         const events = new EventsExtension();
         const h = events.registerEvent('i', { emitOnly: true, payloadSchema: P });
         await expect(h.emit({ data: { n: 1 } })).resolves.toBeUndefined();
@@ -366,7 +368,7 @@ describe('events/poll for an emit-only type', () => {
         expect(again!.eventId).toBe(first!.eventId);
     });
 
-    it('reports a gap for a cursor from before a restart (Review Focus 5)', async () => {
+    it('reports a gap for a cursor from before a restart', async () => {
         const events = new EventsExtension();
         const h = events.registerEvent('i', { emitOnly: true, payloadSchema: P });
         const { poll, rpc } = poller(events);
@@ -642,7 +644,7 @@ describe('events/poll errors', () => {
 });
 
 describe('poll leases', () => {
-    it('keeps one lease for the same arguments in any key order (Review Focus 4)', async () => {
+    it('keeps one lease for the same arguments in any key order', async () => {
         const onSubscribe = vi.fn();
         const events = new EventsExtension();
         events.registerEvent('t', { payloadSchema: P, check: tick, onSubscribe });
@@ -775,6 +777,55 @@ describe('poll leases', () => {
         expect(args).toEqual({ a: 1 });
     });
 
+    it('expires a lease past its TTL when the leases are next read or counted, without its timer, running onUnsubscribe once', async () => {
+        vi.useFakeTimers();
+        const onSubscribe = vi.fn();
+        const onUnsubscribe = vi.fn();
+        const events = new EventsExtension({ maxSubscriptions: 1, pollSubscriptionTtlMs: 300_000 });
+        events.registerEvent('t', { payloadSchema: P, check: tick, onSubscribe, onUnsubscribe });
+        const { fail, poll } = poller(events);
+        await poll({ name: 't', arguments: { a: 1 } });
+        expect(await fail({ name: 't', arguments: { a: 2 } })).toMatchObject({ code: -32_025, data: { limit: 'subscriptions' } });
+
+        // The clock passes the TTL without running a timer, as on a runtime that drops a request's timers once it is answered.
+        vi.setSystemTime(Date.now() + 300_000);
+        await poll({ name: 't', arguments: { a: 2 } });
+        expect(onUnsubscribe).toHaveBeenCalledOnce();
+        expect(onUnsubscribe.mock.calls[0]![1]).toEqual({ a: 1 });
+        // A poll of a lease past its TTL starts a new one.
+        vi.setSystemTime(Date.now() + 300_000);
+        await poll({ name: 't', arguments: { a: 2 } });
+        expect(onUnsubscribe).toHaveBeenCalledTimes(2);
+        expect(onSubscribe).toHaveBeenCalledTimes(3);
+        // Only the live lease's timer is left to fire.
+        await vi.advanceTimersByTimeAsync(600_000);
+        expect(onUnsubscribe).toHaveBeenCalledTimes(3);
+        expect(testHook(events).state().pollLeases).toBe(0);
+    });
+
+    it.each([
+        ['touch', (table: LeaseTable) => table.touch('a', () => lease('a2'))],
+        ['get', (table: LeaseTable) => table.get('a')],
+        ['size', (table: LeaseTable) => table.size],
+        ['countOf', (table: LeaseTable) => table.countOf('alice')],
+        ['forEach', (table: LeaseTable) => table.forEach('t', () => {})]
+    ])('expires a lease past its TTL on the next %s of the table, once, without its timer', (_read, read) => {
+        vi.useFakeTimers();
+        let now = 0;
+        const onExpire = vi.fn();
+        const table = new LeaseTable(1000, onExpire, () => now);
+        table.touch('a', () => lease('a1'));
+        table.touch('b', () => lease('b1'));
+        now = 999;
+        table.touch('b', () => lease('b2'));
+        now = 1000;
+        read(table);
+        read(table);
+        expect(onExpire.mock.calls.map(([expired]) => (expired as Lease).subscriptionId)).toEqual(['a1']);
+        vi.advanceTimersByTime(1000);
+        expect(onExpire).toHaveBeenCalledOnce();
+    });
+
     it('renews a lease on every poll', async () => {
         vi.useFakeTimers();
         const onUnsubscribe = vi.fn();
@@ -858,7 +909,7 @@ describe('poll leases', () => {
         expect(await fail({ name: 't', arguments: { a: 2 } })).toMatchObject({ code: -32_024 });
     });
 
-    it('answers a schema change with -32026 even when the old arguments no longer parse (D18)', async () => {
+    it('answers a schema change with -32026 even when the old arguments no longer parse', async () => {
         const events = new EventsExtension();
         events.registerEvent('t', { inputSchema: z.object({ a: z.number() }), payloadSchema: P, check: tick });
         const { fail, poll } = poller(events);

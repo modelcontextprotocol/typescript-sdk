@@ -25,10 +25,12 @@ import type { RegisteredEvent } from './registry';
 import type { CheckContext, EventContext, EventResult } from './types';
 import type { SubscriptionValidator } from './validation';
 
-// The shortest heartbeat granted, whatever the client suggests (D33).
+// The shortest heartbeat granted, whatever the client suggests.
 const HEARTBEAT_FLOOR_MS = 5000;
 // No frame goes to the transport while the client has more than this unread; a stream that stays over it for a whole heartbeat interval is abandoned.
 const MAX_STREAM_BACKLOG_BYTES = 1_048_576;
+// setTimeout fires at once for longer delays, so a longer heartbeat grant or check interval runs early.
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
 
 // A check that throws one of these ends its subscription; any other error leaves the loop running.
 export const TERMINAL_KINDS: ReadonlySet<EventsErrorKind> = new Set(['forbidden', 'notFound', 'unsupported']);
@@ -54,6 +56,10 @@ interface PushStream {
     overSince?: number;
     // The events queued that have not been handed to the transport or dropped yet.
     waiting: number;
+    // Since when the transport has held the frame being written.
+    writingSince?: number;
+    // The stream ended by the client's cancellation or an abandon, so its queued events and heartbeats are not written.
+    dropping: boolean;
     // Ends the current wait for room, and the drain epoch the stream already waits on, so a wait that times out leaves nothing behind.
     wake?: () => void;
     epoch?: Promise<void>;
@@ -106,7 +112,7 @@ function untilDrained(stream: PushStream, flow: ResponseFlow, ms: number): Promi
             if (stream.wake === wake) stream.wake = undefined;
             resolve();
         };
-        const timer = unref(setTimeout(wake, ms));
+        const timer = unref(setTimeout(wake, Math.min(ms, MAX_TIMER_DELAY_MS)));
         stream.wake = wake;
     });
 }
@@ -300,7 +306,7 @@ export class StreamSet implements SubscriptionSource {
 
     // Ends every stream with its final result and runs onUnsubscribe, for a simulated restart.
     closeAll(): void {
-        for (const stream of this.#streams) void this.#end(stream);
+        for (const stream of this.#streams) this.#drop(stream);
     }
 
     #create(
@@ -338,13 +344,14 @@ export class StreamSet implements SubscriptionSource {
             position: null,
             queue: Promise.resolve(),
             waiting: 0,
+            dropping: false,
             skipping: false
         };
         this.#streams.add(stream);
         // The client went away: an HTTP abort or `notifications/cancelled`.
         const { signal } = ctx.mcpReq;
-        signal.addEventListener('abort', () => void this.#end(stream), { once: true });
-        if (signal.aborted) void this.#end(stream);
+        signal.addEventListener('abort', () => this.#drop(stream), { once: true });
+        if (signal.aborted) this.#drop(stream);
         return stream;
     }
 
@@ -370,7 +377,8 @@ export class StreamSet implements SubscriptionSource {
         if (!stream.live || stream.entry.kind !== 'check') return;
         void stream.queue.then(() => {
             if (!stream.live) return;
-            stream.checkTimer = unref(setTimeout(() => void this.#check(stream), now ? 0 : this.#deps.checkIntervalMs));
+            const delay = now ? 0 : Math.min(this.#deps.checkIntervalMs, MAX_TIMER_DELAY_MS);
+            stream.checkTimer = unref(setTimeout(() => void this.#check(stream), delay));
         });
     }
 
@@ -408,40 +416,62 @@ export class StreamSet implements SubscriptionSource {
     ): void {
         const { flow } = stream;
         if (event) {
-            // An emit-only stream with more live events waiting than the emit buffer holds is abandoned as a stalled one is: over HTTP once its client is also over the bound (a burst queued while it reads goes out at its pace), and at once where the transport cannot tell how far its client has read (stdio).
-            if (
-                stream.entry.kind === 'emitOnly' &&
-                stream.waiting >= this.#deps.buffer.maxEvents &&
-                (flow === undefined || flow.backlog() > MAX_STREAM_BACKLOG_BYTES)
-            ) {
+            // An emit-only stream with more live events waiting than the emit buffer holds is abandoned as a stalled one is, once its transport is not taking its frames.
+            if (stream.entry.kind === 'emitOnly' && stream.waiting >= this.#deps.buffer.maxEvents && this.#stalled(stream)) {
                 this.#dropStalled(stream);
                 return;
             }
             stream.waiting += 1;
         }
+        const queuedAfterEnd = stream.ended.signal.aborted;
         // A failed write means the client is gone.
         stream.queue = stream.queue
             .then(async () => {
                 try {
                     const resolved = await params;
                     if (resolved === undefined || !(await this.#room(stream))) return;
-                    // Once the stream has ended only its `terminated` goes out: no event, nor a heartbeat whose cursor would pass the events skipped.
-                    if (stream.ended.signal.aborted && method !== EVENTS_TERMINATED_NOTIFICATION) return;
+                    if (!this.#writesAfterEnd(stream, method, queuedAfterEnd)) return;
                     const _meta = {
                         ...(resolved._meta as Record<string, unknown> | undefined),
                         [SUBSCRIPTION_ID_META_KEY]: stream.requestId
                     };
-                    await stream.notify({ method, params: { ...resolved, _meta } });
+                    stream.writingSince = Date.now();
+                    try {
+                        await stream.notify({ method, params: { ...resolved, _meta } });
+                    } finally {
+                        stream.writingSince = undefined;
+                    }
                     if ((flow?.backlog() ?? 0) > MAX_STREAM_BACKLOG_BYTES) stream.overSince ??= Date.now();
+                    this.#armHeartbeat(stream);
                 } finally {
                     if (event) stream.waiting -= 1;
                 }
             })
-            .catch(() => void this.#end(stream));
+            .catch(() => this.#drop(stream));
+    }
+
+    // Over HTTP, the client has more than the bound unread; on a transport that cannot tell how far its client has read (stdio), the frame it holds has waited longer than the grant, so a burst queued while it keeps writing does not count.
+    #stalled(stream: PushStream): boolean {
+        const { flow, writingSince } = stream;
+        if (flow !== undefined) return flow.backlog() > MAX_STREAM_BACKLOG_BYTES;
+        return writingSince !== undefined && Date.now() - writingSince > stream.grant;
+    }
+
+    // Whether a frame still goes out once the stream has ended: `terminated` does; a heartbeat does not; an event or error queued before a server-side end (terminate(), remove(), a schema change, a terminal `check`) does, unless the end was the client's cancellation or an abandon.
+    #writesAfterEnd(stream: PushStream, method: string, queuedAfterEnd: boolean): boolean {
+        if (!stream.ended.signal.aborted || method === EVENTS_TERMINATED_NOTIFICATION) return true;
+        return method !== EVENTS_HEARTBEAT_NOTIFICATION && !queuedAfterEnd && !stream.dropping;
+    }
+
+    // A heartbeat once the stream has been quiet for its grant, timed from the last frame written, so frames that send nothing do not hold it back.
+    #armHeartbeat(stream: PushStream): void {
         if (!stream.live) return;
         clearTimeout(stream.heartbeat);
         stream.heartbeat = unref(
-            setTimeout(() => this.#write(stream, EVENTS_HEARTBEAT_NOTIFICATION, { cursor: stream.position }), stream.grant)
+            setTimeout(
+                () => this.#write(stream, EVENTS_HEARTBEAT_NOTIFICATION, { cursor: stream.position }),
+                Math.min(stream.grant, MAX_TIMER_DELAY_MS)
+            )
         );
     }
 
@@ -465,18 +495,27 @@ export class StreamSet implements SubscriptionSource {
 
     // A client that stopped reading: the subscription ends, and over HTTP the response body errors, which drops its unread bytes; on stdio its final result follows what the transport already holds. Either way the SDK's client reconnects from its cursor.
     #dropStalled(stream: PushStream): void {
-        void this.#end(stream);
+        this.#drop(stream);
         stream.flow?.abort();
     }
 
-    // Ends a stream once. A live one sends `terminated` for an error and resolves once onUnsubscribe ran, and `open` returns once that and the frames already handed to the transport are written; one not yet live is only marked, for `open` to act on; one whose client is over the bound, now or as its last frames go out (#room), is abandoned at once instead of waiting for room.
+    // The client cancelled, went away or is abandoned: the stream ends, and none of its queued events or heartbeats is written.
+    #drop(stream: PushStream): void {
+        stream.dropping = true;
+        void this.#end(stream);
+    }
+
+    // Ends a stream once. A live one sends `terminated` for an error after the frames queued before it and resolves once onUnsubscribe ran, and `open` returns once those frames are written; one not yet live is only marked, for `open` to act on; one whose client is over the bound, now or as its last frames go out (#room), is abandoned at once instead of waiting for room.
     #end(stream: PushStream, error?: EventsError): Promise<void> {
         if (!this.#streams.delete(stream)) return Promise.resolve();
         stream.ended.abort();
         clearTimeout(stream.heartbeat);
         clearTimeout(stream.checkTimer);
         const { flow } = stream;
-        if (flow !== undefined && flow.backlog() > MAX_STREAM_BACKLOG_BYTES) flow.abort();
+        if (flow !== undefined && flow.backlog() > MAX_STREAM_BACKLOG_BYTES) {
+            stream.dropping = true;
+            flow.abort();
+        }
         // A frame waiting for room checks it again now, so the last frames go out without waiting for the deadline.
         stream.wake?.();
         if (!stream.live) {

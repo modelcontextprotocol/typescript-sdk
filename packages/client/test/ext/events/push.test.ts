@@ -467,6 +467,17 @@ describe('push delivery', () => {
         expect(last().call.params['cursor']).toBe('c1');
     });
 
+    it('waits at most the longest timer for a grant beyond it before treating the stream as dead', async () => {
+        const { streams, subscribe } = await pushWith();
+        await subscribe({}, s => s.active({ cursor: 'c1', heartbeatMs: 2 ** 32 }));
+
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(streams()).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(2_147_483_647 - 1000);
+        await vi.advanceTimersByTimeAsync(500);
+        expect(streams()).toHaveLength(2);
+    });
+
     it('counts the silence from the last message, with the grant of the last active', async () => {
         const { last, streams, subscribe } = await pushWith();
         await subscribe({}, s => s.active({ cursor: 'c1', heartbeatMs: 5000 }));

@@ -165,7 +165,7 @@ class SharedWebhook {
     }
 }
 
-// Webhook delivery (spec §6.3): `events/subscribe` with its own secret, sent again once ¾ of each grant has passed (never sooner than the floor); the receiver routes the server's POSTs here.
+// Webhook delivery (SEP-3415 #webhook-based-delivery): `events/subscribe` with its own secret, sent again once ¾ of each grant has passed (never sooner than the floor); the receiver routes the server's POSTs here.
 class WebhookDriver implements Driver {
     readonly #context: DriverContext<unknown>;
     readonly #loop: DriverLoop<unknown>;
@@ -180,13 +180,13 @@ class WebhookDriver implements Driver {
     // The server holds the subscription: a subscribe succeeded, and no `terminated` body, terminal failure or close came after it.
     #live = false;
     #withdrawPending: (() => void) | undefined;
-    // A `terminated` body routed here since the last subscribe went out.
+    // A `terminated` body routed here and not yet acted on.
     #terminated: ProtocolError | undefined;
     // Retry delays taken since the last successful subscribe.
     #attempt = 0;
-    // When the last grant ends (`undefined` for none, or a `null` one), and whether a subscribe failed since it was given.
+    // When the last grant ends (`undefined` for none, or a `null` one), and whether a `terminated` body ended the subscription since it was given.
     #grantEnds: number | undefined;
-    #subscribeFailed = false;
+    #serverEnded = false;
     // Refused events of a type without replay have been reported as a gap since a loop last took half its queue.
     #refusing = false;
 
@@ -261,10 +261,18 @@ class WebhookDriver implements Driver {
         const loop = this.#loop;
         try {
             while (!loop.ended) {
-                const error = await this.#subscribeAndRefresh();
-                if (loop.ended) return;
-                await loop.recover(error);
-                await loop.sleep(retryAfterOf(error) ?? jitteredDelay(this.#attempt++));
+                let error = await this.#subscribeAndRefresh();
+                while (!loop.ended) {
+                    await loop.recover(error);
+                    let terminated = this.#takeTerminated();
+                    if (terminated === undefined) {
+                        await loop.sleep(retryAfterOf(error) ?? jitteredDelay(this.#attempt++));
+                        terminated = this.#takeTerminated();
+                    }
+                    if (terminated === undefined) break;
+                    // A `terminated` body that came while a failure was recovered or waited for its retry is recovered from as one at any other time is.
+                    error = terminated;
+                }
             }
         } catch (error) {
             // Left to lapse: an identical subscribe after this end opens a new driver on the same server subscription.
@@ -283,27 +291,36 @@ class WebhookDriver implements Driver {
             try {
                 result = await this.#subscribe();
             } catch (error) {
-                this.#subscribeFailed = true;
                 return error;
             }
             if (loop.ended) break;
             const expiresAt = result.refreshBefore === null ? undefined : Date.parse(result.refreshBefore);
             if (Number.isNaN(expiresAt)) return new SdkError(SdkErrorCode.InvalidResult, `Invalid refreshBefore: ${result.refreshBefore}`);
-            // Refreshes failed until the grant ended, so the server's subscription lapsed: a type without replay starts again from now.
-            if (this.#subscribeFailed && this.#grantEnds !== undefined && sentAt >= this.#grantEnds) loop.lapsed();
-            this.#subscribeFailed = false;
-            this.#grantEnds = expiresAt;
+            // The server stopped holding the subscription before this subscribe (a `terminated` body, or a grant that ended before it went out): a type without replay starts again from now, unless a refused-event episode already reported that.
+            const lapsed = this.#serverEnded || (this.#grantEnds !== undefined && sentAt >= this.#grantEnds);
+            if (lapsed && !this.#refusing) loop.lapsed();
+            this.#serverEnded = false;
+            // A grant already over by this clock when it arrived says nothing about a lapse (a clock ahead of the server's).
+            this.#grantEnds = expiresAt !== undefined && expiresAt > Date.now() ? expiresAt : undefined;
             this.#accept(result);
             if (this.#terminated === undefined) {
                 // A `null` grant (no expiry, which this client never asks for) is refreshed after the longest timer.
                 await loop.sleep(expiresAt === undefined ? MAX_TIMER_DELAY_MS : this.#refreshDelay(expiresAt - Date.now()));
             }
-            if (this.#terminated !== undefined) {
-                this.#live = false;
-                return this.#terminated;
-            }
+            const terminated = this.#takeTerminated();
+            if (terminated !== undefined) return terminated;
         }
         return undefined;
+    }
+
+    // The `terminated` body routed here, taken once: the server no longer holds the subscription.
+    #takeTerminated(): ProtocolError | undefined {
+        const terminated = this.#terminated;
+        if (terminated === undefined) return undefined;
+        this.#terminated = undefined;
+        this.#live = false;
+        this.#serverEnded = true;
+        return terminated;
     }
 
     // ¾ of the grant left, never sooner than the floor (so a skewed clock cannot refresh back to back), unless the floor would reach the grant's end.
@@ -322,7 +339,6 @@ class WebhookDriver implements Driver {
             cursor: loop.cursor,
             ...(maxAgeMs !== undefined && { maxAgeMs })
         };
-        this.#terminated = undefined;
         return this.#context.connection.request(EVENTS_SUBSCRIBE_METHOD, params, SubscribeEventsResultSchema, this.#mirror, {
             signal: loop.signal
         });

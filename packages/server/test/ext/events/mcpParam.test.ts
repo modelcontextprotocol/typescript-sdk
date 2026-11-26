@@ -53,7 +53,7 @@ describe('Mcp-Param headers on events requests', () => {
         expect(((await res.json()) as Reply).result).toMatchObject({ events: [], cursor: 'h1' });
     });
 
-    it('accepts a non-ASCII value in the base64 sentinel (Review Focus 4)', async () => {
+    it('accepts a non-ASCII value in the base64 sentinel', async () => {
         const { post } = served();
         const header = encodeMcpParamValue('zürich');
         expect(header).toMatch(/^=\?base64\?.+\?=$/);

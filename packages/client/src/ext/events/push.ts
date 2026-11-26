@@ -54,7 +54,7 @@ function withoutStreamId(event: EventOccurrence): EventOccurrence {
     return Object.keys(rest).length === 0 ? occurrence : { ...occurrence, _meta: rest };
 }
 
-// Push delivery (spec §6.3): one `events/stream` at a time, reopened from the last cursor after a jittered delay whenever it ends, or once the loop has taken half of a full queue after the driver closed it.
+// Push delivery (SEP-3415 #push-based-delivery): one `events/stream` at a time, reopened from the last cursor after a jittered delay whenever it ends, or once the loop has taken half of a full queue after the driver closed it.
 export class PushDriver<T> implements Driver {
     readonly #context: DriverContext<T>;
     readonly #loop: DriverLoop<T>;
@@ -121,7 +121,7 @@ export class PushDriver<T> implements Driver {
         }
     }
 
-    // After a stream ended with `error` (spec §6.3): throws when that ends the subscription, otherwise readies the reopen.
+    // After a stream ended with `error`: throws when that ends the subscription, otherwise readies the reopen.
     async #recover(error: unknown): Promise<void> {
         // An `events/stream` is not sent through `request()`, so its first -32020 since the last `active` re-lists here.
         if (isHeaderMismatch(error) && !this.#mismatched) {

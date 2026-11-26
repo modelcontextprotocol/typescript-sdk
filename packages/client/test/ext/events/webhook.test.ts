@@ -526,6 +526,85 @@ describe('webhook delivery', () => {
         expect(onGap).toHaveBeenCalledOnce();
     });
 
+    it('ends the loop with a terminated body that arrives while a failed refresh waits for its retry, and subscribes no more', async () => {
+        const internal = new RpcError(-32_603, 'Internal error');
+        const { post, subscribes, subscribe } = await webhookWith(granting({}, internal, {}));
+        const sub = await subscribe();
+        const pending = sub[Symbol.asyncIterator]()
+            .next()
+            .catch((error_: unknown) => error_);
+
+        // The refresh at 45 s fails; its retry waits 500 ms, during which the server revokes the subscription.
+        await vi.advanceTimersByTimeAsync(45_000);
+        expect(subscribes()).toHaveLength(2);
+        expect(await post({ type: 'terminated', error: { code: -32_024, message: 'Forbidden', data: { reason: 'Access revoked' } } })).toBe(
+            200
+        );
+        const error = await pending;
+        expect(error).toBeInstanceOf(EventsError);
+        expect(error).toMatchObject({ kind: 'forbidden', data: { reason: 'Access revoked' } });
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(subscribes()).toHaveLength(2);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it.each([
+        ['without replay', null, [[null]]],
+        ['with a cursor', 'c1', []]
+    ])(
+        'reports onGap(null) once for a type %s when it is subscribed again after a terminated notFound while still listed',
+        async (_kind, cursor, gaps) => {
+            const onGap = vi.fn();
+            const { post, subscribes, subscribe } = await webhookWith(granting({ cursor }, { cursor }));
+            await subscribe({ onGap });
+            expect(await post({ type: 'terminated', error: { code: -32_023, message: 'Not found', data: { kind: 'subscription' } } })).toBe(
+                200
+            );
+            await vi.advanceTimersByTimeAsync(500);
+            await settle();
+            expect(subscribes()).toHaveLength(2);
+            expect(onGap.mock.calls).toEqual(gaps);
+        }
+    );
+
+    it('reports onGap(null) once for a type without replay whose refresh goes out after its grant ended, with no failed attempt', async () => {
+        const onGap = vi.fn();
+        const { subscribes, subscribe } = await webhookWith(granting({}, {}, {}));
+        await subscribe({ onGap });
+
+        // The process is suspended from 44 s to 64 s, past the 60 s grant: the refresh due at 45 s goes out at 65 s.
+        await vi.advanceTimersByTimeAsync(44_000);
+        vi.setSystemTime(Date.now() + 20_000);
+        await vi.advanceTimersByTimeAsync(1000);
+        await settle();
+        expect(subscribes()).toHaveLength(2);
+        expect(onGap).toHaveBeenCalledExactlyOnceWith(null);
+
+        // The next refresh goes out within its grant.
+        await vi.advanceTimersByTimeAsync(45_000);
+        await settle();
+        expect(subscribes()).toHaveLength(3);
+        expect(onGap).toHaveBeenCalledOnce();
+    });
+
+    it('reports no second onGap(null) for a lapse during an episode of 503s to a type without replay, which already reported it', async () => {
+        const onGap = vi.fn();
+        const { post, subscribes, subscribe } = await webhookWith(granting({}, {}));
+        await subscribe({ onGap });
+        let n = 0;
+        for (let count = 0; count < 1000; count++) expect(await post({ ...occurrence(`e${++n}`), cursor: null })).toBe(200);
+        expect(await post({ ...occurrence(`e${++n}`), cursor: null })).toBe(503);
+        expect(onGap).toHaveBeenCalledExactlyOnceWith(null);
+
+        expect(await post({ type: 'terminated', error: { code: -32_023, message: 'Not found', data: { kind: 'subscription' } } })).toBe(
+            200
+        );
+        await vi.advanceTimersByTimeAsync(500);
+        await settle();
+        expect(subscribes()).toHaveLength(2);
+        expect(onGap).toHaveBeenCalledOnce();
+    }, 30_000);
+
     it('reports no gap when a type with a cursor is subscribed again after refreshes failed past its grant', async () => {
         const internal = new RpcError(-32_603, 'Internal error');
         const onGap = vi.fn();

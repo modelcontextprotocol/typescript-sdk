@@ -6,7 +6,7 @@ import type { Driver, DriverContext } from './subscription';
 
 const MAX_RETRY_DELAY_MS = 60_000;
 
-// Poll delivery (spec §6.3): one `events/poll` loop, again at once on a `hasMore` page that made progress, otherwise after `nextPollMs` (the floor on `hasMore` without progress) but never sooner than the floor; no poll goes out while the queue is full.
+// Poll delivery (SEP-3415 #poll-based-delivery): one `events/poll` loop, again at once on a `hasMore` page that made progress, otherwise after `nextPollMs` (the floor on `hasMore` without progress) but never sooner than the floor; no poll goes out while the queue is full.
 export class PollDriver<T> implements Driver {
     readonly #context: DriverContext<T>;
     readonly #loop: DriverLoop<T>;

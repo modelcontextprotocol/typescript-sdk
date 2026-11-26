@@ -74,7 +74,7 @@ interface Control {
     readonly record: WebhookSubscriptionRecord;
     readonly webhookId: string;
     // The body of each attempt.
-    readonly body: () => WebhookControlBody;
+    body: () => WebhookControlBody;
     // A gap body: no attempt starts while one of the subscription's event POSTs is in flight.
     readonly idleOnly: boolean;
     // Aborts its send in flight once it is stopped.
@@ -953,7 +953,7 @@ export class WebhookEngine {
         });
     }
 
-    // One attempt of a control body, once it may go; it is signed with the record it was queued with, and a body over the limit is not sent.
+    // One attempt of a control body, once it may go; it is signed with the record it was queued with, and a body over the limit, or one JSON cannot carry, is not sent.
     #sendControl(control: Control): void {
         const { record } = control;
         const tracked = control.idleOnly ? this.#tracked.get(record.id) : undefined;
@@ -964,7 +964,11 @@ export class WebhookEngine {
             return;
         }
         const body = control.body();
-        const text = JSON.stringify(body);
+        const text = this.#serialised(control, body);
+        if (text === undefined) {
+            this.#endControl(control);
+            return;
+        }
         if (byteLength(text) > MAX_BODY_BYTES) {
             this.#onerror(new Error(`webhook subscription ${record.id}: did not send a ${body.type} body over ${MAX_BODY_BYTES} bytes`));
             this.#endControl(control);
@@ -984,6 +988,31 @@ export class WebhookEngine {
                 this.#retryControl(control);
             }
         );
+    }
+
+    // The body's JSON, reported once when JSON cannot carry it (a BigInt or a cycle in an error's `data`): a `terminated` body then goes, and goes again, without its `data`, and any other is not sent.
+    #serialised(control: Control, body: WebhookControlBody): string | undefined {
+        try {
+            return JSON.stringify(body);
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            const id = control.record.id;
+            if (body.type !== 'terminated') {
+                this.#onerror(
+                    new Error(`webhook subscription ${id}: did not send a ${body.type} body that cannot be serialised to JSON: ${reason}`)
+                );
+                return undefined;
+            }
+            this.#onerror(
+                new Error(
+                    `webhook subscription ${id}: sent its terminated body without error data that cannot be serialised to JSON: ${reason}`
+                )
+            );
+            const { code, message } = body.error;
+            const stripped: WebhookControlBody = { type: 'terminated', error: { code, message } };
+            control.body = () => stripped;
+            return JSON.stringify(stripped);
+        }
     }
 
     #retryControl(control: Control): void {

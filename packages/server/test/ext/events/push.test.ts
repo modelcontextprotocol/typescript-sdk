@@ -199,6 +199,18 @@ describe('events/stream: opening', () => {
 });
 
 describe('events/stream: a check type', () => {
+    it('keeps a heartbeatMs and checkIntervalMs beyond the longest timer from firing every millisecond', async () => {
+        const check = vi.fn(() => ({ events: [], cursor: 'h0' }));
+        const events = new EventsExtension({ heartbeatMs: 2 ** 32, checkIntervalMs: 2 ** 32 });
+        events.registerEvent('tick', { payloadSchema: P, check });
+        const stream = await open(serve(events), { name: 'tick', cursor: null });
+        const streamed = await rawFor(stream.response, 100);
+        expect(streamed).toContain(ACTIVE);
+        expect(streamed).toContain(`"heartbeatMs":${2 ** 32}`);
+        expect(streamed).not.toContain(HEARTBEAT);
+        expect(check).toHaveBeenCalledOnce();
+    });
+
     it('sends a heartbeat with the checked cursor after a silent grant', async () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
         const check = vi.fn<Check>().mockReturnValueOnce({ events: [], cursor: 'h0' }).mockReturnValue({ events: [], cursor: 'h1' });
@@ -443,7 +455,7 @@ describe('events/stream: a check type', () => {
         expect(check).toHaveBeenCalledTimes(2);
     });
 
-    it('stops everything when the client vanishes (Review Focus 1)', async () => {
+    it('stops everything when the client vanishes', async () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
         const check = vi.fn<Check>(() => ({ events: [], cursor: 'h0' }));
         const onSubscribe = vi.fn();
@@ -592,6 +604,29 @@ describe('events/stream: an emit-only type', () => {
         const frame = await heartbeat;
         expect(frame).toMatchObject({ method: HEARTBEAT });
         expect(paramsOf(frame).cursor).not.toBe(head);
+    });
+
+    it('keeps the heartbeat at the grant while a transform whose output fails payloadSchema drops every event', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const events = new EventsExtension({ onerror: () => {} });
+        const handle = events.registerEvent('i', {
+            emitOnly: true,
+            payloadSchema: P,
+            transform: (_ctx, event) => ({ ...event, data: { n: 'x' } as unknown as { n: number } })
+        });
+        const stream = await open(serve(events), { name: 'i', cursor: null, heartbeatMs: 5000 });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE });
+
+        const methods: string[] = [];
+        void (async () => {
+            for await (const frame of stream.frames) if ('method' in frame) methods.push(frame.method);
+        })().catch(() => {});
+        // An event a second for 10 s, each dropped: the heartbeats still come every 5 s.
+        for (let second = 1; second <= 10; second++) {
+            await handle.emit({ data: { n: second } });
+            await vi.advanceTimersByTimeAsync(1000);
+        }
+        expect(methods).toEqual([HEARTBEAT, HEARTBEAT]);
     });
 
     it('does not terminate on update()', async () => {
@@ -923,7 +958,7 @@ describe('events/stream: a client that stops reading', () => {
         await expect(rest(stream)).rejects.toThrow();
     });
 
-    it('terminates at once a stream whose client is just under the bound with frames still queued, skipping the queued events and sending terminated', async () => {
+    it('terminates at once a stream whose client is just under the bound with frames still queued, abandoning it as the last ones put it over', async () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
         const events = new EventsExtension();
         const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: BIG });
@@ -938,15 +973,24 @@ describe('events/stream: a client that stops reading', () => {
         await vi.advanceTimersByTimeAsync(10);
         expect(ended).toBe(true);
         expect(testHook(events).state().pushStreams).toBe(0);
-        // What the response already held, in order, then `terminated` and the final result; the events still queued are not sent.
+        // The queued events go out ahead of `terminated` until they put the client over the bound, which abandons the stream.
+        await expect(rest(stream)).rejects.toThrow();
+    });
+
+    it('delivers the events emitted just before terminate() ahead of terminated to a client that reads', async () => {
+        const events = new EventsExtension();
+        const handle = events.registerEvent('n', { emitOnly: true, payloadSchema: P });
+        const stream = await open(serve(events), { name: 'n', cursor: null });
+        expect(await next(stream)).toMatchObject({ method: ACTIVE });
+
+        await Promise.all(Array.from({ length: 5 }, (_, n) => handle.emit({ eventId: `e${n}`, data: { n } })));
+        await handle.terminate(new EventsError('forbidden', 'Forbidden'));
         const frames = await rest(stream);
+        expect(frames.slice(0, -2).map(frame => paramsOf(frame)['eventId'])).toEqual(['e0', 'e1', 'e2', 'e3', 'e4']);
         expect(frames.slice(-2)).toEqual([
             notification(TERMINATED, stream.id, { error: { code: -32_024, message: 'Forbidden' } }),
             finalResult(stream.id)
         ]);
-        const sent = frames.slice(0, -2).map(frame => paramsOf(frame)['eventId']);
-        expect(sent).toEqual(Array.from({ length: sent.length }, (_, n) => `e${n + 4}`));
-        expect(sent.length).toBeLessThan(26);
     });
 
     it('counts only live events against the cap, so a client that falls fewer than maxEvents behind after a full replay stays', async () => {
@@ -1078,20 +1122,26 @@ describe('events/stream: on stdio, whose transport cannot tell how far its clien
         };
     }
 
-    it('ends an emit-only stream once emitBuffer.maxEvents live events wait for stdout, and writes its final result once stdout drains', async () => {
+    it('ends an emit-only stream once emitBuffer.maxEvents live events wait and stdout has held its frame longer than the grant, and writes its final result once stdout drains', async () => {
+        // The clock moves past the grant without running timers, so no heartbeat comes due.
+        let skew = 0;
+        const now = Date.now.bind(Date);
+        vi.spyOn(Date, 'now').mockImplementation(() => now() + skew);
         const onUnsubscribe = vi.fn();
         const events = new EventsExtension({ emitBuffer: { maxEvents: 100 } });
         const handle = events.registerEvent('i', { emitOnly: true, payloadSchema: P, onUnsubscribe });
         const stdio = await stdioStream(events);
         stdio.block();
-        for (let n = 0; n < 100; n++) await handle.emit({ eventId: `e${n}`, data: { n } });
+        // Within the 30 s grant, stdout still counts as writing however many wait.
+        for (let n = 0; n < 150; n++) await handle.emit({ eventId: `e${n}`, data: { n } });
         expect(testHook(events).state().pushStreams).toBe(1);
 
-        // The next live event finds 100 waiting: the subscription ends, and no later emit is queued for it.
-        await handle.emit({ eventId: 'e100', data: { n: 100 } });
+        // Past the grant, the next live event finds stdout stalled with 150 waiting: the subscription ends, and no later emit is queued for it.
+        skew = 30_001;
+        await handle.emit({ eventId: 'e150', data: { n: 150 } });
         expect(testHook(events).state().pushStreams).toBe(0);
         await vi.waitFor(() => expect(onUnsubscribe).toHaveBeenCalledOnce());
-        for (let n = 101; n < 1000; n++) await handle.emit({ eventId: `e${n}`, data: { n } });
+        for (let n = 151; n < 1000; n++) await handle.emit({ eventId: `e${n}`, data: { n } });
         expect(testHook(events).state().emitBuffer).toEqual({ i: 100 });
 
         // Once the client reads again, the frame stdout held goes out, the queued events do not, and the final result tells it the stream ended.
@@ -1101,7 +1151,20 @@ describe('events/stream: on stdio, whose transport cannot tell how far its clien
         expect(onUnsubscribe).toHaveBeenCalledOnce();
     });
 
-    it('resolves terminate() once the stream has ended and onUnsubscribe ran, while stdout takes no frames, and then writes terminated and no queued event', async () => {
+    it('delivers a burst of twice emitBuffer.maxEvents emits started in one turn in full, while stdout keeps writing', async () => {
+        const onUnsubscribe = vi.fn();
+        const events = new EventsExtension({ emitBuffer: { maxEvents: 100 } });
+        const handle = events.registerEvent('i', { emitOnly: true, payloadSchema: P, onUnsubscribe });
+        const stdio = await stdioStream(events);
+
+        await Promise.all(Array.from({ length: 200 }, (_, n) => handle.emit({ eventId: `e${n}`, data: { n } })));
+        await vi.waitFor(() => expect(stdio.written()).toHaveLength(200));
+        expect(stdio.written()).toEqual(Array.from({ length: 200 }, (_, n) => `e${n}`));
+        expect(testHook(events).state().pushStreams).toBe(1);
+        expect(onUnsubscribe).not.toHaveBeenCalled();
+    });
+
+    it('resolves terminate() once the stream has ended and onUnsubscribe ran, while stdout takes no frames, and then writes the queued events and terminated', async () => {
         const onUnsubscribe = vi.fn();
         const events = new EventsExtension();
         const handle = events.registerEvent('i', { emitOnly: true, payloadSchema: P, onUnsubscribe });
@@ -1115,10 +1178,11 @@ describe('events/stream: on stdio, whose transport cannot tell how far its clien
         expect(onUnsubscribe).toHaveBeenCalledOnce();
         expect(testHook(events).state().pushStreams).toBe(0);
 
+        // The events emitted before terminate() go out ahead of `terminated`.
         stdio.release();
         await vi.waitFor(() => expect(stdio.frames.at(-1)).toEqual(finalResult(1)));
-        expect(stdio.frames.slice(1)).toEqual([
-            expect.objectContaining({ method: EVENT, params: expect.objectContaining({ eventId: 'e0' }) }),
+        expect(stdio.written()).toEqual(Array.from({ length: 20 }, (_, n) => `e${n}`));
+        expect(stdio.frames.slice(-2)).toEqual([
             notification(TERMINATED, 1, { error: { code: -32_024, message: 'Forbidden' } }),
             finalResult(1)
         ]);
@@ -1145,7 +1209,7 @@ describe('events/stream: on stdio, whose transport cannot tell how far its clien
 });
 
 describe('events/stream: response modes', () => {
-    it("streams under responseMode: 'json' (Decision 11)", async () => {
+    it("streams under responseMode: 'json'", async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const events = new EventsExtension();
         events.registerEvent('tick', { payloadSchema: P, check: () => ({ events: [], cursor: 'h0' }) });

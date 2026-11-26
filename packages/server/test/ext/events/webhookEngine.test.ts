@@ -436,7 +436,7 @@ describe('endpoint verification', () => {
         await expect(engine.verify('u', HOOK_URL, SECRET, ID)).rejects.toMatchObject({ data: { reason: 'challenge_failed' } });
     });
 
-    it('verifies a trusted origin too, and reads the live trusted set (D24, F5)', async () => {
+    it('verifies a trusted origin too, and reads the live trusted set', async () => {
         const trustedOrigins = new Set(['http://127.0.0.1:9000']);
         const { engine, record, requests, until } = setup(echo, trustedOrigins);
         await engine.verify('u', 'http://127.0.0.1:9000/hook', SECRET, ID);
@@ -869,7 +869,7 @@ describe('event delivery', () => {
         expect(remove).not.toHaveBeenCalled();
     });
 
-    it('records a hanging receiver as timeout and retries (Review Focus 3)', async () => {
+    it('records a hanging receiver as timeout and retries', async () => {
         // Like a sender whose request timer fires: no answer for 5 s, then `timeout`.
         let hang = true;
         const { engine, record, requests, until } = setup(() =>
