@@ -28,14 +28,16 @@ const SUSPENSION_MIN_ATTEMPTS = 100;
 const SUSPENSION_FAILURE_PERCENT = 95;
 // A failed verification of a (principal, url) is answered again for this long without a POST.
 const FAILED_VERIFICATION_MS = 60_000;
-// Verification POSTs to one destination host: one at a time, and at most 10 in any 60 s; at most 10 more wait their turn. One principal holds at most 3 of these at once, sending or waiting, and gets no more there once 3 of its verifications to the host failed in the window, until it moves.
+// Verification POSTs to one destination host: one at a time, and at most 10 in any 60 s; at most 10 more wait their turn. One principal gets no more there once 3 of its verifications to the host failed in the window, until it moves.
 const VERIFICATIONS_PER_WINDOW = 10;
-const PRINCIPAL_VERIFICATIONS_AT_ONCE = 3;
 const PRINCIPAL_FAILURES_PER_WINDOW = 3;
+// Across every host, as many hostnames reach one destination: one principal holds at most 3 verifications at once, sending or waiting, and gets no more once 10 of its verifications failed in the window.
+const PRINCIPAL_VERIFICATIONS_AT_ONCE = 3;
+const PRINCIPAL_FAILURES_ANYWHERE = 10;
 const VERIFICATION_WINDOW_MS = 60_000;
-// The retry hint when the host's wait is full or the principal holds its three places there: nodeWebhookSender's 5 s timeout, by when the verification in flight has ended.
+// The retry hint when the host's wait is full or the principal holds its three places: nodeWebhookSender's 5 s timeout, by when a verification in flight has ended.
 const QUEUE_FULL_RETRY_MS = 5000;
-// The most failed pairs, destination hosts and principals' failures at a host the verification limits remember.
+// The most failed pairs, destination hosts, principals' failures at a host and principals' failures anywhere the verification limits remember.
 const MAX_REMEMBERED = 10_000;
 // setTimeout fires at once for longer delays; a longer grant re-arms when the timer fires early.
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
@@ -160,6 +162,11 @@ function since(times: number[], start: number): number[] {
     return times;
 }
 
+// How long until fewer than `limit` of `times` (oldest first, all after `start`) are in the window; `undefined` while fewer are.
+function untilBelow(times: number[], limit: number, start: number): number | undefined {
+    return times.length >= limit ? times[times.length - limit]! - start : undefined;
+}
+
 // The key of one principal's verifications to the lower-cased destination hostname of `url`.
 function hostKeyOf(principal: string, url: string): string {
     return `${principal}\u0000${new URL(url).hostname.toLowerCase()}`;
@@ -177,6 +184,14 @@ function remember<V>(map: Map<string, V>, key: string, value: V, stale: (held: V
         if (map.size >= MAX_REMEMBERED) map.delete(map.keys().next().value!);
     }
     map.set(key, value);
+}
+
+// Records a failed verification at `now` under `key`, keeping only the window's.
+function noteFailure(failures: Map<string, number[]>, key: string, now: number): void {
+    const start = now - VERIFICATION_WINDOW_MS;
+    const times = since(failures.get(key) ?? [], start);
+    times.push(now);
+    remember(failures, key, times, held => (held.at(-1) ?? start) <= start);
 }
 
 // Retry timers never keep the process alive on their own.
@@ -243,7 +258,7 @@ function untilAborted<T>(promise: Promise<T>, signal: AbortSignal | undefined): 
 }
 
 function verificationLimit(retryAfterMs: number): EventsError {
-    return new EventsError('resourceExhausted', 'Too many webhook endpoint verifications for this host', {
+    return new EventsError('resourceExhausted', 'Too many webhook endpoint verifications', {
         limit: 'verification',
         retryAfterMs
     });
@@ -270,6 +285,9 @@ export class WebhookEngine {
     readonly #hosts = new Map<string, HostVerifications>();
     // By `principal\0hostname`: when the principal's verifications to the host failed in the last window, oldest first.
     readonly #hostFailures = new Map<string, number[]>();
+    // By principal, across hosts: how many of its verifications wait for a host or are being sent (none is no entry), and when its verifications failed in the last window, oldest first.
+    readonly #principalHeld = new Map<string, number>();
+    readonly #principalFailures = new Map<string, number[]>();
     // Aborts verification sends in flight on clear(); made at first use, as Cloudflare Workers refuse it at module scope.
     #lifetime: AbortController | undefined;
     // When this engine started, or clear() started it again as a restart would; a reading of 0 waits for the first use, as deployed Cloudflare Workers read 0 from the clock at module scope.
@@ -290,9 +308,21 @@ export class WebhookEngine {
         return this.#tracked.size;
     }
 
-    // The failed pairs, destination hosts and principals' failures at a host the verification limits hold.
-    get remembered(): { readonly failed: number; readonly hosts: number; readonly hostFailures: number } {
-        return { failed: this.#failed.size, hosts: this.#hosts.size, hostFailures: this.#hostFailures.size };
+    // The failed pairs, destination hosts, principals' failures at a host, principals with verifications under way and principals' failures anywhere the verification limits hold.
+    get remembered(): {
+        readonly failed: number;
+        readonly hosts: number;
+        readonly hostFailures: number;
+        readonly principalsHeld: number;
+        readonly principalFailures: number;
+    } {
+        return {
+            failed: this.#failed.size,
+            hosts: this.#hosts.size,
+            hostFailures: this.#hostFailures.size,
+            principalsHeld: this.#principalHeld.size,
+            principalFailures: this.#principalFailures.size
+        };
     }
 
     // The per-minute counts the suspension windows hold, across subscriptions: at most SUSPENSION_WINDOW_MINUTES each.
@@ -302,7 +332,7 @@ export class WebhookEngine {
         return minutes;
     }
 
-    // One attempt, which the subscribe call waits for, after the host's verification in flight; throws `callbackEndpointError` with the failure category as `data.reason`, or `resourceExhausted` at the host's limit or once the principal's verifications to the host failed too often.
+    // One attempt, which the subscribe call waits for, after the host's verification in flight; throws `callbackEndpointError` with the failure category as `data.reason`, or `resourceExhausted` at the host's limit, when the principal holds its places, or once its verifications failed too often at the host or anywhere.
     async verify(principal: string, url: string, secret: string, subscriptionId: string, signal?: AbortSignal): Promise<void> {
         this.#use();
         const key = `${principal}\u0000${url}`;
@@ -456,6 +486,8 @@ export class WebhookEngine {
             for (const waiter of host.waiting.splice(0)) waiter.reject(verificationLimit(QUEUE_FULL_RETRY_MS));
         this.#hosts.clear();
         this.#hostFailures.clear();
+        this.#principalHeld.clear();
+        this.#principalFailures.clear();
         this.#lifetime?.abort();
         this.#lifetime = undefined;
         this.#startedAt = this.#now() || undefined;
@@ -493,7 +525,7 @@ export class WebhookEngine {
         }
     }
 
-    // One verification POST, unless a failure of the pair is still remembered, the host, the principal's places at it or its failures there are at their limit, or every subscribe waiting for it was cancelled while it queued.
+    // One verification POST, unless a failure of the pair is still remembered, the host, the principal's places (at any hosts) or its failures (at the host or anywhere) are at their limit, or every subscribe waiting for it was cancelled while it queued.
     async #handshake(
         principal: string,
         key: string,
@@ -521,57 +553,70 @@ export class WebhookEngine {
             if (!signal.aborted) {
                 const now = this.#now();
                 remember(this.#failed, key, { reason, until: now + FAILED_VERIFICATION_MS }, held => held.until <= this.#now());
-                const start = now - VERIFICATION_WINDOW_MS;
-                const failures = since(this.#hostFailures.get(hostKey) ?? [], start);
-                failures.push(now);
-                remember(this.#hostFailures, hostKey, failures, held => (held.at(-1) ?? start) <= start);
+                noteFailure(this.#hostFailures, hostKey, now);
+                noteFailure(this.#principalFailures, principal, now);
             }
             throw verificationError(reason);
         } finally {
             this.#releaseHost(host);
+            this.#hold(principal, -1);
         }
     }
 
-    // Waits for the host's one verification slot, leaving the queue when `abandoned` aborts, then counts the POST; throws `resourceExhausted` with a retry hint when the wait or the window is full, the principal already holds its share of the host's places, or its verifications to the host failed too often.
+    // Waits for the host's one verification slot, leaving the queue when `abandoned` aborts, then counts the POST; throws `resourceExhausted` with a retry hint when the wait or the window is full, the principal already holds its places (at any hosts), or its verifications failed too often at the host or anywhere. The place it takes is held until the slot is released.
     async #claimHost(principal: string, hostKey: string, url: string, abandoned: AbortSignal): Promise<HostVerifications> {
         const name = new URL(url).hostname.toLowerCase();
         const host = this.#hosts.get(name) ?? { holder: undefined, waiting: [], sent: [] };
         const windowStart = this.#now() - VERIFICATION_WINDOW_MS;
         // Remembered again at every use, so the least recently used host, the first to go stale, is at the front.
         remember(this.#hosts, name, host, held => held.holder === undefined && (held.sent.at(-1) ?? windowStart) <= windowStart);
-        const refused = this.#failuresRetry(hostKey);
+        const refused = this.#failuresRetry(principal, hostKey);
         if (refused !== undefined) throw verificationLimit(refused);
-        const held = host.waiting.filter(waiter => waiter.principal === principal).length + (host.holder === principal ? 1 : 0);
-        if (held >= PRINCIPAL_VERIFICATIONS_AT_ONCE) throw verificationLimit(QUEUE_FULL_RETRY_MS);
-        if (host.holder === undefined) {
-            host.holder = principal;
-        } else {
-            if (host.waiting.length >= VERIFICATIONS_PER_WINDOW) throw verificationLimit(QUEUE_FULL_RETRY_MS);
-            await this.#waitTurn(host, principal, abandoned);
-            // Handed the slot just as it was abandoned: pass it on without a POST.
-            if (abandoned.aborted) {
-                this.#releaseHost(host);
-                throw abandoned.reason;
+        if ((this.#principalHeld.get(principal) ?? 0) >= PRINCIPAL_VERIFICATIONS_AT_ONCE) throw verificationLimit(QUEUE_FULL_RETRY_MS);
+        if (host.holder !== undefined && host.waiting.length >= VERIFICATIONS_PER_WINDOW) throw verificationLimit(QUEUE_FULL_RETRY_MS);
+        this.#hold(principal, 1);
+        try {
+            if (host.holder === undefined) {
+                host.holder = principal;
+            } else {
+                await this.#waitTurn(host, principal, abandoned);
+                // Handed the slot just as it was abandoned: pass it on without a POST.
+                if (abandoned.aborted) {
+                    this.#releaseHost(host);
+                    throw abandoned.reason;
+                }
             }
+            const now = this.#now();
+            const start = now - VERIFICATION_WINDOW_MS;
+            const sent = since(host.sent, start);
+            // Its own verifications that failed while it waited count too.
+            const retryAfterMs = sent.length >= VERIFICATIONS_PER_WINDOW ? sent[0]! - start : this.#failuresRetry(principal, hostKey);
+            if (retryAfterMs !== undefined) {
+                this.#releaseHost(host);
+                throw verificationLimit(retryAfterMs);
+            }
+            sent.push(now);
+            return host;
+        } catch (error) {
+            this.#hold(principal, -1);
+            throw error;
         }
-        const now = this.#now();
-        const start = now - VERIFICATION_WINDOW_MS;
-        const sent = since(host.sent, start);
-        // Its own verifications that failed while it waited count too.
-        const retryAfterMs = sent.length >= VERIFICATIONS_PER_WINDOW ? sent[0]! - start : this.#failuresRetry(hostKey);
-        if (retryAfterMs !== undefined) {
-            this.#releaseHost(host);
-            throw verificationLimit(retryAfterMs);
-        }
-        sent.push(now);
-        return host;
     }
 
-    // How long until the principal may verify at the host again, once its verifications there failed PRINCIPAL_FAILURES_PER_WINDOW times in the window; `undefined` while it may.
-    #failuresRetry(hostKey: string): number | undefined {
+    // How long until the principal may verify at the host again, once its verifications failed PRINCIPAL_FAILURES_PER_WINDOW times there or PRINCIPAL_FAILURES_ANYWHERE times in all in the window; `undefined` while it may.
+    #failuresRetry(principal: string, hostKey: string): number | undefined {
         const start = this.#now() - VERIFICATION_WINDOW_MS;
-        const failures = since(this.#hostFailures.get(hostKey) ?? [], start);
-        return failures.length >= PRINCIPAL_FAILURES_PER_WINDOW ? failures[0]! - start : undefined;
+        const atHost = untilBelow(since(this.#hostFailures.get(hostKey) ?? [], start), PRINCIPAL_FAILURES_PER_WINDOW, start);
+        const anywhere = untilBelow(since(this.#principalFailures.get(principal) ?? [], start), PRINCIPAL_FAILURES_ANYWHERE, start);
+        if (atHost === undefined || anywhere === undefined) return atHost ?? anywhere;
+        return Math.max(atHost, anywhere);
+    }
+
+    // Counts one of the principal's verifications waiting for a host or being sent (`1`), or one that no longer is (`-1`).
+    #hold(principal: string, change: 1 | -1): void {
+        const held = (this.#principalHeld.get(principal) ?? 0) + change;
+        if (held > 0) this.#principalHeld.set(principal, held);
+        else this.#principalHeld.delete(principal);
     }
 
     // Resolves holding the slot, which #releaseHost hands over; rejects at once, out of the queue, when `abandoned` aborts.

@@ -9,6 +9,8 @@
  * adapter exercises the same conversion end-to-end in `toNodeHandler.test.ts`.
  */
 import { Readable } from 'node:stream';
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 
 import { describe, expect, it } from 'vitest';
 
@@ -93,6 +95,54 @@ describe('toWebRequest', () => {
         const text = await request.text();
         expect(text).toBe(JSON.stringify(parsed));
         expect(request.headers.get('content-length')).toBe(String(text.length + 1));
+    });
+
+    it('hands the body on so that it reads back identically as text and as JSON, from the Node stream and from a parsedBody', async () => {
+        const parsed = { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'écho', arguments: { text: 'naïve ☃' } } };
+        // Whitespace padding, and a multi-byte character split across two chunks.
+        const raw = Buffer.from(`${JSON.stringify(parsed)}${' '.repeat(1000)}`);
+        const split = raw.indexOf(Buffer.from('é')) + 1;
+        const streamed = await toWebRequest(
+            Object.assign(Readable.from([raw.subarray(0, split), raw.subarray(split)]), {
+                method: 'POST',
+                url: '/mcp',
+                headers: { host: 'localhost', 'content-type': 'application/json' }
+            })
+        );
+        const preParsed = await toWebRequest(
+            unreadableNodeRequest({ method: 'POST', url: '/mcp', headers: { host: 'localhost', 'content-type': 'application/json' } }),
+            parsed
+        );
+
+        expect(await streamed.clone().json()).toEqual(parsed);
+        expect(await streamed.text()).toBe(raw.toString('utf8'));
+        expect(await preParsed.clone().json()).toEqual(parsed);
+        expect(await preParsed.text()).toBe(JSON.stringify(parsed));
+    });
+
+    it('keeps none of the body once a converted Request has been read and dropped', async () => {
+        setFlagsFromString('--expose-gc');
+        const gc = runInNewContext('gc') as () => void;
+        // `ArrayBuffer` memory after collecting garbage, each pass in a fresh task.
+        const arrayBuffers = async (): Promise<number> => {
+            for (let pass = 0; pass < 3; pass++) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+                gc();
+            }
+            return process.memoryUsage().arrayBuffers;
+        };
+        const chunk = Buffer.alloc(10_240, 0x20);
+        const before = await arrayBuffers();
+
+        for (let count = 0; count < 2000; count++) {
+            const request = await toWebRequest(
+                Object.assign(Readable.from([chunk]), { method: 'POST', url: '/mcp', headers: { host: 'localhost' } })
+            );
+            await request.text();
+        }
+
+        // 2 000 bodies of 10 KiB kept would be about 20 MiB.
+        expect((await arrayBuffers()) - before).toBeLessThan(4 * 1024 * 1024);
     });
 
     it('produces a body-less Request when the supplied parsedBody is not JSON-serializable', async () => {

@@ -60,7 +60,7 @@ export function refusesSubscription(error: unknown): boolean {
     return (error instanceof EventsError && !isVerificationLimit(error)) || error instanceof SdkError || isHeaderMismatch(error);
 }
 
-// The server's webhook verification limit per destination host: the one `resourceExhausted` that passes with time, so it is retried.
+// The server's webhook verification limit (per destination host, and per principal across hosts): the one `resourceExhausted` that passes with time, so it is retried.
 export function isVerificationLimit(error: unknown): boolean {
     return (
         error instanceof EventsError &&

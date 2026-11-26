@@ -286,8 +286,7 @@ export async function toWebRequest(req: NodeIncomingMessageLike, parsedBody?: un
         }
     }
 
-    // The body is carried as text: MCP request bodies are JSON, and a string
-    // body keeps the constructed Request portable across runtime lib versions.
+    // The body is read as text: MCP request bodies are JSON.
     let body: string | undefined;
     if (method !== 'GET' && method !== 'HEAD') {
         if (parsedBody === undefined) {
@@ -328,11 +327,22 @@ export async function toWebRequest(req: NodeIncomingMessageLike, parsedBody?: un
         }
     }
 
+    // Handed over as a stream, which keeps none of the body once read; a Request keeps a string body for its whole life.
     return new Request(url, {
         method,
         headers,
         ...(options?.signal !== undefined && { signal: options.signal }),
-        ...(body !== undefined && { body })
+        ...(body !== undefined && { body: singleChunk(new TextEncoder().encode(body)), duplex: 'half' })
+    });
+}
+
+// A stream of one chunk, which keeps nothing once read.
+function singleChunk(bytes: Uint8Array): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+        start(controller) {
+            controller.enqueue(bytes);
+            controller.close();
+        }
     });
 }
 

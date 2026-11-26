@@ -548,6 +548,91 @@ describe('webhook delivery', () => {
         expect(vi.getTimerCount()).toBe(0);
     });
 
+    describe('an end the server both answers a refresh with and POSTs as terminated', () => {
+        const notFound = { code: -32_023, message: 'Not found', data: { kind: 'subscription' } };
+        const unsupported = { code: -32_026, message: 'Unsupported', data: schemaChange };
+
+        /** A webhook client whose refresh at 45 s is refused with `end`, POSTed as `terminated` before the answer when `before` (`refused` settles once that answer is sent), and whose next subscribe is granted. */
+        async function refreshEndedWith(end: { code: number; message: string; data: Record<string, unknown> }, before: boolean) {
+            let post!: (body: unknown) => Promise<number>;
+            let refuse!: () => void;
+            const refused = new Promise<void>(resolve => (refuse = resolve));
+            const answers: Handler[] = [
+                () => grant({ cursor: 'c1' }),
+                async () => {
+                    if (before) expect(await post({ type: 'terminated', error: end })).toBe(200);
+                    refuse();
+                    throw new RpcError(end.code, end.message, end.data);
+                },
+                () => grant({ cursor: 'c1' })
+            ];
+            const scripted = await webhookWith((params, call) => answers.shift()?.(params, call) ?? new Promise<never>(() => {}));
+            post = scripted.post;
+            return { ...scripted, refused };
+        }
+
+        it.each([
+            ['before', true],
+            ['after', false]
+        ])(
+            'recovers once from a notFound for a type still listed, POSTed %s the answer: it re-lists, subscribes again and goes on',
+            async (_order, before) => {
+                const { lists, post, refused, subscribes, subscribe } = await refreshEndedWith(notFound, before);
+                const sub = await subscribe();
+                const iterator = sub[Symbol.asyncIterator]();
+
+                await vi.advanceTimersByTimeAsync(45_000);
+                await refused;
+                await settle();
+                expect(subscribes()).toHaveLength(2);
+                if (!before) expect(await post({ type: 'terminated', error: notFound })).toBe(200);
+                await vi.advanceTimersByTimeAsync(500);
+                await settle();
+
+                expect(lists()).toHaveLength(2);
+                expect(subscribes().map(call => call.params['cursor'])).toEqual([null, 'c1', 'c1']);
+                expect(await post(occurrence('e1'))).toBe(200);
+                expect(await nextEventId(iterator)).toBe('e1');
+            }
+        );
+
+        it('keeps the cursor after one schema change', async () => {
+            const { lists, refused, subscribes, subscribe } = await refreshEndedWith(unsupported, true);
+            const sub = await subscribe();
+
+            await vi.advanceTimersByTimeAsync(45_000);
+            await refused;
+            await settle();
+            await vi.advanceTimersByTimeAsync(500);
+            await settle();
+
+            expect(lists()).toHaveLength(2);
+            expect(subscribes().map(call => call.params['cursor'])).toEqual([null, 'c1', 'c1']);
+            expect(sub.cursor).toBe('c1');
+        });
+
+        it('still ends the subscription with a different terminated body that arrives while it recovers', async () => {
+            const { post, refused, subscribes, subscribe } = await refreshEndedWith(notFound, false);
+            const sub = await subscribe();
+            const pending = sub[Symbol.asyncIterator]()
+                .next()
+                .catch((error_: unknown) => error_);
+
+            await vi.advanceTimersByTimeAsync(45_000);
+            await refused;
+            await settle();
+            expect(
+                await post({ type: 'terminated', error: { code: -32_024, message: 'Forbidden', data: { reason: 'Access revoked' } } })
+            ).toBe(200);
+
+            const error = await pending;
+            expect(error).toBeInstanceOf(EventsError);
+            expect(error).toMatchObject({ kind: 'forbidden', data: { reason: 'Access revoked' } });
+            await vi.advanceTimersByTimeAsync(120_000);
+            expect(subscribes()).toHaveLength(2);
+        });
+    });
+
     it.each([
         ['without replay', null, [[null]]],
         ['with a cursor', 'c1', []]
@@ -911,7 +996,7 @@ describe('webhook delivery', () => {
 
     it("retries the server's verification limit after data.retryAfterMs, first and once subscribed; a subscriptions limit still rejects", async () => {
         const limited = (retryAfterMs?: unknown) =>
-            new RpcError(-32_025, 'Too many webhook endpoint verifications for this host', {
+            new RpcError(-32_025, 'Too many webhook endpoint verifications', {
                 limit: 'verification',
                 ...(retryAfterMs !== undefined && { retryAfterMs })
             });

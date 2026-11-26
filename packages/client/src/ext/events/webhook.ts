@@ -5,7 +5,7 @@ import {
     SubscribeEventsResultSchema,
     UnsubscribeEventsResultSchema
 } from '@modelcontextprotocol/core/ext/events';
-import type { ProtocolError } from '@modelcontextprotocol/core-internal';
+import { ProtocolError } from '@modelcontextprotocol/core-internal';
 import { canonicalJson, generateWebhookSecret, parseWebhookSecret } from '@modelcontextprotocol/core-internal/ext/events';
 import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal/public';
 
@@ -20,6 +20,16 @@ const REFRESH_AT = 0.75;
 export interface WebhookOptions {
     url: string;
     secretProvider?: () => string;
+}
+
+// Whether a `terminated` body reports the end `error` was: the same JSON-RPC code, message and data.
+function sameEnd(body: ProtocolError, error: unknown): boolean {
+    return (
+        error instanceof ProtocolError &&
+        body.code === error.code &&
+        body.message === error.message &&
+        canonicalJson(body.data ?? null) === canonicalJson(error.data ?? null)
+    );
 }
 
 // The webhook subscriptions of one extension: identical ones (the same name and canonical arguments, so the same server subscription) share one driver while any of them is open.
@@ -182,6 +192,8 @@ class WebhookDriver implements Driver {
     #withdrawPending: (() => void) | undefined;
     // A `terminated` body routed here and not yet acted on.
     #terminated: ProtocolError | undefined;
+    // The failure the loop last recovered from, until a subscribe succeeds: a `terminated` body that matches it is that end, which the server answered a refresh with and also POSTed.
+    #recovered: unknown;
     // Retry delays taken since the last successful subscribe.
     #attempt = 0;
     // When the last grant ends (`undefined` for none, or a `null` one), and whether a `terminated` body ended the subscription since it was given.
@@ -229,7 +241,9 @@ class WebhookDriver implements Driver {
             terminated: error => {
                 if (this.#loop.ended) return;
                 this.#terminated = error;
-                this.#loop.wake();
+                // The copy of the end being recovered from is taken at once, which drops it and leaves the retry wait as it is.
+                if (sameEnd(error, this.#recovered)) this.#takeTerminated();
+                else this.#loop.wake();
             }
         };
     }
@@ -263,6 +277,7 @@ class WebhookDriver implements Driver {
             while (!loop.ended) {
                 let error = await this.#subscribeAndRefresh();
                 while (!loop.ended) {
+                    this.#recovered = error;
                     await loop.recover(error);
                     let terminated = this.#takeTerminated();
                     if (terminated === undefined) {
@@ -270,7 +285,7 @@ class WebhookDriver implements Driver {
                         terminated = this.#takeTerminated();
                     }
                     if (terminated === undefined) break;
-                    // A `terminated` body that came while a failure was recovered or waited for its retry is recovered from as one at any other time is.
+                    // A `terminated` body that came while a failure was recovered or waited for its retry is recovered from as one at any other time is, unless it is that failure's copy.
                     error = terminated;
                 }
             }
@@ -313,14 +328,14 @@ class WebhookDriver implements Driver {
         return undefined;
     }
 
-    // The `terminated` body routed here, taken once: the server no longer holds the subscription.
+    // The `terminated` body routed here, taken once: the server no longer holds the subscription. `undefined` for the copy of the end being recovered from.
     #takeTerminated(): ProtocolError | undefined {
         const terminated = this.#terminated;
         if (terminated === undefined) return undefined;
         this.#terminated = undefined;
         this.#live = false;
         this.#serverEnded = true;
-        return terminated;
+        return sameEnd(terminated, this.#recovered) ? undefined : terminated;
     }
 
     // ¾ of the grant left, never sooner than the floor (so a skewed clock cannot refresh back to back), unless the floor would reach the grant's end.
@@ -355,6 +370,7 @@ class WebhookDriver implements Driver {
         const cursor = result.cursor ?? null;
         this.#attempt = 0;
         this.#live = true;
+        this.#recovered = undefined;
         this.#bind(result.id);
         this.#withdrawPending?.();
         if (result.deliveryStatus !== undefined) this.#context.queue.setDeliveryStatus(result.deliveryStatus);
