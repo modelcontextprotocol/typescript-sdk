@@ -21,8 +21,9 @@ export const MAX_HELD_MESSAGES = 10_000;
 const MAX_IN_FLIGHT_PER_SUBSCRIPTION = 10;
 // Abandoned events are reported at once, then counted and reported together at most this often per subscription.
 const ABANDON_REPORT_INTERVAL_MS = 60_000;
-// Delivery is suspended once more than 95 % of at least 100 attempts in the last 60 minutes failed.
-const SUSPENSION_WINDOW_MS = 3_600_000;
+// Delivery is suspended once more than 95 % of at least 100 attempts in the last 60 minutes failed, counted per minute.
+const SUSPENSION_WINDOW_MINUTES = 60;
+const MINUTE_MS = 60_000;
 const SUSPENSION_MIN_ATTEMPTS = 100;
 const SUSPENSION_FAILURE_PERCENT = 95;
 // A failed verification of a (principal, url) is answered again for this long without a POST.
@@ -84,6 +85,13 @@ interface Control {
     readonly resolve: (outcome: WebhookSendOutcome | undefined) => void;
 }
 
+// The attempts of one minute of the suspension window, and how many of them failed.
+interface MinuteCount {
+    readonly minute: number;
+    attempts: number;
+    failures: number;
+}
+
 // What this process holds for one subscription it delivers to.
 interface Tracked {
     readonly id: string;
@@ -110,9 +118,8 @@ interface Tracked {
     lastError: DeliveryErrorCategory | null;
     // The first failure since the last acknowledgement.
     failedSince?: string;
-    // The attempts of the last SUSPENSION_WINDOW_MS, oldest first, and how many of them failed.
-    recent: Array<{ readonly at: number; readonly failed: boolean }>;
-    recentFailures: number;
+    // The attempts of the last SUSPENSION_WINDOW_MINUTES minutes, one count per minute that had any, oldest first.
+    window: MinuteCount[];
     // For a subscription this process does not watch: the `createdAt` of the record it delivers to, and the next read of that record.
     createdAt?: number;
     sweep?: ReturnType<typeof setTimeout>;
@@ -288,6 +295,13 @@ export class WebhookEngine {
         return { failed: this.#failed.size, hosts: this.#hosts.size, hostFailures: this.#hostFailures.size };
     }
 
+    // The per-minute counts the suspension windows hold, across subscriptions: at most SUSPENSION_WINDOW_MINUTES each.
+    get windowMinutes(): number {
+        let minutes = 0;
+        for (const tracked of this.#tracked.values()) minutes += tracked.window.length;
+        return minutes;
+    }
+
     // One attempt, which the subscribe call waits for, after the host's verification in flight; throws `callbackEndpointError` with the failure category as `data.reason`, or `resourceExhausted` at the host's limit or once the principal's verifications to the host failed too often.
     async verify(principal: string, url: string, secret: string, subscriptionId: string, signal?: AbortSignal): Promise<void> {
         this.#use();
@@ -331,10 +345,12 @@ export class WebhookEngine {
         return this.#queueControl(record, body.type, () => body, false);
     }
 
-    // Queues a `gap` body as sendControl() does; no attempt starts while an event POST of the subscription is in flight, and each carries the watermark as it starts (`fallback` without one).
-    sendGap(record: WebhookSubscriptionRecord, fallback: string | null): Promise<WebhookSendOutcome | undefined> {
+    // Marks a loss the caller found (a truncated `check` page; `seed` starts the watermark of an untracked id) and sends its `gap` body at once, as one goes after an acknowledged delivery: the mark stays until the subscriber is told.
+    sendGap(record: WebhookSubscriptionRecord, seed: string | null): void {
         this.#use();
-        return this.#queueControl(record, 'gap', () => ({ type: 'gap', cursor: this.watermark(record.id) ?? fallback }), true);
+        const tracked = this.#trackedFor(record, seed);
+        this.#mark(tracked);
+        this.#signalGap(tracked, record);
     }
 
     watermark(id: string): string | null | undefined {
@@ -404,8 +420,7 @@ export class WebhookEngine {
         if (tracked === undefined || tracked.active) return;
         tracked.active = true;
         tracked.suspendedExpiresAt = undefined;
-        tracked.recent = [];
-        tracked.recentFailures = 0;
+        tracked.window = [];
         const parked = new Set(tracked.parked);
         tracked.parked = [];
         // Parked messages go first, in position order.
@@ -603,8 +618,7 @@ export class WebhookEngine {
             abandoned: 0,
             lastDeliveryAt: null,
             lastError: null,
-            recent: [],
-            recentFailures: 0,
+            window: [],
             marked: 0,
             told: 0,
             signalling: false,
@@ -820,7 +834,7 @@ export class WebhookEngine {
         else if (status !== undefined && isSuccess(status)) this.#signalGap(tracked, record);
     }
 
-    // Tells the subscriber, after a delivery it acknowledged, that events were lost before the watermark, whatever refreshes answered; only an acknowledged envelope tells it, of the marks made before that attempt's body was built, and a failed one goes again after the next acknowledged delivery.
+    // Tells the subscriber, after a delivery it acknowledged or at once from sendGap(), that events were lost before the watermark, whatever refreshes answered; only an acknowledged envelope tells it, of the marks made before that attempt's body was built, and a failed one goes again after the next acknowledged delivery.
     #signalGap(tracked: Tracked, record: WebhookSubscriptionRecord): void {
         if (tracked.told === tracked.marked || tracked.signalling) return;
         // A type without replay has no position to have skipped past (SEP-3415: no gap for `cursor: null`).
@@ -896,20 +910,26 @@ export class WebhookEngine {
         return true;
     }
 
-    // Adds one attempt to the window and suspends delivery when the failures in it pass the threshold.
+    // Adds one attempt to its minute of the window, which holds the latest minute and the 59 before it, and suspends delivery when the failures in it pass the threshold.
     #count(tracked: Tracked, now: number, failed: boolean): void {
-        tracked.recent.push({ at: now, failed });
-        if (failed) tracked.recentFailures += 1;
-        let oldest = tracked.recent[0];
-        while (oldest !== undefined && oldest.at <= now - SUSPENSION_WINDOW_MS) {
-            tracked.recent.shift();
-            if (oldest.failed) tracked.recentFailures -= 1;
-            oldest = tracked.recent[0];
+        const minute = Math.floor(now / MINUTE_MS);
+        let current = tracked.window.at(-1);
+        // A clock that went back counts in the latest minute, so the minutes stay in order.
+        if (current === undefined || minute > current.minute) {
+            current = { minute, attempts: 0, failures: 0 };
+            tracked.window.push(current);
         }
-        const total = tracked.recent.length;
-        if (failed && total >= SUSPENSION_MIN_ATTEMPTS && tracked.recentFailures * 100 > SUSPENSION_FAILURE_PERCENT * total) {
-            tracked.active = false;
+        current.attempts += 1;
+        if (failed) current.failures += 1;
+        while (tracked.window[0]!.minute <= current.minute - SUSPENSION_WINDOW_MINUTES) tracked.window.shift();
+        if (!failed) return;
+        let attempts = 0;
+        let failures = 0;
+        for (const counted of tracked.window) {
+            attempts += counted.attempts;
+            failures += counted.failures;
         }
+        if (attempts >= SUSPENSION_MIN_ATTEMPTS && failures * 100 > SUSPENSION_FAILURE_PERCENT * attempts) tracked.active = false;
     }
 
     #queueControl(

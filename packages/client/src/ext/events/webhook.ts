@@ -91,8 +91,11 @@ class SharedWebhook {
         this.#close = close;
         this.#cursor = subscription.cursor ?? null;
         const queue: DeliveryQueue<unknown> = {
+            // Taken when one member's queue took it.
             push: event => {
-                for (const member of members) this.#deliver(member, event);
+                let taken = false;
+                for (const member of members) taken = this.#deliver(member, event) || taken;
+                return taken;
             },
             setCursor: cursor => {
                 this.#cursor = cursor;
@@ -125,13 +128,14 @@ class SharedWebhook {
         this.#driver = new WebhookDriver(context, webhook, receiver, floorMs);
     }
 
-    // A member whose loop has fallen behind drops its oldest queued event to take `event`, as push does for a type without replay: one gap per episode (at the cursor delivery continues from), which ends once it has taken half its queue.
-    #deliver(member: DriverContext<unknown>, event: EventOccurrence): void {
-        member.queue.push(event);
-        if (member.queue.trim?.() !== true || this.#dropping.has(member)) return;
+    // A member whose loop has fallen behind drops its oldest queued event to take `event`, as push does for a type without replay: one gap per episode (at the cursor delivery continues from), which ends once it has taken half its queue. Answers whether its queue took `event`.
+    #deliver(member: DriverContext<unknown>, event: EventOccurrence): boolean {
+        const taken = member.queue.push(event);
+        if (member.queue.trim?.() !== true || this.#dropping.has(member)) return taken;
         this.#dropping.add(member);
         reportGap(member.subscription, this.#connection, event.cursor ?? null);
         void member.queue.room?.().then(() => this.#dropping.delete(member));
+        return taken;
     }
 
     // Delivers to `context` too; the driver returned settles with the shared first exchange, and its stop() ends the server subscription only for the last one.
@@ -180,6 +184,9 @@ class WebhookDriver implements Driver {
     #terminated: ProtocolError | undefined;
     // Retry delays taken since the last successful subscribe.
     #attempt = 0;
+    // When the last grant ends (`undefined` for none, or a `null` one), and whether a subscribe failed since it was given.
+    #grantEnds: number | undefined;
+    #subscribeFailed = false;
     // Refused events of a type without replay have been reported as a gap since a loop last took half its queue.
     #refusing = false;
 
@@ -271,15 +278,21 @@ class WebhookDriver implements Driver {
     async #subscribeAndRefresh(): Promise<unknown> {
         const loop = this.#loop;
         while (!loop.ended) {
+            const sentAt = Date.now();
             let result: SubscribeEventsResult;
             try {
                 result = await this.#subscribe();
             } catch (error) {
+                this.#subscribeFailed = true;
                 return error;
             }
             if (loop.ended) break;
             const expiresAt = result.refreshBefore === null ? undefined : Date.parse(result.refreshBefore);
             if (Number.isNaN(expiresAt)) return new SdkError(SdkErrorCode.InvalidResult, `Invalid refreshBefore: ${result.refreshBefore}`);
+            // Refreshes failed until the grant ended, so the server's subscription lapsed: a type without replay starts again from now.
+            if (this.#subscribeFailed && this.#grantEnds !== undefined && sentAt >= this.#grantEnds) loop.lapsed();
+            this.#subscribeFailed = false;
+            this.#grantEnds = expiresAt;
             this.#accept(result);
             if (this.#terminated === undefined) {
                 // A `null` grant (no expiry, which this client never asks for) is refreshed after the longest timer.

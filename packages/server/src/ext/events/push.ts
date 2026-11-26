@@ -230,12 +230,13 @@ export class StreamSet implements SubscriptionSource {
         this.#deps.validator.assertCapacity(principal);
         const stream = this.#create(entry, principal, args, params, ctx, flow, entry.kind === 'check' ? floor : undefined);
         const result = { _meta: { [SUBSCRIPTION_ID_META_KEY]: ctx.mcpReq.id } };
+        // A termination meanwhile answers as itself, not as the abort it caused in a hook that honours `ctx.signal`.
         try {
             await entry.definition.onSubscribe?.(stream.ctx, args);
         } catch (error) {
             this.#streams.delete(stream);
             stream.ended.abort();
-            throw error;
+            throw stream.stopped?.error ?? error;
         }
         let checked: Batch | undefined;
         try {
@@ -245,7 +246,7 @@ export class StreamSet implements SubscriptionSource {
             }
         } catch (error) {
             await this.#abandon(stream);
-            throw error;
+            throw stream.stopped?.error ?? error;
         }
         // Ended before `active`: no stream opened, so a termination answers as the request's error.
         if (stream.stopped !== undefined) {
@@ -407,14 +408,13 @@ export class StreamSet implements SubscriptionSource {
     ): void {
         const { flow } = stream;
         if (event) {
-            // An emit-only stream whose client is over the bound with more live events waiting than the emit buffer holds is abandoned as a stalled one is; a burst queued while it reads goes out at its pace.
+            // An emit-only stream with more live events waiting than the emit buffer holds is abandoned as a stalled one is: over HTTP once its client is also over the bound (a burst queued while it reads goes out at its pace), and at once where the transport cannot tell how far its client has read (stdio).
             if (
-                flow !== undefined &&
                 stream.entry.kind === 'emitOnly' &&
                 stream.waiting >= this.#deps.buffer.maxEvents &&
-                flow.backlog() > MAX_STREAM_BACKLOG_BYTES
+                (flow === undefined || flow.backlog() > MAX_STREAM_BACKLOG_BYTES)
             ) {
-                this.#dropStalled(stream, flow);
+                this.#dropStalled(stream);
                 return;
             }
             stream.waiting += 1;
@@ -425,6 +425,8 @@ export class StreamSet implements SubscriptionSource {
                 try {
                     const resolved = await params;
                     if (resolved === undefined || !(await this.#room(stream))) return;
+                    // Once the stream has ended only its `terminated` goes out: no event, nor a heartbeat whose cursor would pass the events skipped.
+                    if (stream.ended.signal.aborted && method !== EVENTS_TERMINATED_NOTIFICATION) return;
                     const _meta = {
                         ...(resolved._meta as Record<string, unknown> | undefined),
                         [SUBSCRIPTION_ID_META_KEY]: stream.requestId
@@ -452,7 +454,7 @@ export class StreamSet implements SubscriptionSource {
             stream.overSince ??= now;
             const left = stream.overSince + stream.grant - now;
             if (left <= 0 || stream.ended.signal.aborted) {
-                this.#dropStalled(stream, flow);
+                this.#dropStalled(stream);
                 return false;
             }
             await untilDrained(stream, flow, left);
@@ -461,13 +463,13 @@ export class StreamSet implements SubscriptionSource {
         return true;
     }
 
-    // A client that stopped reading: the response body errors, which drops its unread bytes, and the subscription ends; the SDK's client reconnects from its cursor.
-    #dropStalled(stream: PushStream, flow: ResponseFlow): void {
+    // A client that stopped reading: the subscription ends, and over HTTP the response body errors, which drops its unread bytes; on stdio its final result follows what the transport already holds. Either way the SDK's client reconnects from its cursor.
+    #dropStalled(stream: PushStream): void {
         void this.#end(stream);
-        flow.abort();
+        stream.flow?.abort();
     }
 
-    // Ends a stream once. A live one sends `terminated` for an error, runs onUnsubscribe, then lets `open` return; one whose client is over the bound, now or as its last frames go out (#room), is abandoned at once instead of waiting for room.
+    // Ends a stream once. A live one sends `terminated` for an error and resolves once onUnsubscribe ran, and `open` returns once that and the frames already handed to the transport are written; one not yet live is only marked, for `open` to act on; one whose client is over the bound, now or as its last frames go out (#room), is abandoned at once instead of waiting for room.
     #end(stream: PushStream, error?: EventsError): Promise<void> {
         if (!this.#streams.delete(stream)) return Promise.resolve();
         stream.ended.abort();
@@ -483,13 +485,9 @@ export class StreamSet implements SubscriptionSource {
         }
         stream.live = false;
         if (error !== undefined) this.#write(stream, EVENTS_TERMINATED_NOTIFICATION, { error: errorObject(error) });
-        return this.#close(stream);
-    }
-
-    async #close(stream: PushStream): Promise<void> {
-        await this.#unsubscribe(stream);
-        await stream.queue;
-        stream.finish();
+        const unsubscribed = this.#unsubscribe(stream);
+        void unsubscribed.then(() => stream.queue).then(() => stream.finish());
+        return unsubscribed;
     }
 
     // A stream that ended before `active`, after its onSubscribe ran.

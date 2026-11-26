@@ -545,6 +545,40 @@ describe('push delivery', () => {
         expect(await nextEventId(sub[Symbol.asyncIterator]())).toBe('e1');
     });
 
+    it('reports onGap(null) once per reopen of a type without replay whose stream ended or went silent after its active', async () => {
+        const onGap = vi.fn();
+        const { last, streams, subscribe } = await pushWith();
+        await subscribe({ onGap }, s => s.active({ cursor: null, heartbeatMs: 5000 }));
+
+        // The server ends the stream; the reopen starts from now, and its active reports what may have happened meanwhile.
+        await last().end();
+        await vi.advanceTimersByTimeAsync(500);
+        expect(streams()).toHaveLength(2);
+        expect(onGap).not.toHaveBeenCalled();
+        await last().active({ cursor: null, heartbeatMs: 5000 });
+        expect(onGap).toHaveBeenCalledExactlyOnceWith(null);
+
+        // The stream goes silent for three grants, and a reopen that ends before its active comes in between: one more report.
+        await vi.advanceTimersByTimeAsync(15_500);
+        expect(streams()).toHaveLength(3);
+        await last().end();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(streams()).toHaveLength(4);
+        await last().active({ cursor: null });
+        expect(onGap.mock.calls).toEqual([[null], [null]]);
+    });
+
+    it('reports no gap for a reopen of a type with a cursor, which resumes from it', async () => {
+        const onGap = vi.fn();
+        const { last, streams, subscribe } = await pushWith();
+        await subscribe({ onGap }, s => s.active({ cursor: 'c1' }));
+        await last().end();
+        await vi.advanceTimersByTimeAsync(500);
+        expect(streams()).toHaveLength(2);
+        await last().active({ cursor: 'c1' });
+        expect(onGap).not.toHaveBeenCalled();
+    });
+
     it('sends maxAgeMs on every reopen, after a heartbeat too, so a reopen mid-replay stays cut', async () => {
         const { last, subscribe } = await pushWith();
         // As the SDK server answers a check from h1 whose `old` event is older than the floor: without maxAgeMs, `old` comes too.

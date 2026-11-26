@@ -28,6 +28,12 @@ async function nextEventId(iterator: AsyncIterator<{ eventId: string }>): Promis
     return result.done ? undefined : result.value.eventId;
 }
 
+/** `poll`, until it has answered 50 polls; then it never answers, so a driver that polls back to back cannot hang the test. */
+function bounded(poll: Handler): Handler {
+    let answered = 0;
+    return (params, call) => (++answered > 50 ? new Promise<never>(() => {}) : poll(params, call));
+}
+
 async function pollWith(
     poll: Handler,
     list: Handler = listing(descriptor('tick'))
@@ -130,6 +136,41 @@ describe('poll delivery', () => {
         expect(polls()).toHaveLength(3);
         await vi.advanceTimersByTimeAsync(1);
         expect(polls().map(call => call.params['cursor'])).toEqual(['c0', 'c1', 'c2', 'c2']);
+    });
+
+    it('polls again after the floor on a hasMore page that repeats its events and keeps the cursor, and at once on one that moved it', async () => {
+        // As a check whose upstream "since" filter is inclusive: it returns the last item again, with the same cursor.
+        const { polls, subscribe } = await pollWith(
+            bounded(() => ({ events: [occurrence('e1')], cursor: 'c1', hasMore: true, nextPollMs: 0 }))
+        );
+        await subscribe({ cursor: 'c0' });
+        expect(polls().map(call => call.params['cursor'])).toEqual(['c0', 'c1']);
+
+        await vi.advanceTimersByTimeAsync(999);
+        expect(polls()).toHaveLength(2);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(polls()).toHaveLength(3);
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(polls()).toHaveLength(13);
+    });
+
+    it('polls again after the floor on a hasMore page of a type without replay whose events are all repeats, and at once on one with a new event', async () => {
+        let page = 0;
+        const { polls, subscribe } = await pollWith(
+            bounded(() => {
+                page += 1;
+                return { events: [occurrence(page === 1 ? 'e1' : 'e2')], cursor: null, hasMore: true, nextPollMs: 0 };
+            })
+        );
+        const sub = await subscribe();
+        // e1, then e2, each new; the third page repeats e2.
+        expect(polls()).toHaveLength(3);
+        await vi.advanceTimersByTimeAsync(999);
+        expect(polls()).toHaveLength(3);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(polls()).toHaveLength(4);
+        const iterator = sub[Symbol.asyncIterator]();
+        expect([await nextEventId(iterator), await nextEventId(iterator)]).toEqual(['e1', 'e2']);
     });
 
     it('sends maxAgeMs on every poll of a subscription that started from a cursor, grown by the time since subscribe()', async () => {

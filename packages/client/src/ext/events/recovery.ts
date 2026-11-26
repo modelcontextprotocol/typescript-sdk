@@ -192,7 +192,7 @@ export class DriverLoop<T> {
     #schemaChanged = false;
     // A `notFound` has refused it since then while the event type was still listed.
     #notFound = false;
-    // The cursor was reset to now; the next successful exchange reports the gap.
+    // The cursor was reset to now, or delivery of a type without replay lapsed; the next successful exchange reports the gap.
     #reset = false;
     #stopped = false;
     // Set by the connection's close listener, which ends the subscription at once.
@@ -285,6 +285,11 @@ export class DriverLoop<T> {
     setCursor(cursor: string | null): void {
         this.#cursor = cursor;
         this.#context.queue.setCursor(cursor);
+    }
+
+    // Delivery stopped on the server (a push stream ended after its `active`, a webhook subscription lapsed): a type without replay starts again from now, so the next successful exchange reports the gap.
+    lapsed(): void {
+        if (this.#cursor === null) this.#reset = true;
     }
 
     // Resolves after `ms`, or at once on wake(), stop() or a close.

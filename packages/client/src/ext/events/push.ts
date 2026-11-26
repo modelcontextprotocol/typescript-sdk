@@ -105,6 +105,8 @@ export class PushDriver<T> implements Driver {
                 await this.#context.queue.room?.();
                 continue;
             }
+            // A type without replay loses what happens until a stream is active again, which reports it once.
+            if (this.#grantMs !== undefined) loop.lapsed();
             // A stream that ends before its first valid `active` (no grant yet) failed, as one that times out waiting for it does.
             const failure =
                 error ??

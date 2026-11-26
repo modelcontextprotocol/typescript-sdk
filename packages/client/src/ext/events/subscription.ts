@@ -31,8 +31,11 @@ export interface SubscribeOptions {
      * skipped: the server reports `truncated`, delivery started again from now
      * after a schema change, the loop fell 1 000 events behind on an event type
      * that cannot resume (`null`: delivery paused, or push dropped the oldest
-     * queued events), or a webhook loop 1 000 events behind dropped its oldest
-     * queued events while an identical subscription kept up.
+     * queued events), delivery of such a type started again from now (`null`:
+     * its push stream was reopened after it ended or went silent, or its
+     * webhook subscription was made again after refreshes failed past its
+     * grant), or a webhook loop 1 000 events behind dropped its oldest queued
+     * events while an identical subscription kept up.
      * An error it throws goes to the client's `onerror`, and delivery goes on.
      */
     onGap?: (cursor: string | null) => void;
@@ -176,6 +179,11 @@ export class SubscriptionQueue<T> implements EventSubscription<T> {
         return this.#queued >= MAX_QUEUED_EVENTS;
     }
 
+    // What the loop has not taken yet: the queued events and the cursors between them.
+    get backlog(): number {
+        return this.#entries.length;
+    }
+
     // Resolves once the loop has taken the waiting events down to RESUME_QUEUED_EVENTS, or the subscription ends.
     room(): Promise<void> {
         if (this.#queued <= RESUME_QUEUED_EVENTS || this.#done()) return Promise.resolve();
@@ -193,9 +201,9 @@ export class SubscriptionQueue<T> implements EventSubscription<T> {
         return driver.start();
     }
 
-    // Queues an event unless its eventId is among the last 1 000 queued.
-    push(event: EventOccurrence): void {
-        if (this.#done() || this.#seen.has(event.eventId)) return;
+    // Queues an event unless its eventId is among the last 1 000 queued; answers whether it took it.
+    push(event: EventOccurrence): boolean {
+        if (this.#done() || this.#seen.has(event.eventId)) return false;
         this.#seen.add(event.eventId);
         if (this.#seen.size > DEDUPE_WINDOW) this.#seen.delete(this.#seen.values().next().value!);
         const item = event as Item<T>;
@@ -203,10 +211,11 @@ export class SubscriptionQueue<T> implements EventSubscription<T> {
         if (waiter === undefined) {
             this.#entries.push({ event: item });
             this.#queued += 1;
-            return;
+            return true;
         }
         this.#holding = true;
         waiter.resolve({ done: false, value: item });
+        return true;
     }
 
     // Drops the oldest events the loop has not taken while more than MAX_QUEUED_EVENTS wait; answers whether it dropped any.
@@ -227,7 +236,13 @@ export class SubscriptionQueue<T> implements EventSubscription<T> {
 
     setCursor(cursor: string | null): void {
         if (this.#done()) return;
-        if (this.#entries.length === 0 && !this.#holding) this.#cursor = cursor;
+        if (this.#entries.length === 0 && !this.#holding) {
+            this.#cursor = cursor;
+            return;
+        }
+        // Cursors in a row apply as the last of them, so one entry stands for every poll, heartbeat or refresh while the loop holds an event.
+        const last = this.#entries.length - 1;
+        if (last >= 0 && 'cursor' in this.#entries[last]!) this.#entries[last] = { cursor };
         else this.#entries.push({ cursor });
     }
 

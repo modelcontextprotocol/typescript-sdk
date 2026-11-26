@@ -1610,6 +1610,44 @@ describe('fan-out', () => {
         expect(post.deliveries().map(request => bodyOf(request).eventId)).toEqual(['next']);
     });
 
+    it('gives every subscription the next listing reaches a gap for the emits a listing that failed three times lost', async () => {
+        const store = new FlakyStore();
+        const onerror = vi.fn();
+        let refuseNext = true;
+        // The first POST of `next` fails, so a refresh comes while it waits for its retry.
+        const respond: Respond = request => {
+            if (isVerification(request)) return echo()(request);
+            if (bodyOf(request).eventId !== 'next' || !refuseNext) return { status: 200, body: '' };
+            refuseNext = false;
+            return { status: 503, body: '' };
+        };
+        const { events, post } = replica({ webhookStore: store, onerror, respond });
+        const handle = events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const alice = client(events);
+        const { cursor: start } = subscribed(await alice.subscribe());
+
+        store.fail(3, 0);
+        await handle.emit({ eventId: 'lost', data: { n: 1 } });
+        await vi.advanceTimersByTimeAsync(300);
+        expect(onerror).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: 'store unavailable' }));
+
+        await handle.emit({ eventId: 'next', data: { n: 2 } });
+        await post.until(2);
+        await settle();
+        expect(subscribed(await alice.subscribe({ cursor: start }))).toMatchObject({ cursor: start, truncated: true });
+
+        // Once `next` is acknowledged, a gap envelope at the watermark past it tells the subscriber.
+        await vi.advanceTimersByTimeAsync(5000);
+        await post.until(4);
+        await settle();
+        const sent = post.deliveries().map(request => bodyOf(request));
+        expect(sent.map(body => body.eventId ?? body.type)).toEqual(['next', 'next', 'gap']);
+        const after = subscribed(await alice.subscribe({ cursor: start }));
+        expect(after.truncated).toBe(false);
+        expect(after.cursor).not.toBe(start);
+        expect(sent[2]).toEqual({ type: 'gap', cursor: after.cursor });
+    });
+
     it('lists the store once for the emits that queue while a listing runs, and delivers each to every subscription', async () => {
         const store = new GatedStore();
         const listings = vi.spyOn(store, 'listByName');
@@ -2096,6 +2134,50 @@ describe('check-kind webhook subscriptions', () => {
         ).toEqual(['a', 'b']);
     });
 
+    it('keeps the gap of a truncated check page marked while every attempt of its envelope fails: refreshes answer truncated, and the envelope goes again once the receiver recovers', async () => {
+        let healthy = false;
+        const respond: Respond = request => {
+            if (isVerification(request)) return echo()(request);
+            return healthy ? { status: 200, body: '' } : { status: 503, body: '' };
+        };
+        const check = vi.fn<Check>((_ctx, _args, cursor) => {
+            if (cursor === null) return { events: [], cursor: 'c0' };
+            if (cursor === 'c0') return { events: [], cursor: 'c5', truncated: true };
+            if (cursor === 'c5' && healthy) return { events: [{ eventId: 'evt_9', data: { n: 9 } }], cursor: 'c9' };
+            return { events: [], cursor };
+        });
+        const { events, post } = replica({ respond });
+        events.registerEvent('t', { payloadSchema: P, check });
+        const alice = client(events);
+        expect(subscribed(await alice.subscribe({ name: 't' })).cursor).toBe('c0');
+        const gaps = () => post.deliveries().filter(request => bodyOf(request).type === 'gap');
+
+        // The run from c0 finds the upstream lost history, and all five attempts of its gap envelope fail.
+        await vi.advanceTimersByTimeAsync(5000);
+        await post.until(2);
+        for (const [index, delay] of [5000, 30_000, 120_000, 300_000].entries()) {
+            await settle();
+            await vi.advanceTimersByTimeAsync(delay);
+            await post.until(index + 3);
+        }
+        await settle();
+        expect(gaps().map(request => bodyOf(request))).toEqual(Array.from({ length: 5 }, () => ({ type: 'gap', cursor: 'c5' })));
+        expect(subscribed(await alice.subscribe({ name: 't', cursor: 'c0' }))).toMatchObject({ cursor: 'c5', truncated: true });
+
+        // Once the receiver recovers, the next event is acknowledged, and then the gap envelope, at the watermark past it.
+        healthy = true;
+        await vi.advanceTimersByTimeAsync(5000);
+        await post.until(8);
+        await settle();
+        expect(
+            post
+                .deliveries()
+                .slice(5)
+                .map(request => bodyOf(request))
+        ).toEqual([expect.objectContaining({ eventId: 'evt_9', cursor: 'c9' }), { type: 'gap', cursor: 'c9' }]);
+        expect(subscribed(await alice.subscribe({ name: 't', cursor: 'c9' }))).toMatchObject({ cursor: 'c9', truncated: false });
+    });
+
     it('keeps the watermark behind the unsettled events of a truncated batch', async () => {
         let healthy = false;
         const respond: Respond = request => {
@@ -2264,6 +2346,39 @@ describe('termination', () => {
         await vi.advanceTimersByTimeAsync(60_000);
         expect(check).toHaveBeenCalledTimes(3);
     });
+
+    it.each(['get', 'delete'] as const)(
+        'ends a check-kind subscription whose check throws forbidden at the next run of its loop when the first end fails on a store %s',
+        async method => {
+            const store = new FailingStore();
+            const onerror = vi.fn();
+            const onUnsubscribe = vi.fn();
+            let runs = 0;
+            const check = vi.fn<Check>((_ctx, _args, cursor) => {
+                if (cursor === null) return { events: [], cursor: 'c0' };
+                // The end that follows the first terminal error meets a failing store call.
+                if (++runs === 1) store.failNext(method);
+                throw revoked();
+            });
+            const { events, post } = replica({ webhookStore: store, onerror });
+            events.registerEvent('t', { payloadSchema: P, check, onUnsubscribe });
+            const { id } = subscribed(await client(events).subscribe({ name: 't' }));
+
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(onerror).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: `store ${method} failed` }));
+            expect(await store.get(id)).toBeDefined();
+            expect(post.deliveries()).toEqual([]);
+
+            await vi.advanceTimersByTimeAsync(5000);
+            await post.until(2);
+            await settle();
+            expect(bodyOf(post.requests[1]!)).toEqual({ type: 'terminated', error: REVOKED });
+            expect(await store.get(id)).toBeUndefined();
+            expect(onUnsubscribe).toHaveBeenCalledOnce();
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(check).toHaveBeenCalledTimes(3);
+        }
+    );
 
     it('never makes a subscribe wait on a termination its own onSubscribe awaits', async () => {
         let terminate = true;

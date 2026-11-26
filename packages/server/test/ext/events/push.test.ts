@@ -1,10 +1,16 @@
+import { PassThrough, Writable } from 'node:stream';
+
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core-internal';
+import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
 import type { CheckContext, EventContext, EventResult, PollEventsResult } from '../../../src/ext/events/index';
 import { EventsError, EventsExtension } from '../../../src/ext/events/index';
 import type { EventsTestHook } from '../../../src/ext/events/testHook';
+import { McpServer } from '../../../src/server/mcp';
+import { serveStdio } from '../../../src/server/serveStdio';
+import { StdioServerTransport } from '../../../src/server/stdio';
 import type { PostInit, Served } from './harness';
 import { errorOf, readFrames, resultOf, serve } from './harness';
 
@@ -168,6 +174,28 @@ describe('events/stream: opening', () => {
         expect(onUnsubscribe).toHaveBeenCalledOnce();
         expect((onUnsubscribe.mock.calls[0]![0] as EventContext).signal.aborted).toBe(true);
     });
+
+    it.each(['onSubscribe', 'the first check'])(
+        'answers a termination during %s that honours ctx.signal with the termination, not the abort it causes',
+        async during => {
+            let started = false;
+            const untilAborted = (ctx: EventContext) =>
+                new Promise<never>((_, reject) => {
+                    started = true;
+                    ctx.signal.addEventListener('abort', () => reject(ctx.signal.reason), { once: true });
+                });
+            const events = new EventsExtension();
+            const handle = events.registerEvent('t', {
+                payloadSchema: P,
+                ...(during === 'onSubscribe' && { onSubscribe: untilAborted }),
+                check: async ctx => (during === 'the first check' ? untilAborted(ctx) : { events: [], cursor: 'c1' })
+            });
+            const reply = serve(events).rpc('events/stream', { name: 't', cursor: 'c0' });
+            await vi.waitFor(() => expect(started).toBe(true));
+            await handle.terminate(new EventsError('forbidden', 'Forbidden', { reason: 'Access revoked' }));
+            expect(errorOf(await reply)).toEqual({ code: -32_024, message: 'Forbidden', data: { reason: 'Access revoked' } });
+        }
+    );
 });
 
 describe('events/stream: a check type', () => {
@@ -895,7 +923,7 @@ describe('events/stream: a client that stops reading', () => {
         await expect(rest(stream)).rejects.toThrow();
     });
 
-    it('terminates at once a stream whose client is just under the bound with frames still queued, abandoning it as the last ones put it over', async () => {
+    it('terminates at once a stream whose client is just under the bound with frames still queued, skipping the queued events and sending terminated', async () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
         const events = new EventsExtension();
         const handle = events.registerEvent('big', { emitOnly: true, payloadSchema: BIG });
@@ -910,7 +938,15 @@ describe('events/stream: a client that stops reading', () => {
         await vi.advanceTimersByTimeAsync(10);
         expect(ended).toBe(true);
         expect(testHook(events).state().pushStreams).toBe(0);
-        await expect(rest(stream)).rejects.toThrow();
+        // What the response already held, in order, then `terminated` and the final result; the events still queued are not sent.
+        const frames = await rest(stream);
+        expect(frames.slice(-2)).toEqual([
+            notification(TERMINATED, stream.id, { error: { code: -32_024, message: 'Forbidden' } }),
+            finalResult(stream.id)
+        ]);
+        const sent = frames.slice(0, -2).map(frame => paramsOf(frame)['eventId']);
+        expect(sent).toEqual(Array.from({ length: sent.length }, (_, n) => `e${n + 4}`));
+        expect(sent.length).toBeLessThan(26);
     });
 
     it('counts only live events against the cap, so a client that falls fewer than maxEvents behind after a full replay stays', async () => {
@@ -994,6 +1030,117 @@ describe('events/stream: a client that stops reading', () => {
         await vi.advanceTimersByTimeAsync(5000);
         expect(await heartbeat).toMatchObject({ method: HEARTBEAT });
         expect(testHook(events).state().pushStreams).toBe(1);
+    });
+});
+
+describe('events/stream: on stdio, whose transport cannot tell how far its client has read', () => {
+    const closing: Array<() => Promise<void>> = [];
+    afterEach(async () => {
+        for (const close of closing.splice(0)) await close();
+    });
+
+    // Opens a stream of emit-only type `i` (request id 1) over stdio, on a stdout that holds back its write callbacks while blocked; with a high-water mark of one byte, each frame waits for 'drain', so stdout holds none of the stream's frames beyond the one it is writing.
+    async function stdioStream(events: EventsExtension) {
+        const stdin = new PassThrough();
+        const frames: JSONRPCMessage[] = [];
+        const parked: Array<() => void> = [];
+        let blocked = false;
+        const stdout = new Writable({
+            highWaterMark: 1,
+            write(chunk: Buffer, _encoding, callback) {
+                for (const line of chunk.toString().split('\n')) if (line.trim() !== '') frames.push(JSON.parse(line) as JSONRPCMessage);
+                if (blocked) parked.push(callback);
+                else callback();
+            }
+        });
+        const served = serveStdio(() => new McpServer({ name: 'events-test', version: '1.0.0' }, { extensions: [events] }), {
+            transport: new StdioServerTransport(stdin, stdout)
+        });
+        closing.push(() => served.close());
+        const envelope = {
+            [PROTOCOL_VERSION_META_KEY]: '2026-07-28',
+            [CLIENT_INFO_META_KEY]: { name: 'events-test-client', version: '1.0.0' },
+            [CLIENT_CAPABILITIES_META_KEY]: {}
+        };
+        const send = (message: Record<string, unknown>) => stdin.write(JSON.stringify(message) + '\n');
+        send({ jsonrpc: '2.0', id: 1, method: 'events/stream', params: { name: 'i', cursor: null, _meta: envelope } });
+        await vi.waitFor(() => expect(frames).toEqual([expect.objectContaining({ method: ACTIVE })]));
+        return {
+            frames,
+            // The eventIds of the event frames stdout has taken.
+            written: () => frames.flatMap(frame => ('method' in frame && frame.method === EVENT ? [paramsOf(frame)['eventId']] : [])),
+            block: () => void (blocked = true),
+            release: () => {
+                blocked = false;
+                for (const callback of parked.splice(0)) callback();
+            },
+            cancel: () => send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 1, _meta: envelope } })
+        };
+    }
+
+    it('ends an emit-only stream once emitBuffer.maxEvents live events wait for stdout, and writes its final result once stdout drains', async () => {
+        const onUnsubscribe = vi.fn();
+        const events = new EventsExtension({ emitBuffer: { maxEvents: 100 } });
+        const handle = events.registerEvent('i', { emitOnly: true, payloadSchema: P, onUnsubscribe });
+        const stdio = await stdioStream(events);
+        stdio.block();
+        for (let n = 0; n < 100; n++) await handle.emit({ eventId: `e${n}`, data: { n } });
+        expect(testHook(events).state().pushStreams).toBe(1);
+
+        // The next live event finds 100 waiting: the subscription ends, and no later emit is queued for it.
+        await handle.emit({ eventId: 'e100', data: { n: 100 } });
+        expect(testHook(events).state().pushStreams).toBe(0);
+        await vi.waitFor(() => expect(onUnsubscribe).toHaveBeenCalledOnce());
+        for (let n = 101; n < 1000; n++) await handle.emit({ eventId: `e${n}`, data: { n } });
+        expect(testHook(events).state().emitBuffer).toEqual({ i: 100 });
+
+        // Once the client reads again, the frame stdout held goes out, the queued events do not, and the final result tells it the stream ended.
+        stdio.release();
+        await vi.waitFor(() => expect(stdio.frames.at(-1)).toEqual(finalResult(1)));
+        expect(stdio.written()).toEqual(['e0']);
+        expect(onUnsubscribe).toHaveBeenCalledOnce();
+    });
+
+    it('resolves terminate() once the stream has ended and onUnsubscribe ran, while stdout takes no frames, and then writes terminated and no queued event', async () => {
+        const onUnsubscribe = vi.fn();
+        const events = new EventsExtension();
+        const handle = events.registerEvent('i', { emitOnly: true, payloadSchema: P, onUnsubscribe });
+        const stdio = await stdioStream(events);
+        stdio.block();
+        for (let n = 0; n < 20; n++) await handle.emit({ eventId: `e${n}`, data: { n } });
+
+        const terminating = handle.terminate(new EventsError('forbidden', 'Forbidden')).then(() => 'resolved');
+        const timeout = new Promise(resolve => setTimeout(() => resolve('pending'), 1000));
+        expect(await Promise.race([terminating, timeout])).toBe('resolved');
+        expect(onUnsubscribe).toHaveBeenCalledOnce();
+        expect(testHook(events).state().pushStreams).toBe(0);
+
+        stdio.release();
+        await vi.waitFor(() => expect(stdio.frames.at(-1)).toEqual(finalResult(1)));
+        expect(stdio.frames.slice(1)).toEqual([
+            expect.objectContaining({ method: EVENT, params: expect.objectContaining({ eventId: 'e0' }) }),
+            notification(TERMINATED, 1, { error: { code: -32_024, message: 'Forbidden' } }),
+            finalResult(1)
+        ]);
+    });
+
+    it('writes no queued event after notifications/cancelled ends the stream (SEP-3415: the server MUST stop delivering)', async () => {
+        const onUnsubscribe = vi.fn();
+        const events = new EventsExtension();
+        const handle = events.registerEvent('i', { emitOnly: true, payloadSchema: P, onUnsubscribe });
+        const stdio = await stdioStream(events);
+        stdio.block();
+        for (let n = 0; n < 50; n++) await handle.emit({ eventId: `e${n}`, data: { n } });
+
+        stdio.cancel();
+        await vi.waitFor(() => expect(testHook(events).state().pushStreams).toBe(0));
+        expect(onUnsubscribe).toHaveBeenCalledOnce();
+        stdio.release();
+        await new Promise(resolve => setTimeout(resolve, 100));
+        // The frame stdout held, and no final result: a server SHOULD NOT answer a cancelled request.
+        expect(stdio.frames.slice(1)).toEqual([
+            expect.objectContaining({ method: EVENT, params: expect.objectContaining({ eventId: 'e0' }) })
+        ]);
     });
 });
 

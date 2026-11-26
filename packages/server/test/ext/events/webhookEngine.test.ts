@@ -754,9 +754,36 @@ describe('event delivery', () => {
         ]);
         expect(new Set(gaps().map(request => request.headers['webhook-id'])).size).toBe(1);
         expect(engine.answerGap(ID, 'p0')).toBe(false);
-        // A subscription this engine tracks no watermark for gets the fallback.
-        expect(await engine.sendGap(recordFor({ id: 'sub_2' }), 'p9')).toEqual({ status: 200, body: '' });
+        // A subscription this engine tracks no watermark for starts at the seed, and its acknowledged envelope clears the mark.
+        engine.sendGap(recordFor({ id: 'sub_2' }), 'p9');
+        await until(6);
+        await settle();
         expect(bodyOf(requests.at(-1)!)).toEqual({ type: 'gap', cursor: 'p9' });
+        expect(engine.answerGap('sub_2', 'p0')).toBe(false);
+    });
+
+    it('marks the loss sendGap() reports and sends its envelope at once: refreshes answer truncated until one is acknowledged, and a failed one goes again after the next acknowledged delivery', async () => {
+        let healthy = false;
+        const { engine, record, requests, until } = setup(() => (healthy ? { status: 200, body: '' } : { status: 503, body: '' }));
+        const gaps = () => requests.map(request => bodyOf(request)).filter(body => body.type === 'gap');
+        engine.track(ID, 'p0');
+        engine.sendGap(record, 'p0');
+        await until(1);
+        for (const [index, delay] of DELAYS.entries()) {
+            await settle();
+            await vi.advanceTimersByTimeAsync(delay);
+            await until(index + 2);
+        }
+        await settle();
+        expect(gaps()).toEqual(Array.from({ length: 5 }, () => ({ type: 'gap', cursor: 'p0' })));
+        expect(engine.answerGap(ID, 'p0')).toBe(true);
+
+        healthy = true;
+        engine.deliver(record, occurrence('evt_1'), 'p1', null);
+        await until(7);
+        await settle();
+        expect(gaps().at(-1)).toEqual({ type: 'gap', cursor: 'p1' });
+        expect(engine.answerGap(ID, 'p0')).toBe(false);
     });
 
     it('keeps a loss marked while the gap envelope is in flight, after a refresh with proof cleared the marks before it', async () => {
@@ -1250,6 +1277,33 @@ describe('delivery status', () => {
         await settle();
         expect(engine.status(ID)).toMatchObject({ active: false });
     });
+
+    it('counts the window per minute, so a subscription holds at most 60 counts however many attempts it makes', async () => {
+        const { engine, store, until } = setup();
+        const record = recordFor({ expiresAt: Date.now() + 86_400_000 });
+        await store.put(record);
+        engine.track(ID, 'p0');
+        // A thousand attempts in one minute take one count.
+        let sent = 0;
+        const attempt = async (count: number) => {
+            for (let n = 0; n < count; n++) {
+                sent += 1;
+                engine.deliver(record, occurrence(`evt_${sent}`), `p${sent}`, null);
+            }
+            await until(sent);
+            await settle();
+        };
+        await attempt(1000);
+        expect(engine.windowMinutes).toBe(1);
+
+        // Ten attempts a minute for three hours: the counts of the minutes that left the window are dropped.
+        for (let minute = 1; minute <= 180; minute++) {
+            await vi.advanceTimersByTimeAsync(60_000);
+            await attempt(10);
+            expect(engine.windowMinutes).toBe(Math.min(minute + 1, 60));
+        }
+        expect(engine.status(ID)).toMatchObject({ active: true });
+    }, 30_000);
 
     it('holds at most 10 000 messages while suspended, abandoning the oldest and reporting it', async () => {
         let healthy = false;

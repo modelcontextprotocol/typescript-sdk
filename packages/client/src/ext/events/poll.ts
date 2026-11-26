@@ -48,14 +48,18 @@ export class PollDriver<T> implements Driver {
             }
             if (loop.ended) return;
             failures = 0;
-            this.#deliver(result);
+            const taken = this.#deliver(result);
             loop.subscribed();
             if (result.hasMore !== true) await loop.sleep(Math.max(result.nextPollMs ?? this.#floorMs, this.#floorMs));
-            // A `hasMore` page with no events that is `truncated` or kept the cursor made no progress (a replica that does not know the cursor, say), so it waits the floor.
-            else if (result.events.length === 0 && (result.truncated === true || (result.cursor ?? null) === sent)) {
-                await loop.sleep(this.#floorMs);
-            }
+            else if (!this.#progressed(result, sent, taken)) await loop.sleep(this.#floorMs);
         }
+    }
+
+    // A `hasMore` page made progress when it moved the cursor, or, without a cursor, when the queue took one of its events (not a repeat); a `truncated` one without events made none (a replica that does not know the cursor, say).
+    #progressed(result: PollEventsResult, sent: string | null, taken: boolean): boolean {
+        if (result.truncated === true && result.events.length === 0) return false;
+        const cursor = result.cursor ?? null;
+        return cursor === null ? taken : cursor !== sent;
     }
 
     #poll(cursor: string | null): Promise<PollEventsResult> {
@@ -67,15 +71,18 @@ export class PollDriver<T> implements Driver {
         return this.#context.connection.request(EVENTS_POLL_METHOD, params, PollEventsResultSchema, mirror, { signal: loop.signal });
     }
 
-    #deliver(result: PollEventsResult): void {
+    // Answers whether the queue took one of the result's events.
+    #deliver(result: PollEventsResult): boolean {
         const cursor = result.cursor ?? null;
         this.#nextPollMs = result.nextPollMs;
         const truncated = result.truncated === true;
         // One `onGap` per run of truncated `hasMore` pages (a stale cursor's catch-up under `maxAgeMs`, say); a clean result, or one with nothing more waiting, ends the run.
         this.#loop.succeeded(cursor, truncated && !this.#truncating);
         this.#truncating = truncated && result.hasMore === true;
-        for (const event of result.events) this.#context.queue.push(event);
+        let taken = false;
+        for (const event of result.events) taken = this.#context.queue.push(event) || taken;
         this.#loop.setCursor(cursor);
+        return taken;
     }
 
     // max(floor, nextPollMs), doubling per consecutive failure up to 60 s, never below that base.

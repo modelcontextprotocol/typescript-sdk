@@ -822,6 +822,23 @@ describe('poll leases', () => {
         expect(onUnsubscribe).toHaveBeenCalledOnce();
     });
 
+    it('answers a termination during an onSubscribe that honours ctx.signal with the termination, not the abort it causes, to every poll waiting on that start', async () => {
+        const onSubscribe = vi.fn(
+            (ctx: EventContext) =>
+                new Promise<void>((_, reject) => ctx.signal.addEventListener('abort', () => reject(ctx.signal.reason), { once: true }))
+        );
+        const events = new EventsExtension();
+        const handle = events.registerEvent('t', { payloadSchema: P, check: tick, onSubscribe });
+        const { fail } = poller(events);
+        const first = fail({ name: 't' });
+        const second = fail({ name: 't' });
+        await vi.waitFor(() => expect(onSubscribe).toHaveBeenCalledOnce());
+        await handle.terminate(new EventsError('forbidden', 'Forbidden', { reason: 'Access revoked' }));
+        const revoked = { code: -32_024, message: 'Forbidden', data: { reason: 'Access revoked' } };
+        expect(await first).toEqual(revoked);
+        expect(await second).toEqual(revoked);
+    });
+
     it('terminates only the lease with the given subscriptionId', async () => {
         const ids = new Map<number, string>();
         const events = new EventsExtension();

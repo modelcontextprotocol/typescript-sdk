@@ -41,11 +41,13 @@ export interface EventsClientOptions {
     webhook?: { url: string; secretProvider?: () => string };
     /**
      * The shortest wait between two polls, whatever `nextPollMs` the server
-     * recommends, except after a `hasMore` page that made progress (it had
-     * events, or moved the cursor and was not `truncated`), which is followed
-     * at once; and between two webhook refreshes, whatever the grant (a
-     * skewed clock cannot make them back to back), unless it would reach the
-     * end of the grant: the refresh then comes at ¾ of it. Default 1000.
+     * recommends, except after a `hasMore` page that made progress (it moved
+     * the cursor, or, for an event type without replay, brought an event that
+     * was not a repeat, and was not a `truncated` page without events), which
+     * is followed at once; and between two webhook refreshes, whatever the
+     * grant (a skewed clock cannot make them back to back), unless it would
+     * reach the end of the grant: the refresh then comes at ¾ of it. Default
+     * 1000.
      */
     pollIntervalFloorMs?: number;
 }

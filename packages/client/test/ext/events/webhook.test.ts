@@ -502,6 +502,44 @@ describe('webhook delivery', () => {
         expect(subscribes()).toHaveLength(6);
     });
 
+    it('reports onGap(null) once when a type without replay is subscribed again after refreshes failed past its grant, and nothing for a failure retried within it', async () => {
+        const internal = new RpcError(-32_603, 'Internal error');
+        const onGap = vi.fn();
+        const { subscribes, subscribe } = await webhookWith(
+            granting({}, internal, internal, internal, internal, internal, {}, internal, {})
+        );
+        await subscribe({ onGap });
+
+        // The refreshes from 45 s fail until the grant has ended at 60 s; the one sent at 60.5 s finds the server subscription lapsed.
+        await vi.advanceTimersByTimeAsync(60_499);
+        expect(subscribes()).toHaveLength(6);
+        expect(onGap).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        await settle();
+        expect(subscribes()).toHaveLength(7);
+        expect(onGap).toHaveBeenCalledExactlyOnceWith(null);
+
+        // The next refresh fails once and is retried well within its grant.
+        await vi.advanceTimersByTimeAsync(45_500);
+        await settle();
+        expect(subscribes()).toHaveLength(9);
+        expect(onGap).toHaveBeenCalledOnce();
+    });
+
+    it('reports no gap when a type with a cursor is subscribed again after refreshes failed past its grant', async () => {
+        const internal = new RpcError(-32_603, 'Internal error');
+        const onGap = vi.fn();
+        const { subscribes, subscribe } = await webhookWith(
+            granting({ cursor: 'c1' }, internal, internal, internal, internal, internal, { cursor: 'c1' })
+        );
+        await subscribe({ onGap });
+        await vi.advanceTimersByTimeAsync(60_500);
+        await settle();
+        expect(subscribes()).toHaveLength(7);
+        expect(subscribes()[6]!.params['cursor']).toBe('c1');
+        expect(onGap).not.toHaveBeenCalled();
+    });
+
     it('waits at most the longest timer before refreshing a far-off or null grant', async () => {
         const { subscribes, subscribe } = await webhookWith(
             granting({ refreshBefore: '2100-01-01T00:00:00Z' }, { refreshBefore: null }, {})

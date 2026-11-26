@@ -270,7 +270,10 @@ export class PollSource implements SubscriptionSource {
             mode: 'poll',
             signal: lease.ended.signal
         });
-        const starting = (async () => entry.definition.onSubscribe?.(ctx, args))();
+        // A termination meanwhile answers as itself, here and to a poll waiting on this start, not as the abort it caused in a hook that honours `ctx.signal`.
+        const starting = (async () => entry.definition.onSubscribe?.(ctx, args))().catch((error: unknown) => {
+            throw lease.terminated ?? error;
+        });
         this.#starting.set(key, starting);
         try {
             await starting;

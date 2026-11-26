@@ -98,7 +98,7 @@ interface Emitted {
     readonly previous: string;
 }
 
-// The emits of one event type that one store listing delivers, in emit order; `dropped` when its cap dropped some, so every subscription it lists gets a gap.
+// The emits of one event type that one store listing delivers, in emit order; `dropped` when its cap dropped some, or the pass before it failed for good, so every subscription it lists gets a gap.
 interface Pass {
     readonly entry: RegisteredEvent;
     readonly emits: Emitted[];
@@ -177,6 +177,8 @@ export class WebhookSubscriptions implements SubscriptionSource {
     // By event type: the pass not yet started, which the type's next emits join.
     readonly #pending = new Map<string, Pass>();
     readonly #drops = new Map<string, Drops>();
+    // Event types whose last pass failed for good, so the next pass to run gives every subscription it reaches a gap.
+    readonly #failedPasses = new Set<string>();
 
     constructor(deps: WebhookDeps) {
         this.#deps = deps;
@@ -266,6 +268,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
             this.#pending.set(name, started);
             enqueue(this.#byName, name, () => {
                 if (this.#pending.get(name) === started) this.#pending.delete(name);
+                if (this.#failedPasses.delete(name)) started.dropped = true;
                 return this.#deliverPass(started);
             }).catch((error: unknown) => this.#deps.report(error));
             pass = started;
@@ -302,6 +305,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
         this.#subscribing.clear();
         this.#starting.clear();
         this.#pending.clear();
+        this.#failedPasses.clear();
         for (const drops of this.#drops.values()) clearTimeout(drops.timer);
         this.#drops.clear();
         this.#engine.clear();
@@ -640,7 +644,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
         return makeContext({ name: record.name, subscriptionId: record.id, principal: record.principal, mode: 'webhook', signal });
     }
 
-    // One store listing delivers the pass; a failed store read lists again after a wait, skipping the subscriptions already reached; the last failure throws.
+    // One store listing delivers the pass; a failed store read lists again after a wait, skipping the subscriptions already reached; the last failure throws, and the type's next pass gives every subscription it reaches a gap, as the cap does.
     async #deliverPass(pass: Pass): Promise<void> {
         const reached = new Set<string>();
         for (let attempt = 0; ; attempt++) {
@@ -657,13 +661,16 @@ export class WebhookSubscriptions implements SubscriptionSource {
                 return;
             } catch (error) {
                 const delay = FAN_OUT_RETRY_DELAYS_MS[attempt];
-                if (delay === undefined) throw error;
+                if (delay === undefined) {
+                    this.#failedPasses.add(pass.entry.name);
+                    throw error;
+                }
                 await new Promise(resolve => unref(setTimeout(resolve, delay)));
             }
         }
     }
 
-    // The pass's events to one subscription, in emit order, after a gap for the emits its cap dropped.
+    // The pass's events to one subscription, in emit order, after a gap for the emits its cap, or a failed pass before it, dropped.
     async #deliverTo(record: WebhookSubscriptionRecord, { entry, emits, dropped }: Pass): Promise<void> {
         const { report } = this.#deps;
         if (dropped) this.#engine.markGap(record, emits[0]!.previous);
@@ -749,8 +756,8 @@ export class WebhookSubscriptions implements SubscriptionSource {
                 this.#send(record, batch, from);
                 // A quiet batch moves the watermark to the upstream cursor once nothing awaits an answer, so the refresh cursor advances.
                 if (batch.events.length === 0) this.#engine.advance(id, batch.position);
-                // One gap per run of truncated pages, at the watermark of each attempt as for abandoned events (the batch cursor without one); a page continuing a run already told of sends none.
-                if (batch.truncated && watched.skipping !== true) void this.#engine.sendGap(record, batch.cursor);
+                // One gap per run of truncated pages, marked and sent at once at the watermark of each attempt as for abandoned events (the batch cursor without one); a page continuing a run already told of sends none.
+                if (batch.truncated && watched.skipping !== true) this.#engine.sendGap(record, batch.cursor);
                 watched.position = batch.position;
                 more = pagesOn(batch, from);
                 watched.skipping = batch.truncated && more;
@@ -758,7 +765,11 @@ export class WebhookSubscriptions implements SubscriptionSource {
         } catch (error) {
             if (this.#watched.get(id) !== watched) return;
             if (error instanceof EventsError && TERMINAL_KINDS.has(error.kind)) {
-                this.#end(id, entry.name, error).catch((error_: unknown) => this.#deps.report(error_));
+                this.#end(id, entry.name, error).catch((error_: unknown) => {
+                    this.#deps.report(error_);
+                    // The end failed on the store: the loop runs again, and its terminal error retries the end.
+                    if (this.#watched.get(id) === watched) this.#schedule(watched);
+                });
                 return;
             }
             this.#deps.report(error);
