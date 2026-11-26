@@ -29,6 +29,8 @@ await client.connect(transport);
 
 `expectedIssuer` is the `issuer` of the authorization server the credential was registered with. If discovery resolves a different issuer, the SDK throws `AuthorizationServerMismatchError` instead of sending the secret. `PrivateKeyJwtProvider` and `CrossAppAccessProvider` below take it too; omitting it is deprecated, and the credential then goes to whichever authorization server the MCP server advertises.
 
+Every built-in provider also takes `logger`, a console-compatible `SdkLogger` for the warnings the SDK prints about it, such as that deprecation. It defaults to `console`.
+
 ## Bring your own bearer token
 
 When something outside the SDK already owns the token — an API key, a gateway, a platform secret store — implement `AuthProvider` with only `token()`.

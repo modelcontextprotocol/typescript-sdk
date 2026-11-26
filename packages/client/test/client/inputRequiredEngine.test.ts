@@ -319,6 +319,40 @@ describe('auto-fulfilment (default on)', () => {
 
         await client.close();
     });
+
+    it('runs use() middleware around the handler that fulfils an embedded input request', async () => {
+        const { clientTx, toolCalls } = await scriptedModernServer((_request, call) =>
+            call === 1 ? { resultType: 'input_required', inputRequests: { login: ELICIT_ENTRY }, requestState: 's' } : COMPLETE_RESULT
+        );
+        const log: string[] = [];
+        const client = makeClient({
+            extensions: [
+                {
+                    id: 'com.example/audit',
+                    setup: ctx =>
+                        ctx.use('elicitation/create', async (request, requestCtx, next) => {
+                            log.push('in');
+                            const result = await next(request, requestCtx);
+                            log.push('out');
+                            return { ...result, content: { name: 'rewritten' } };
+                        })
+                }
+            ]
+        });
+        client.setRequestHandler('elicitation/create', async () => {
+            log.push('handler');
+            return { action: 'accept', content: { name: 'octocat' } } satisfies ElicitResult;
+        });
+        await client.connect(clientTx);
+
+        await client.callTool({ name: 'deploy', arguments: {} });
+        expect(log).toEqual(['in', 'handler', 'out']);
+        expect((toolCalls[1]!.params as Record<string, unknown>).inputResponses).toEqual({
+            login: { action: 'accept', content: { name: 'rewritten' } }
+        });
+
+        await client.close();
+    });
 });
 
 describe('manual mode', () => {

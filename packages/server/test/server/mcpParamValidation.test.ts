@@ -115,6 +115,13 @@ describe('SEP-2243 Mcp-Param-* server validation (createMcpHandler, modern era)'
         expect(r2.status).toBe(200);
     });
 
+    it('a present header with an object body value is rejected 400/-32020 before argument validation', async () => {
+        const handler = createMcpHandler(makeFactory());
+        const response = await handler.fetch(call({ region: { nested: 'us-west1' } }, { 'Mcp-Param-Region': 'us-west1' }));
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as { error: { code: number } }).error.code).toBe(-32_020);
+    });
+
     it('an invalid Base64 sentinel is rejected 400/-32020', async () => {
         const handler = createMcpHandler(makeFactory());
         const response = await handler.fetch(call({ region: 'Hello' }, { 'Mcp-Param-Region': '=?base64?SGVsbG8?=' }));
