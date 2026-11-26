@@ -16,11 +16,10 @@ export class InMemoryEventStore implements EventStore {
     }
 
     /**
-     * Extracts the stream ID from an event ID
+     * Looks up the stream ID an event was stored under
      */
     private getStreamIdFromEventId(eventId: string): string {
-        const parts = eventId.split('_');
-        return parts.length > 0 ? parts[0]! : '';
+        return this.events.get(eventId)?.streamId ?? '';
     }
 
     /**
@@ -45,7 +44,7 @@ export class InMemoryEventStore implements EventStore {
             return '';
         }
 
-        // Extract the stream ID from the event ID
+        // Look up the stream ID the event was stored under
         const streamId = this.getStreamIdFromEventId(lastEventId);
         if (!streamId) {
             return '';
