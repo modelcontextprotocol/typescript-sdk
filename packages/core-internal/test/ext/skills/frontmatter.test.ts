@@ -11,6 +11,11 @@ describe('splitFrontmatter', () => {
         expect(splitFrontmatter('\uFEFF---\r\nname: a\r\n---\r\nBody\r\n')).toEqual({ yaml: 'name: a\n', body: 'Body\n' });
     });
 
+    it('accepts trailing whitespace on the opening delimiter line', () => {
+        expect(splitFrontmatter('--- \nname: a\n---\nBody\n')).toEqual({ yaml: 'name: a\n', body: 'Body\n' });
+        expect(splitFrontmatter('---\t\nname: a\n---\nBody\n')).toEqual({ yaml: 'name: a\n', body: 'Body\n' });
+    });
+
     it('rejects a file without frontmatter or without a closing line', () => {
         expect(() => splitFrontmatter('# no frontmatter')).toThrow(FrontmatterError);
         expect(() => splitFrontmatter('---\nname: a\n')).toThrow(/closing/);

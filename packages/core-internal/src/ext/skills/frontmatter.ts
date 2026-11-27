@@ -37,8 +37,9 @@ const MAX_DEPTH = 32;
 export function splitFrontmatter(markdown: string): SplitSkillMarkdown {
     let text = markdown.replaceAll('\r\n', '\n');
     if (text.codePointAt(0) === 0xfe_ff) text = text.slice(1);
-    if (!text.startsWith('---\n')) throw new FrontmatterError('SKILL.md must begin with a "---" line', 1);
-    const rest = text.slice(4);
+    const open = /^---[\t ]*\n/.exec(text);
+    if (open === null) throw new FrontmatterError('SKILL.md must begin with a "---" line', 1);
+    const rest = text.slice(open[0].length);
     const close = /^---[\t ]*$/m.exec(rest);
     if (close === null) throw new FrontmatterError('frontmatter has no closing "---" line');
     let body = rest.slice(close.index + close[0].length);
