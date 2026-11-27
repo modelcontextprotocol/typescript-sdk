@@ -2625,6 +2625,53 @@ describe('StreamableHTTPClientTransport', () => {
             const secondCallHeaders = fetchMock.mock.calls[1]![1]?.headers;
             expect(secondCallHeaders?.get('last-event-id')).toBe('evt-1');
         });
+
+        it('should keep the resumption token when a resumed stream ends before any id-bearing event', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 1
+                }
+            });
+
+            // A resumed stream that never sends an id: a comment line, then a graceful close.
+            const encoder = new TextEncoder();
+            const stream = new ReadableStream({
+                start(controller) {
+                    controller.enqueue(encoder.encode(': resuming\n\n'));
+                    controller.close();
+                }
+            });
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: stream
+            });
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream()
+            });
+
+            await transport.start();
+            await transport['_startOrAuthSse']({ resumptionToken: 'evt-1' });
+
+            await vi.advanceTimersByTimeAsync(50);
+            await vi.advanceTimersByTimeAsync(150);
+
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            const firstCallHeaders = fetchMock.mock.calls[0]![1]?.headers;
+            expect(firstCallHeaders?.get('last-event-id')).toBe('evt-1');
+            // The reconnect resumes from the same cursor: replay is idempotent, dropping it is not.
+            const secondCallHeaders = fetchMock.mock.calls[1]![1]?.headers;
+            expect(secondCallHeaders?.get('last-event-id')).toBe('evt-1');
+        });
     });
 
     describe('Reconnection Logic with maxRetries 0', () => {
