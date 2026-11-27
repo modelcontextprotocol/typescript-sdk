@@ -43,6 +43,7 @@ import {
     resolveClientMetadata,
     selectClientAuthMethod,
     startAuthorization,
+    TransientRefreshError,
     UnauthorizedError,
     validateAuthorizationResponseIssuer,
     validateClientMetadataUrl
@@ -3154,7 +3155,10 @@ describe('OAuth Authorization', () => {
                         })
                     });
                 } else if (urlString.includes('/token')) {
-                    return Promise.resolve(tokenResponse());
+                    // `.then(tokenResponse)`, not `Promise.resolve(...)`: a factory that throws
+                    // (or returns a rejection) models a network failure instead of resolving
+                    // with the thrown value.
+                    return Promise.resolve().then(tokenResponse);
                 }
 
                 return Promise.resolve({ ok: false, status: 404 });
@@ -3265,53 +3269,6 @@ describe('OAuth Authorization', () => {
             expect(mockProvider.redirectToAuthorization).not.toHaveBeenCalled();
         });
 
-        it('warns when a server-side refresh failure falls back to a new authorization request (#2034)', async () => {
-            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day'));
-
-            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
-            (mockProvider.tokens as Mock).mockResolvedValue(storedTokens);
-            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
-            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-            await expect(auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
-
-            expect(warn).toHaveBeenCalledWith(expect.stringContaining('Could not refresh OAuth tokens'));
-            expect(warn).toHaveBeenCalledWith(expect.stringContaining('AS is having a bad day'));
-            warn.mockRestore();
-        });
-
-        it("routes auth() warnings to the provider's sdkLogger instead of console", async () => {
-            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day'));
-
-            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
-            (mockProvider.tokens as Mock).mockResolvedValue(storedTokens);
-            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
-            const warn = vi.fn();
-            const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-            const provider: OAuthClientProvider = Object.create(mockProvider, { sdkLogger: { value: { warn } } });
-
-            await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
-
-            expect(warn).toHaveBeenCalledWith(expect.stringContaining('Could not refresh OAuth tokens'));
-            expect(consoleWarn).not.toHaveBeenCalled();
-            consoleWarn.mockRestore();
-        });
-
-        it('auth() still completes when the provider sdkLogger throws', async () => {
-            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day'));
-
-            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
-            (mockProvider.tokens as Mock).mockResolvedValue(storedTokens);
-            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
-            const warn = vi.fn(() => {
-                throw new Error('log sink closed');
-            });
-            const provider: OAuthClientProvider = Object.create(mockProvider, { sdkLogger: { value: { warn } } });
-
-            await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
-            expect(warn).toHaveBeenCalled();
-        });
-
         it('warns, and cannot recover, when invalid_grant hits a provider with no invalidateCredentials (#2034)', async () => {
             let tokenPosts = 0;
             mockDiscoveryWithTokenEndpoint(() => {
@@ -3411,6 +3368,293 @@ describe('OAuth Authorization', () => {
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalidating the stored client credentials and tokens'));
             expect(warn).toHaveBeenCalledWith(expect.stringContaining(message));
             warn.mockRestore();
+        });
+
+        // #3238: a transient token-endpoint failure during refresh is not a dead refresh token.
+        // Fake timers keep the backoff between attempts out of the suite's runtime.
+        describe('transient refresh failures (#3238)', () => {
+            afterEach(() => {
+                vi.useRealTimers();
+            });
+
+            const transientProvider = (): { provider: OAuthClientProvider; invalidateCredentials: Mock } => {
+                const invalidateCredentials = vi.fn();
+                return { provider: providerWithInvalidation(invalidateCredentials), invalidateCredentials };
+            };
+
+            const tokenPosts = (): number => mockFetch.mock.calls.filter(call => call[0].toString().includes('/token')).length;
+
+            const rejectionOf = (pending: Promise<unknown>): Promise<unknown> =>
+                pending.then(
+                    () => {
+                        throw new Error('auth() unexpectedly resolved');
+                    },
+                    (error: unknown) => error
+                );
+
+            // Starts auth() and drives any pending backoff timers to completion. Both outcomes are
+            // handed back so a REDIRECT-shaped result and a rejection assert the same way, and the
+            // handlers attach before the timers run so Vitest sees no unhandled rejection.
+            const startAuth = (provider: OAuthClientProvider): Promise<{ result: unknown; error: unknown }> => {
+                const settled = auth(provider, { serverUrl: 'https://api.example.com/mcp-server' }).then(
+                    (result: unknown) => ({ result, error: undefined }),
+                    (error: unknown) => ({ result: undefined, error })
+                );
+                return vi.runAllTimersAsync().then(() => settled);
+            };
+
+            const transientRejection = (rejection: unknown): TransientRefreshError => {
+                expect(rejection).toBeInstanceOf(TransientRefreshError);
+                return rejection as TransientRefreshError;
+            };
+
+            const TRANSIENT_FAILURES: Array<[string, () => unknown]> = [
+                ['a 503', () => new Response('<html>upstream unavailable</html>', { status: 503 })],
+                ['an AS-declared server_error', () => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day')],
+                ['temporarily_unavailable', () => oauthErrorResponse(OAuthErrorCode.TemporarilyUnavailable, 'AS is overloaded')],
+                ['a 429', () => new Response('rate limited', { status: 429 })],
+                [
+                    'a network failure',
+                    () => {
+                        throw new TypeError('fetch failed');
+                    }
+                ]
+            ];
+
+            it.each(TRANSIENT_FAILURES)('retries %s once and refreshes without re-authorizing', async (_name, failOnce) => {
+                vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+                let attempts = 0;
+                mockDiscoveryWithTokenEndpoint(() => {
+                    attempts++;
+                    return attempts === 1 ? failOnce() : refreshedWithoutScope();
+                });
+                const { provider, invalidateCredentials } = transientProvider();
+
+                const { error, result } = await startAuth(provider);
+
+                expect(error).toBeUndefined();
+                expect(result).toBe('AUTHORIZED');
+                expect(tokenPosts()).toBe(2);
+                expect(provider.saveTokens).toHaveBeenCalledWith(
+                    expect.objectContaining({ access_token: 'new-access', refresh_token: 'refresh123' }),
+                    expect.anything()
+                );
+                expect(provider.redirectToAuthorization).not.toHaveBeenCalled();
+                expect(invalidateCredentials).not.toHaveBeenCalled();
+            });
+
+            it('throws TransientRefreshError when a 503 outlasts the retry budget, keeping the stored refresh token', async () => {
+                vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+                mockDiscoveryWithTokenEndpoint(() => new Response('<html>upstream unavailable</html>', { status: 503 }));
+                const { provider, invalidateCredentials } = transientProvider();
+                const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+                const { error, result } = await startAuth(provider);
+                const warnings = warn.mock.calls.map(call => String(call[0]));
+                warn.mockRestore();
+
+                expect(result).toBeUndefined();
+                const rejection = transientRejection(error);
+                expect(rejection.cause).toBeInstanceOf(OAuthError);
+                expect((rejection.cause as OAuthError).code).toBe(OAuthErrorCode.ServerError);
+                expect(rejection.message).toContain('3 attempts');
+                // Bounded: the initial attempt plus two retries, then it stops.
+                expect(tokenPosts()).toBe(3);
+                expect(provider.saveTokens).not.toHaveBeenCalled();
+                expect(provider.redirectToAuthorization).not.toHaveBeenCalled();
+                expect(invalidateCredentials).not.toHaveBeenCalled();
+                expect(warnings.some(line => line.includes('Could not refresh OAuth tokens'))).toBe(true);
+            });
+
+            it('throws TransientRefreshError with the fetch failure as cause when the network never comes back', async () => {
+                vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+                mockDiscoveryWithTokenEndpoint(() => {
+                    throw new TypeError('fetch failed');
+                });
+                const { provider, invalidateCredentials } = transientProvider();
+
+                const { error, result } = await startAuth(provider);
+
+                expect(result).toBeUndefined();
+                const rejection = transientRejection(error);
+                expect(rejection.cause).toBeInstanceOf(TypeError);
+                expect(tokenPosts()).toBe(3);
+                expect(provider.saveTokens).not.toHaveBeenCalled();
+                expect(provider.redirectToAuthorization).not.toHaveBeenCalled();
+                expect(invalidateCredentials).not.toHaveBeenCalled();
+            });
+
+            it('re-enters the refresh grant per attempt, so each retry authenticates freshly', async () => {
+                vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+                mockDiscoveryWithTokenEndpoint(() => new Response('<html>upstream unavailable</html>', { status: 503 }));
+                const { provider, invalidateCredentials } = transientProvider();
+                const addClientAuthentication = vi.fn();
+                const assertingProvider: OAuthClientProvider = { ...provider, addClientAuthentication };
+
+                const { error, result } = await startAuth(assertingProvider);
+
+                expect(result).toBeUndefined();
+                expect(transientRejection(error)).toBeInstanceOf(TransientRefreshError);
+                // One call per attempt: a private_key_jwt assertion (or a DPoP proof) is minted
+                // fresh per attempt instead of replaying the first request's one-time value.
+                expect(addClientAuthentication).toHaveBeenCalledTimes(3);
+                expect(invalidateCredentials).not.toHaveBeenCalled();
+            });
+
+            it('warns when a transient refresh failure exhausts its retries (#2034, #3238)', async () => {
+                vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+                mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day'));
+                const { provider } = transientProvider();
+                const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+                const { error, result } = await startAuth(provider);
+                const warnings = warn.mock.calls.map(call => String(call[0]));
+                warn.mockRestore();
+
+                expect(result).toBeUndefined();
+                expect(transientRejection(error)).toBeInstanceOf(TransientRefreshError);
+                expect(warnings.some(line => line.includes('Could not refresh OAuth tokens'))).toBe(true);
+                expect(warnings.some(line => line.includes('AS is having a bad day'))).toBe(true);
+                expect(provider.redirectToAuthorization).not.toHaveBeenCalled();
+            });
+
+            it("routes the exhaustion warning to the provider's sdkLogger instead of console", async () => {
+                vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+                mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day'));
+                const warn = vi.fn();
+                const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+                const provider: OAuthClientProvider = Object.create(transientProvider().provider, {
+                    sdkLogger: { value: { warn } }
+                });
+
+                const { error, result } = await startAuth(provider);
+
+                expect(result).toBeUndefined();
+                expect(transientRejection(error)).toBeInstanceOf(TransientRefreshError);
+                expect(warn).toHaveBeenCalledWith(expect.stringContaining('Could not refresh OAuth tokens'));
+                expect(consoleWarn).not.toHaveBeenCalled();
+                consoleWarn.mockRestore();
+            });
+
+            it('still rejects with TransientRefreshError when the provider sdkLogger throws', async () => {
+                vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+                mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day'));
+                const warn = vi.fn(() => {
+                    throw new Error('log sink closed');
+                });
+                const provider: OAuthClientProvider = Object.create(transientProvider().provider, {
+                    sdkLogger: { value: { warn } }
+                });
+
+                const { error, result } = await startAuth(provider);
+
+                expect(result).toBeUndefined();
+                expect(transientRejection(error)).toBeInstanceOf(TransientRefreshError);
+                expect(warn).toHaveBeenCalled();
+            });
+
+            it.each([
+                [OAuthErrorCode.InvalidGrant, 'Refresh token expired'],
+                [OAuthErrorCode.InvalidClient, 'Client authentication failed'],
+                [OAuthErrorCode.UnauthorizedClient, 'Client not authorized'],
+                [OAuthErrorCode.InvalidDpopProof, 'DPoP proof rejected']
+            ])('does not retry a definitive %s before invalidating credentials', async (code, message) => {
+                mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(code, message));
+                const { provider, invalidateCredentials } = transientProvider();
+                const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+                const result = await auth(provider, { serverUrl: 'https://api.example.com/mcp-server' });
+
+                warn.mockRestore();
+                expect(result).toBe('REDIRECT');
+                // One post: the refresh grant was rejected on the first attempt, so no backoff
+                // retry replayed it; the outer invalidation retry re-authorizes without posting.
+                expect(tokenPosts()).toBe(1);
+                expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+                expect(provider.redirectToAuthorization).toHaveBeenCalledTimes(1);
+            });
+
+            it('does not retry InsecureTokenEndpointError, and does not wrap it', async () => {
+                // PRM is absent, so the MCP server URL doubles as the authorization server and its
+                // non-https token endpoint trips the SEP-2207 guard before any credentials move.
+                mockFetch.mockImplementation(url => {
+                    const urlString = url.toString();
+                    if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://api.example.com',
+                                authorization_endpoint: 'https://api.example.com/authorize',
+                                token_endpoint: 'http://api.example.com/token',
+                                response_types_supported: ['code']
+                            })
+                        });
+                    }
+                    return Promise.resolve({ ok: false, status: 404 });
+                });
+                const invalidateCredentials = vi.fn();
+                const provider: OAuthClientProvider = {
+                    ...mockProvider,
+                    invalidateCredentials,
+                    clientInformation: vi.fn().mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' }),
+                    tokens: vi.fn().mockResolvedValue({ ...storedTokens, issuer: 'https://api.example.com' }),
+                    saveTokens: vi.fn(),
+                    redirectToAuthorization: vi.fn(),
+                    saveCodeVerifier: vi.fn(),
+                    codeVerifier: vi.fn().mockResolvedValue('verifier')
+                };
+
+                const rejection = await rejectionOf(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' }));
+
+                expect(rejection).toBeInstanceOf(InsecureTokenEndpointError);
+                expect(tokenPosts()).toBe(0);
+                expect(provider.redirectToAuthorization).not.toHaveBeenCalled();
+                expect(invalidateCredentials).not.toHaveBeenCalled();
+            });
+
+            it('does not retry the authorization_code exchange on a 503', async () => {
+                mockDiscoveryWithTokenEndpoint(() => new Response('<html>upstream unavailable</html>', { status: 503 }));
+                const provider: OAuthClientProvider = {
+                    ...mockProvider,
+                    clientInformation: vi.fn().mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' }),
+                    saveTokens: vi.fn(),
+                    codeVerifier: vi.fn().mockResolvedValue('verifier'),
+                    redirectToAuthorization: vi.fn()
+                };
+
+                const rejection = await rejectionOf(
+                    auth(provider, { serverUrl: 'https://api.example.com/mcp-server', authorizationCode: 'code' })
+                );
+
+                expect(rejection).toBeInstanceOf(OAuthError);
+                expect((rejection as OAuthError).code).toBe(OAuthErrorCode.ServerError);
+                expect(tokenPosts()).toBe(1);
+                expect(provider.saveTokens).not.toHaveBeenCalled();
+                expect(provider.redirectToAuthorization).not.toHaveBeenCalled();
+            });
+
+            it('does not retry the authorization_code exchange on a network failure', async () => {
+                const fetchFailure = new TypeError('fetch failed');
+                mockDiscoveryWithTokenEndpoint(() => {
+                    throw fetchFailure;
+                });
+                const provider: OAuthClientProvider = {
+                    ...mockProvider,
+                    clientInformation: vi.fn().mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' }),
+                    saveTokens: vi.fn(),
+                    codeVerifier: vi.fn().mockResolvedValue('verifier'),
+                    redirectToAuthorization: vi.fn()
+                };
+
+                const rejection = await rejectionOf(
+                    auth(provider, { serverUrl: 'https://api.example.com/mcp-server', authorizationCode: 'code' })
+                );
+
+                expect(rejection).toBe(fetchFailure);
+                expect(tokenPosts()).toBe(1);
+                expect(provider.redirectToAuthorization).not.toHaveBeenCalled();
+            });
         });
 
         it('skips default PRM resource validation when custom validateResourceURL is provided', async () => {

@@ -33,13 +33,25 @@ import {
 } from '@modelcontextprotocol/core-internal';
 import pkceChallenge from 'pkce-challenge';
 
-import { AuthorizationServerMismatchError, InsecureTokenEndpointError, IssuerMismatchError, RegistrationRejectedError } from './authErrors';
+import {
+    AuthorizationServerMismatchError,
+    InsecureTokenEndpointError,
+    IssuerMismatchError,
+    RegistrationRejectedError,
+    TransientRefreshError
+} from './authErrors';
 import type { DpopSession } from './dpop';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced in JSDoc {@linkcode}
 import type { withDpopFromProvider, withOAuth } from './middleware';
 
 // Re-exported for back-compat — the canonical home is ./authErrors.js.
-export { AuthorizationServerMismatchError, InsecureTokenEndpointError, IssuerMismatchError, RegistrationRejectedError } from './authErrors';
+export {
+    AuthorizationServerMismatchError,
+    InsecureTokenEndpointError,
+    IssuerMismatchError,
+    RegistrationRejectedError,
+    TransientRefreshError
+} from './authErrors';
 
 /**
  * Function type for adding client authentication to token requests.
@@ -1094,6 +1106,68 @@ function warnCredentialInvalidation(provider: OAuthClientProvider, error: OAuthE
     );
 }
 
+// Bounded refresh retry (#3238): three attempts, with a doubling delay between them.
+const REFRESH_MAX_ATTEMPTS = 3;
+const REFRESH_RETRY_BASE_DELAY_MS = 500;
+
+/**
+ * Whether a refresh failure can plausibly succeed on a later attempt: a transport-level failure
+ * (a fetch `TypeError`, a timeout), or an authorization server signalling `server_error` /
+ * `temporarily_unavailable` — which is what an HTTP 5xx or 429 whose body is not an OAuth error
+ * document parses to. Anything else is the authorization server's verdict on the credentials and
+ * is not retried.
+ */
+function isTransientRefreshFailure(error: unknown): boolean {
+    if (error instanceof OAuthError) {
+        return error.code === OAuthErrorCode.ServerError || error.code === OAuthErrorCode.TemporarilyUnavailable;
+    }
+    return true;
+}
+
+/** `base * 2^(attempt-1)` with equal jitter, so concurrent clients do not retry in lockstep. */
+function refreshRetryDelayMs(attempt: number): number {
+    const backoff = REFRESH_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+    return backoff / 2 + Math.random() * (backoff / 2);
+}
+
+/**
+ * Runs the refresh_token grant, retrying the failures {@linkcode isTransientRefreshFailure} names
+ * and throwing {@linkcode TransientRefreshError} once the budget is spent. Definitive rejections
+ * propagate untouched so `auth()`'s outer handling can still invalidate credentials, and each
+ * attempt re-enters {@linkcode refreshAuthorization} so a DPoP proof or a `private_key_jwt`
+ * assertion is minted fresh rather than replayed.
+ */
+async function refreshAuthorizationWithRetry(
+    authorizationServerUrl: string | URL,
+    options: Parameters<typeof refreshAuthorization>[1],
+    logger: SdkLogger
+): Promise<OAuthTokens> {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            return await refreshAuthorization(authorizationServerUrl, options);
+        } catch (error) {
+            // A non-TLS token endpoint is a configuration error — re-authorizing cannot fix it.
+            if (error instanceof InsecureTokenEndpointError) {
+                throw error;
+            }
+            if (!isTransientRefreshFailure(error)) {
+                throw error;
+            }
+            if (attempt === REFRESH_MAX_ATTEMPTS) {
+                // The stored credentials are still usable, so the caller — not a fresh /authorize
+                // redirect — decides what happens next. Say why (#2034); JSON-stringify the cause,
+                // which echoes the authorization server's response verbatim.
+                logger.warn?.(
+                    `[mcp-sdk] Could not refresh OAuth tokens after ${attempt} attempts; keeping the stored tokens and ` +
+                        `not starting a new authorization. Cause: ${JSON.stringify(error instanceof Error ? error.message : String(error))}`
+                );
+                throw new TransientRefreshError(error, attempt);
+            }
+            await new Promise<void>(resolve => setTimeout(resolve, refreshRetryDelayMs(attempt)));
+        }
+    }
+}
+
 /**
  * Orchestrates the full auth flow with a server.
  *
@@ -1428,10 +1502,11 @@ async function authInternal(
     // §6), so skip straight to a fresh authorization request.
     if (tokens?.refresh_token && !forceReauthorization) {
         const refreshScope = await provider.scopeForRefresh?.(tokens);
-        let newTokens: OAuthTokens | undefined;
-        try {
-            // Attempt to refresh the token
-            newTokens = await refreshAuthorization(authorizationServerUrl, {
+        // Transient failures are retried and then thrown as TransientRefreshError with the stored
+        // credentials kept (#3238); definitive ones reach auth()'s outer handling below.
+        const newTokens = await refreshAuthorizationWithRetry(
+            authorizationServerUrl,
+            {
                 metadata,
                 clientInformation,
                 refreshToken: tokens.refresh_token,
@@ -1440,39 +1515,16 @@ async function authInternal(
                 addClientAuthentication: provider.addClientAuthentication,
                 dpop: await provider.dpop?.(),
                 fetchFn
-            });
-        } catch (error) {
-            // A non-TLS token endpoint is a configuration error — re-authorizing cannot
-            // fix it. Surface it so the consumer sees the misconfiguration instead of an
-            // unexplained re-auth prompt.
-            if (error instanceof InsecureTokenEndpointError) {
-                throw error;
-            }
-            // If this is a ServerError, or an unknown type, log it out and try to continue. Otherwise, escalate so we can fix things and retry.
-            if (!(error instanceof OAuthError) || error.code === OAuthErrorCode.ServerError) {
-                // Could not refresh OAuth tokens. The fallthrough to a fresh authorization
-                // request is deliberate, but it is invisible on a headless client whose
-                // redirectToAuthorization() is a no-op — so say why it happened.
-                // JSON-stringify the cause: on the non-OAuth-shaped path it carries the raw
-                // response body, so it is arbitrary attacker-supplied bytes.
-                logger.warn?.(
-                    `[mcp-sdk] Could not refresh OAuth tokens; falling back to a new authorization request. ` +
-                        `Cause: ${JSON.stringify(error instanceof Error ? error.message : String(error))}`
-                );
-            } else {
-                // Refresh failed for another reason, re-throw
-                throw error;
-            }
-        }
+            },
+            logger
+        );
 
         // Persist any newly minted tokens. Persistence failures must always
         // propagate: the authorization server may have rotated the refresh
         // token, so silently dropping the new tokens would leave the client
         // with credentials that are already invalid server-side.
-        if (newTokens) {
-            await provider.saveTokens({ ...newTokens, issuer }, infoCtx);
-            return 'AUTHORIZED';
-        }
+        await provider.saveTokens({ ...newTokens, issuer }, infoCtx);
+        return 'AUTHORIZED';
     }
 
     const state = provider.state ? await provider.state() : undefined;

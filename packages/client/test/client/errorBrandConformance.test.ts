@@ -91,6 +91,7 @@ describe('error brand conformance (client export surface)', () => {
             RegistrationRejectedError: 'mcp.RegistrationRejectedError',
             SkillVerificationError: 'mcp.SkillVerificationError',
             SseError: 'mcp.SseError',
+            TransientRefreshError: 'mcp.TransientRefreshError',
             UnauthorizedError: 'mcp.UnauthorizedError'
         });
     });
