@@ -62,6 +62,41 @@ describe('row: DiscoverResult with version overlap → modern, select from suppo
     });
 });
 
+describe('row: DiscoverResult with an unrecognized resultType → typed UnsupportedResultType error, never modern', () => {
+    const discoverResultWithType = (resultType: string, supportedVersions: string[] = [MODERN]) => ({
+        ...discoverResult(supportedVersions),
+        resultType
+    });
+
+    test("'partial' is invalid, never modern evidence", () => {
+        const verdict = classify({ kind: 'result', result: discoverResultWithType('partial') });
+        expect(verdict.kind).toBe('error');
+        if (verdict.kind === 'error') {
+            expect(verdict.error).toBeInstanceOf(SdkError);
+            expect((verdict.error as SdkError).code).toBe(SdkErrorCode.UnsupportedResultType);
+        }
+    });
+
+    test("'input_required' is invalid in a server/discover reply", () => {
+        const verdict = classify({ kind: 'result', result: discoverResultWithType('input_required') });
+        expect(verdict.kind).toBe('error');
+        if (verdict.kind === 'error') {
+            expect(verdict.error).toBeInstanceOf(SdkError);
+            expect((verdict.error as SdkError).code).toBe(SdkErrorCode.UnsupportedResultType);
+        }
+    });
+
+    test("'complete' still classifies modern", () => {
+        const verdict = classify({ kind: 'result', result: discoverResultWithType('complete') });
+        expect(verdict).toMatchObject({ kind: 'modern', version: MODERN });
+    });
+
+    test('absent resultType stays lenient (pre-2026 servers omit it)', () => {
+        const verdict = classify({ kind: 'result', result: discoverResult([MODERN]) });
+        expect(verdict).toMatchObject({ kind: 'modern', version: MODERN });
+    });
+});
+
 describe('row: DiscoverResult with NO overlap → legacy initialize fallback, else typed error with synthesized data', () => {
     test('fallback possible → legacy (era selection on a dual-era server)', () => {
         const verdict = classify({ kind: 'result', result: discoverResult(['2027-12-31']) });
