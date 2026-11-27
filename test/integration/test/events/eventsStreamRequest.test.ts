@@ -1,25 +1,22 @@
 /**
- * What an open `events/stream` keeps of its HTTP request under `toNodeHandler`:
- * none of its body once read, while a client disconnect still ends the stream.
+ * What an open `events/stream` keeps of its HTTP request body through `createMcpHandler.fetch`:
+ * nothing still unread, whether the host read a clone and passed `parsedBody` (Hono's pattern)
+ * or the handler read the body itself, while a client abort still ends the stream.
  */
-import type { Server as HttpServer } from 'node:http';
-import { createServer, request as httpRequest } from 'node:http';
-import { getHeapStatistics, setFlagsFromString } from 'node:v8';
+import { setFlagsFromString } from 'node:v8';
 import { runInNewContext } from 'node:vm';
 
-import { toNodeHandler } from '@modelcontextprotocol/node';
 import type { McpHttpHandler } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { EventsExtension } from '@modelcontextprotocol/server/ext/events';
-import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import { afterEach, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
 const MODERN = '2026-07-28';
 const NAME = 'tick';
 const PADDING = 4_000_000;
-// The client writes the padding from this one chunk.
-const SPACES = Buffer.alloc(65_536, 0x20);
+const CHUNK = 65_536;
+const STREAMS = 3;
 const HEADERS = {
     'content-type': 'application/json',
     accept: 'application/json, text/event-stream',
@@ -67,67 +64,77 @@ function served(): { handler: McpHttpHandler; ended: () => number } {
     return { handler, ended: () => ended };
 }
 
-async function serveNode(handler: McpHttpHandler): Promise<URL> {
-    const httpServer: HttpServer = createServer(toNodeHandler(handler));
-    const baseUrl = await listenOnRandomPort(httpServer);
-    cleanups.push(() => void httpServer.close());
-    return baseUrl;
-}
-
-// Opens an events/stream whose body ends in `padding` spaces, written from one reused chunk so the client keeps no copy of the body; resolves at `notifications/events/active` with a disconnect.
-function openStream(baseUrl: URL, padding: number): Promise<{ status: number | undefined; disconnect(): void }> {
-    return new Promise((resolve, reject) => {
-        const request = httpRequest(
-            new URL('/mcp', baseUrl),
-            { method: 'POST', headers: { ...HEADERS, 'content-length': Buffer.byteLength(MESSAGE) + padding } },
-            response => {
-                let text = '';
-                response.setEncoding('utf8');
-                const read = (chunk: string): void => {
-                    text += chunk;
-                    if (!text.includes('notifications/events/active')) return;
-                    response.off('data', read);
-                    response.resume();
-                    resolve({ status: response.statusCode, disconnect: () => request.destroy() });
-                };
-                response.on('data', read);
-                response.on('end', () => reject(new Error(`the stream ended before active: ${text}`)));
+// An events/stream Request whose streamed body ends in `padding` spaces, each chunk freshly allocated as a network body's are.
+function paddedRequest(padding: number, signal: AbortSignal): Request {
+    let left = padding;
+    let sentMessage = false;
+    const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+            if (!sentMessage) {
+                sentMessage = true;
+                controller.enqueue(new TextEncoder().encode(MESSAGE));
+            } else if (left > 0) {
+                const size = Math.min(left, CHUNK);
+                left -= size;
+                controller.enqueue(new Uint8Array(size).fill(0x20));
+            } else {
+                controller.close();
             }
-        );
-        request.on('error', () => {});
-        request.write(MESSAGE);
-        for (let left = padding; left > 0; left -= SPACES.byteLength)
-            request.write(left < SPACES.byteLength ? SPACES.subarray(0, left) : SPACES);
-        request.end();
-        cleanups.push(() => void request.destroy());
+        }
     });
+    return new Request('http://localhost/mcp', { method: 'POST', headers: HEADERS, body, duplex: 'half', signal });
 }
 
-// The memory in use after collecting garbage, each pass in a fresh task: the V8 heap and `ArrayBuffer` backing stores, where a body kept as bytes lives.
+// Opens a stream through `handler.fetch`, resolving at `notifications/events/active`; the response is drained from then on.
+async function openStream(handler: McpHttpHandler, padding: number, parsedBodyFromClone: boolean): Promise<{ abort(): void }> {
+    const controller = new AbortController();
+    const request = paddedRequest(padding, controller.signal);
+    // Hono's pattern: the body parser reads a clone to the end and the original is handed on with `parsedBody`.
+    const response = parsedBodyFromClone
+        ? await handler.fetch(request, { parsedBody: JSON.parse(await request.clone().text()) as unknown })
+        : await handler.fetch(request);
+    expect(response.status).toBe(200);
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    while (!text.includes('notifications/events/active')) {
+        const { done, value } = await reader.read();
+        if (done) throw new Error(`the stream ended before active: ${text}`);
+        text += decoder.decode(value, { stream: true });
+    }
+    reader.releaseLock();
+    void response.body!.pipeTo(new WritableStream()).catch(() => {});
+    cleanups.push(() => controller.abort());
+    return { abort: () => controller.abort() };
+}
+
+// The memory in use after collecting garbage, each pass in a fresh task: the V8 heap and `external`, where `ArrayBuffer` chunks and large decoded strings live.
 async function memoryUsed(): Promise<number> {
     for (let pass = 0; pass < 3; pass++) {
         await new Promise(resolve => setTimeout(resolve, 0));
         gc();
     }
-    return getHeapStatistics().used_heap_size + process.memoryUsage().arrayBuffers;
+    const { heapUsed, external } = process.memoryUsage();
+    return heapUsed + external;
 }
 
-it('keeps none of the body of an events/stream padded with 4 MB of JSON whitespace while it is open, and a client disconnect still ends it, under toNodeHandler', async () => {
-    const { handler, ended } = served();
-    const baseUrl = await serveNode(handler);
-    for (let count = 0; count < 3; count++) await openStream(baseUrl, 0);
-    const before = await memoryUsed();
+it.each([
+    ['a host that read a clone and passed parsedBody', true],
+    ['the handler reading the body itself', false]
+])(
+    'keeps none of the body of an events/stream padded with 4 MB of JSON whitespace while it is open, with %s, and a client abort still ends it',
+    async (_label, parsedBodyFromClone) => {
+        const { handler, ended } = served();
+        for (let count = 0; count < STREAMS; count++) await openStream(handler, 0, parsedBodyFromClone);
+        const before = await memoryUsed();
 
-    const padded: Array<{ disconnect(): void }> = [];
-    for (let count = 0; count < 3; count++) {
-        const stream = await openStream(baseUrl, PADDING);
-        expect(stream.status).toBe(200);
-        padded.push(stream);
+        const padded: Array<{ abort(): void }> = [];
+        for (let count = 0; count < STREAMS; count++) padded.push(await openStream(handler, PADDING, parsedBodyFromClone));
+
+        // Three bodies kept would be about 12 MB.
+        expect((await memoryUsed()) - before).toBeLessThan(PADDING);
+
+        for (const stream of padded) stream.abort();
+        await vi.waitFor(() => expect(ended()).toBe(STREAMS));
     }
-
-    // Three bodies kept would be about 12 MB.
-    expect((await memoryUsed()) - before).toBeLessThan(PADDING);
-
-    for (const stream of padded) stream.disconnect();
-    await vi.waitFor(() => expect(ended()).toBe(3));
-});
+);

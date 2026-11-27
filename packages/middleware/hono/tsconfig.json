@@ -7,6 +7,7 @@
             "*": ["./*"],
             "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],
             "@modelcontextprotocol/server/_shims": ["./node_modules/@modelcontextprotocol/server/src/shimsNode.ts"],
+            "@modelcontextprotocol/server/ext/events": ["./node_modules/@modelcontextprotocol/server/src/ext/events/index.ts"],
             "@modelcontextprotocol/core-internal": [
                 "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core-internal/src/index.ts"
             ],

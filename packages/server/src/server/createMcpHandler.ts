@@ -550,6 +550,15 @@ async function classifyEntryRequest(
     return { step: 'classified', outcome, body, parsedBody, forwardRequest };
 }
 
+// Cancels a request body nobody has read, so a long-lived exchange keeps none of its queued bytes; a failed cancel is ignored.
+function cancelUnreadBody(request: Request): void {
+    try {
+        if (request.body !== null && !request.bodyUsed) request.body.cancel().catch(() => {});
+    } catch {
+        // A body that cannot be cancelled is left as it is.
+    }
+}
+
 /** Options for {@linkcode isLegacyRequest}. */
 export interface IsLegacyRequestOptions {
     /**
@@ -736,7 +745,12 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     const legacyHandler: LegacyHttpHandler | undefined =
         legacy === 'reject' ? undefined : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs, maxRequestBodySize);
 
-    async function serveModern(route: InboundModernRoute, request: Request, authInfo: AuthInfo | undefined): Promise<Response> {
+    async function serveModern(
+        route: InboundModernRoute,
+        request: Request,
+        authInfo: AuthInfo | undefined,
+        forwardRequest: Request
+    ): Promise<Response> {
         const claimedRevision = route.classification.revision;
         if (claimedRevision === undefined || !SUPPORTED_MODERN_PROTOCOL_VERSIONS.includes(claimedRevision)) {
             // The claim names a revision this endpoint does not serve (an
@@ -915,6 +929,11 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         const exchangeMode = responseMode === 'json' && streaming ? 'auto' : responseMode;
         // Its own heartbeat notifications keep a marked stream alive, so it gets no SSE comment keepalive (SEP-3415 §Push).
         const keepAliveMs = streaming ? 0 : options.keepAliveMs;
+        // A marked stream keeps its Request while open, so the bodies nobody reads (the Request's own beside `parsedBody`, the forward clone) are cancelled.
+        if (streaming) {
+            cancelUnreadBody(request);
+            cancelUnreadBody(forwardRequest);
+        }
         try {
             const response = await invoke(product, route.message, {
                 classification: route.classification,
@@ -1009,7 +1028,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                     return rejectionResponse(outcome, echoableRequestId(body));
                 }
                 case 'modern': {
-                    return await serveModern(outcome, request, authInfo);
+                    return await serveModern(outcome, request, authInfo, forwardRequest);
                 }
                 case 'legacy': {
                     return await serveLegacyRoute(outcome, forwardRequest, authInfo, parsedBody);

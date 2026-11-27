@@ -198,6 +198,22 @@ describe('endpoint verification', () => {
         expect(requests).toHaveLength(2);
     });
 
+    it.each<[string, Respond, string, string, number]>([
+        ['its sender rejects', () => Promise.reject(new Error('socket hang up')), SECRET, 'socket hang up', 1],
+        ['signing it rejects', ok, 'whsec_not-a-secret', 'a webhook secret is not a Standard Webhooks secret', 0]
+    ])(
+        'fails a verification as connection_refused when %s: reported, remembered for 60 s, and counted at the host and for the principal',
+        async (_label, respond, secret, message, sends) => {
+            const { engine, requests, onerror } = setup(respond);
+            const refused = { code: -32_027, data: { reason: 'connection_refused' } };
+            await expect(engine.verify('u', HOOK_URL, secret, ID)).rejects.toMatchObject(refused);
+            expect(onerror).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: expect.stringContaining(message) }));
+            expect(engine.remembered).toMatchObject({ failed: 1, hostFailures: 1, principalFailures: 1 });
+            await expect(engine.verify('u', HOOK_URL, secret, 'sub_2')).rejects.toMatchObject(refused);
+            expect(requests).toHaveLength(sends);
+        }
+    );
+
     it('caches a failure per principal and url', async () => {
         const { engine, requests } = setup(request => (request.url === HOOK_URL ? { error: 'connection_refused' } : echo(request)));
         await expect(engine.verify('u', HOOK_URL, SECRET, ID)).rejects.toMatchObject({ data: { reason: 'connection_refused' } });
@@ -447,7 +463,10 @@ describe('endpoint verification', () => {
         await until(4);
         for (const answer of answers) answer();
         await expect(Promise.all([...mine, other])).resolves.toHaveLength(4);
-        expect(requests.map(request => request.headers['X-MCP-Subscription-Id'])).toEqual(['sub_u1', 'sub_u2', 'sub_u3', 'sub_v']);
+        // The first three are signed concurrently, so they reach the sender in any order.
+        const ids = requests.map(request => request.headers['X-MCP-Subscription-Id']);
+        expect(ids.slice(0, 3).sort()).toEqual(['sub_u1', 'sub_u2', 'sub_u3']);
+        expect(ids[3]).toBe('sub_v');
 
         // Once those are done, the principal verifies again, and holds no place after.
         const again = engine.verify('u', 'https://h4.example.com/mcp', SECRET, 'sub_u4');

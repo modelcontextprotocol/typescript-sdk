@@ -544,7 +544,13 @@ export class WebhookEngine {
         try {
             const challenge = challengeNonce();
             const body = JSON.stringify({ type: 'verification', challenge });
-            const outcome = await this.#post(url, subscriptionId, [secret], generateWebhookId('verification'), body, signal);
+            const outcome = await this.#post(url, subscriptionId, [secret], generateWebhookId('verification'), body, signal).catch(
+                (error: unknown): WebhookSendOutcome => {
+                    // A sender, or signing, that rejects is reported and fails the verification as a refused connection.
+                    this.#onerror(toError(error));
+                    return { error: 'connection_refused' };
+                }
+            );
             let reason: DeliveryErrorCategory | undefined;
             if ('error' in outcome) reason = outcome.error;
             else if (!echoes(outcome, challenge)) reason = 'challenge_failed';

@@ -631,6 +631,68 @@ describe('webhook delivery', () => {
             await vi.advanceTimersByTimeAsync(120_000);
             expect(subscribes()).toHaveLength(2);
         });
+
+        /** A webhook client whose refresh at 45 s is refused with `notFound`, whose next subscribe POSTs that end as `terminated` while in flight (`posted` settles once the POST is answered) and then answers with `answer()`, and whose subscribe after that is granted. */
+        async function resubscribeAnsweredAfterCopy(answer: () => Record<string, unknown>) {
+            let post!: (body: unknown) => Promise<number>;
+            let copied!: () => void;
+            const posted = new Promise<void>(resolve => (copied = resolve));
+            const answers: Handler[] = [
+                () => grant({ cursor: 'c1' }),
+                () => {
+                    throw new RpcError(notFound.code, notFound.message, notFound.data);
+                },
+                async () => {
+                    expect(await post({ type: 'terminated', error: notFound })).toBe(200);
+                    copied();
+                    return answer();
+                },
+                () => grant({ cursor: 'c1' })
+            ];
+            const scripted = await webhookWith((params, call) => answers.shift()?.(params, call) ?? new Promise<never>(() => {}));
+            post = scripted.post;
+            return { ...scripted, posted };
+        }
+
+        it('recovers from the same end POSTed while the subscribe after it is in flight, which ended the subscription that subscribe re-creates, without waiting for the refresh', async () => {
+            const { lists, post, posted, subscribes, subscribe } = await resubscribeAnsweredAfterCopy(() => grant({ cursor: 'c1' }));
+            const sub = await subscribe();
+            const iterator = sub[Symbol.asyncIterator]();
+
+            // The refresh at 45 s is refused; the subscribe 500 ms later is answered after its subscription was ended the same way.
+            await vi.advanceTimersByTimeAsync(45_500);
+            await posted;
+            await settle();
+            expect(subscribes()).toHaveLength(3);
+            await vi.advanceTimersByTimeAsync(500);
+            await settle();
+
+            expect(lists()).toHaveLength(3);
+            expect(subscribes().map(call => call.params['cursor'])).toEqual([null, 'c1', 'c1', 'c1']);
+            expect(await post(occurrence('e1'))).toBe(200);
+            expect(await nextEventId(iterator)).toBe('e1');
+        });
+
+        it('drops a copy POSTed while the subscribe after the end is in flight when that subscribe fails, retries it and goes on', async () => {
+            const { lists, post, posted, subscribes, subscribe } = await resubscribeAnsweredAfterCopy(() => {
+                throw new RpcError(-32_603, 'Internal error');
+            });
+            const sub = await subscribe();
+            const iterator = sub[Symbol.asyncIterator]();
+
+            // The refresh at 45 s is refused; the subscribe 500 ms later fails after the copy came, and its retry 1 s later is granted.
+            await vi.advanceTimersByTimeAsync(45_500);
+            await posted;
+            await settle();
+            expect(subscribes()).toHaveLength(3);
+            await vi.advanceTimersByTimeAsync(1000);
+            await settle();
+
+            expect(lists()).toHaveLength(2);
+            expect(subscribes().map(call => call.params['cursor'])).toEqual([null, 'c1', 'c1', 'c1']);
+            expect(await post(occurrence('e1'))).toBe(200);
+            expect(await nextEventId(iterator)).toBe('e1');
+        });
     });
 
     it.each([

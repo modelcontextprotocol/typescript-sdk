@@ -258,7 +258,8 @@ export type WebhookSendOutcome = { status: number; body: string } | { error: 'co
  * It sends the request as given, follows no redirects, and gives up after its
  * own timeout with `{ error: 'timeout' }`: the SDK waits as long as it takes.
  * It should resolve rather than reject; an event delivery whose sender rejects
- * is reported to `onerror` and retried.
+ * is reported to `onerror` and retried, and an endpoint verification whose
+ * sender rejects is reported to `onerror` and fails as `connection_refused`.
  *
  * Experimental: Events (SEP-3415) is new; this API may change in a minor release.
  *

@@ -683,6 +683,21 @@ describe('events/subscribe: creating', () => {
         expect(hook.state()).toMatchObject({ webhookSubscriptions: 0, webhookExpiryTimers: 0 });
     });
 
+    it('refuses a subscribe whose sender rejects on the verification POST as connection_refused, reports the error, and answers a repeat from the failure memory without another POST', async () => {
+        const onerror = vi.fn();
+        const store = new InMemoryWebhookSubscriptionStore();
+        const { events, post } = replica({ webhookStore: store, onerror, respond: () => Promise.reject(new Error('socket hang up')) });
+        events.registerEvent('e', { emitOnly: true, payloadSchema: P });
+        const { subscribe } = client(events);
+
+        const refused = { code: -32_027, data: { reason: 'connection_refused' } };
+        expect(errorOf(await subscribe())).toMatchObject(refused);
+        expect(onerror).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: 'socket hang up' }));
+        expect(errorOf(await subscribe())).toMatchObject(refused);
+        expect(post.requests).toHaveLength(1);
+        expect(await stored(store)).toEqual([]);
+    });
+
     it('forgets a create that onSubscribe refuses after verification', async () => {
         let refuse = true;
         const onUnsubscribe = vi.fn();

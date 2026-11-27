@@ -192,7 +192,7 @@ class WebhookDriver implements Driver {
     #withdrawPending: (() => void) | undefined;
     // A `terminated` body routed here and not yet acted on.
     #terminated: ProtocolError | undefined;
-    // The failure the loop last recovered from, until a subscribe succeeds: a `terminated` body that matches it is that end, which the server answered a refresh with and also POSTed.
+    // The failure the loop last recovered from, until the next subscribe is sent: a `terminated` body that matches it is that end, which the server answered a refresh with and also POSTed.
     #recovered: unknown;
     // Retry delays taken since the last successful subscribe.
     #attempt = 0;
@@ -302,10 +302,13 @@ class WebhookDriver implements Driver {
         const loop = this.#loop;
         while (!loop.ended) {
             const sentAt = Date.now();
+            const previousEnd = this.#recovered;
             let result: SubscribeEventsResult;
             try {
                 result = await this.#subscribe();
             } catch (error) {
+                // The loop subscribes again after a failed subscribe, so a body that matches the end before it is taken as that end's copy.
+                if (this.#terminated !== undefined && sameEnd(this.#terminated, previousEnd)) this.#takeTerminated();
                 return error;
             }
             if (loop.ended) break;
@@ -354,6 +357,8 @@ class WebhookDriver implements Driver {
             cursor: loop.cursor,
             ...(maxAgeMs !== undefined && { maxAgeMs })
         };
+        // A `terminated` body from here on may end the subscription this one creates, so none is taken for the old end's copy unless this subscribe fails.
+        this.#recovered = undefined;
         return this.#context.connection.request(EVENTS_SUBSCRIBE_METHOD, params, SubscribeEventsResultSchema, this.#mirror, {
             signal: loop.signal
         });
@@ -370,7 +375,6 @@ class WebhookDriver implements Driver {
         const cursor = result.cursor ?? null;
         this.#attempt = 0;
         this.#live = true;
-        this.#recovered = undefined;
         this.#bind(result.id);
         this.#withdrawPending?.();
         if (result.deliveryStatus !== undefined) this.#context.queue.setDeliveryStatus(result.deliveryStatus);

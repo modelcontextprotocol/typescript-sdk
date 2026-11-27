@@ -9,7 +9,7 @@ import type { EventsOptions } from './types';
 const PRINCIPAL_SHARE_DIVISOR = 4;
 // The longest canonical JSON of a request's `arguments`, which bounds what a lease, a stream or a stored record keeps of them.
 const MAX_ARGUMENTS_LENGTH = 65_536;
-// The longest canonical JSON of a request as the protocol layer keeps it, with the material it lifted onto `ctx.mcpReq`, which bounds what a push stream keeps of its request.
+// The longest canonical JSON of a request as the protocol layer keeps it, with the material it lifted onto `ctx.mcpReq`, which bounds what a push stream keeps of its parsed request.
 const MAX_REQUEST_LENGTH = 131_072;
 
 export interface ValidatorDeps {
