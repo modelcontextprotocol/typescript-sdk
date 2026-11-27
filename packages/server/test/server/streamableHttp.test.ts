@@ -321,6 +321,14 @@ describe('Zod v4', () => {
                 expect(response.status).toBe(200);
             });
 
+            it('should keep escaped quotes and commas inside Accept parameters', async () => {
+                const accept = String.raw`text/plain, application/json; note="escaped \", comma, still quoted", text/event-stream`;
+                const request = createRequest('POST', TEST_MESSAGES.initialize, { accept });
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(200);
+            });
+
             it('should reject request with wrong Content-Type header', async () => {
                 const request = new Request('http://localhost/mcp', {
                     method: 'POST',
