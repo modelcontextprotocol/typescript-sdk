@@ -206,6 +206,25 @@ function classifyResult(result: unknown, context: ProbeClassifierContext): Probe
         // Unrecognized result shape: not modern evidence — conservative legacy fallback.
         return { kind: 'legacy' };
     }
+    // `server/discover` only recognizes the `complete` result type: the spec
+    // requires any unrecognized `resultType` to be treated as invalid, and
+    // the lifted schema above drops the field, so a `partial` or
+    // `input_required` reply would otherwise classify as modern evidence.
+    // An absent `resultType` stays lenient (spec backward compatibility:
+    // pre-2026 servers omit it and it reads as `complete`).
+    const resultType =
+        typeof result === 'object' && result !== null && 'resultType' in result
+            ? (result as { resultType?: unknown }).resultType
+            : undefined;
+    if (typeof resultType === 'string' && resultType !== 'complete') {
+        return {
+            kind: 'error',
+            error: new SdkError(SdkErrorCode.UnsupportedResultType, `Unsupported result type '${resultType}' for server/discover`, {
+                resultType,
+                method: 'server/discover'
+            })
+        };
+    }
     const supportedVersions = parsed.value.supportedVersions;
     const overlap = context.clientModernVersions.find(version => supportedVersions.includes(version));
     if (overlap !== undefined) {
