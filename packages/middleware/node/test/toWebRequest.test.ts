@@ -4,16 +4,36 @@
  * paths (the Node stream read vs. a supplied `parsedBody` re-serialized, with
  * the entity headers rewritten and the stream untouched), Host-header URL
  * derivation, header copying (multi-valued append, HTTP/2 pseudo-header
- * skipping), the GET/HEAD no-body rule, the `signal` option, and the
- * clone-readability contract `isLegacyRequest(request)` relies on. The full
- * adapter exercises the same conversion end-to-end in `toNodeHandler.test.ts`.
+ * skipping), the GET/HEAD no-body rule, the `signal` option, the
+ * clone-readability contract `isLegacyRequest(request)` relies on, and the
+ * stream body an `events/stream` request gets (read back the same, kept by
+ * none of its read Requests) while every other request keeps a string body.
+ * The full adapter exercises the same conversion end-to-end in
+ * `toNodeHandler.test.ts`.
  */
 import { Readable } from 'node:stream';
+import { setFlagsFromString } from 'node:v8';
+import { runInNewContext } from 'node:vm';
 
 import { describe, expect, it } from 'vitest';
 
 import type { NodeIncomingMessageLike } from '../src/toNodeHandler';
 import { toWebRequest } from '../src/toNodeHandler';
+
+const EVENTS_STREAM_HEADERS = { host: 'localhost', 'content-type': 'application/json', 'mcp-method': 'events/stream' };
+
+setFlagsFromString('--expose-gc');
+const gc = runInNewContext('gc') as () => void;
+
+// The memory in use after collecting garbage, each pass in a fresh task: the V8 heap and `external`, where `ArrayBuffer` chunks and large decoded strings live.
+async function memoryUsed(): Promise<number> {
+    for (let pass = 0; pass < 3; pass++) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+        gc();
+    }
+    const { heapUsed, external } = process.memoryUsage();
+    return heapUsed + external;
+}
 
 function nodeRequest(init: {
     method?: string;
@@ -94,6 +114,75 @@ describe('toWebRequest', () => {
         expect(text).toBe(JSON.stringify(parsed));
         expect(request.headers.get('content-length')).toBe(String(text.length + 1));
     });
+
+    it('hands an events/stream request body on so that it reads back identically as text and as JSON, from the Node stream and from a parsedBody', async () => {
+        const parsed = { jsonrpc: '2.0', id: 3, method: 'events/stream', params: { name: 'écho', arguments: { text: 'naïve ☃' } } };
+        // Whitespace padding, and a multi-byte character split across two chunks.
+        const raw = Buffer.from(`${JSON.stringify(parsed)}${' '.repeat(1000)}`);
+        const split = raw.indexOf(Buffer.from('é')) + 1;
+        const streamed = await toWebRequest(
+            Object.assign(Readable.from([raw.subarray(0, split), raw.subarray(split)]), {
+                method: 'POST',
+                url: '/mcp',
+                headers: EVENTS_STREAM_HEADERS
+            })
+        );
+        const preParsed = await toWebRequest(
+            unreadableNodeRequest({ method: 'POST', url: '/mcp', headers: EVENTS_STREAM_HEADERS }),
+            parsed
+        );
+
+        expect(await streamed.clone().json()).toEqual(parsed);
+        expect(await streamed.text()).toBe(raw.toString('utf8'));
+        expect(await preParsed.clone().json()).toEqual(parsed);
+        expect(await preParsed.text()).toBe(JSON.stringify(parsed));
+    });
+
+    it('keeps none of the bodies of events/stream Requests that were read and are still held', async () => {
+        // Each body is 16 copies of this one chunk, so the test itself keeps no copy of a body.
+        const chunk = Buffer.alloc(65_536, 0x20);
+        const convertAndRead = async (): Promise<Request> => {
+            const request = await toWebRequest(
+                Object.assign(Readable.from(Array.from({ length: 16 }, () => chunk)), {
+                    method: 'POST',
+                    url: '/mcp',
+                    headers: EVENTS_STREAM_HEADERS
+                })
+            );
+            await request.text();
+            return request;
+        };
+        // The first conversion's one-off setup is taken into the baseline.
+        await convertAndRead();
+        const before = await memoryUsed();
+
+        const held: Request[] = [];
+        for (let count = 0; count < 20; count++) held.push(await convertAndRead());
+
+        // 20 bodies of 1 MiB kept would be about 20 MiB.
+        expect((await memoryUsed()) - before).toBeLessThan(5 * 1024 * 1024);
+        expect(held.every(request => request.bodyUsed)).toBe(true);
+    });
+
+    // Only an events/stream request's body is a stream; every other request keeps a string body, which gets the default content type.
+    it.each([
+        ['an events/stream request', null, 'events/stream'],
+        ['a tools/call request', 'text/plain;charset=UTF-8', 'tools/call'],
+        ['a request without Mcp-Method', 'text/plain;charset=UTF-8', undefined]
+    ])(
+        'gives %s whose body has no Content-Type the content type %s, from the Node stream and from a parsedBody',
+        async (_label, contentType, mcpMethod) => {
+            const headers = { host: 'localhost', ...(mcpMethod !== undefined && { 'mcp-method': mcpMethod }) };
+            const message = { jsonrpc: '2.0', id: 4, method: mcpMethod ?? 'ping' };
+            const streamed = await toWebRequest(nodeRequest({ method: 'POST', url: '/mcp', headers, body: JSON.stringify(message) }));
+            const preParsed = await toWebRequest(unreadableNodeRequest({ method: 'POST', url: '/mcp', headers }), message);
+
+            expect(streamed.headers.get('content-type')).toBe(contentType);
+            expect(preParsed.headers.get('content-type')).toBe(contentType);
+            expect(await streamed.json()).toEqual(message);
+            expect(await preParsed.json()).toEqual(message);
+        }
+    );
 
     it('produces a body-less Request when the supplied parsedBody is not JSON-serializable', async () => {
         const request = await toWebRequest(
