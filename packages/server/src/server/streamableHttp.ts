@@ -265,13 +265,40 @@ export interface HandleRequestOptions {
  * media range with the shared media-type parser so parameters and casing are
  * handled consistently with Content-Type validation.
  */
+function splitAcceptMediaRanges(header: string): string[] {
+    const ranges: string[] = [];
+    let start = 0;
+    let inQuotes = false;
+    let escaped = false;
+
+    for (let index = 0; index < header.length; index++) {
+        const character = header[index];
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+        if (inQuotes && character === '\\') {
+            escaped = true;
+            continue;
+        }
+        if (character === '"') {
+            inQuotes = !inQuotes;
+        } else if (character === ',' && !inQuotes) {
+            ranges.push(header.slice(start, index));
+            start = index + 1;
+        }
+    }
+
+    ranges.push(header.slice(start));
+    return ranges;
+}
+
 function acceptsMediaType(acceptHeader: string | null, expected: string): boolean {
     if (!acceptHeader) {
         return false;
     }
 
-    const mediaRanges = acceptHeader.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
-    return mediaRanges.some(range => mediaTypeEssence(range) === expected);
+    return splitAcceptMediaRanges(acceptHeader).some(range => mediaTypeEssence(range) === expected);
 }
 
 export class WebStandardStreamableHTTPServerTransport implements Transport {
