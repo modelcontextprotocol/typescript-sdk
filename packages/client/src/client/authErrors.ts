@@ -46,8 +46,8 @@ export class OAuthClientFlowError extends Error {
         return brandedHasInstance(this, value);
     }
 
-    constructor(message: string) {
-        super(message);
+    constructor(message: string, options?: ErrorOptions) {
+        super(message, options);
         this.name = new.target.name;
         stampErrorBrands(this, new.target);
     }
@@ -153,6 +153,36 @@ export class InsecureTokenEndpointError extends OAuthClientFlowError {
                 `OAuth token requests MUST use TLS (localhost / *.localhost / 127.0.0.1 / ::1 are exempt).`
         );
         this.tokenEndpoint = tokenEndpoint;
+    }
+}
+
+/**
+ * Thrown by `auth()` when the `refresh_token` grant fails transiently — a network error, or an
+ * authorization server answering `server_error` or `temporarily_unavailable` (RFC 6749 §4.1.2.1;
+ * an HTTP 5xx or 429 whose body is not an OAuth error document parses as `server_error`) — after
+ * retrying with exponential backoff and jitter. The last failure is attached as `cause`.
+ *
+ * The stored refresh token is **not** invalidated and no new authorization is started, so the
+ * caller can simply retry `auth()` later. Definitive rejections (`invalid_grant`,
+ * `invalid_client`, `unauthorized_client`, `invalid_dpop_proof`) and unrecognized OAuth errors do
+ * not produce this error; they keep the existing credential-invalidation / re-authorization
+ * behavior.
+ *
+ * Intentionally does **not** extend `OAuthError`: it is not the authorization server's verdict on
+ * the credentials, and `auth()`'s `OAuthError` retry block must not catch it.
+ */
+export class TransientRefreshError extends OAuthClientFlowError {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.TransientRefreshError' });
+    }
+
+    constructor(
+        /** The last refresh failure; also attached as `cause`. */
+        cause: unknown,
+        /** How many times the refresh grant was attempted, including the failed final attempt. */
+        attempts: number
+    ) {
+        super(`Token refresh failed transiently after ${attempts} attempts; the stored refresh token was kept.`, { cause });
     }
 }
 

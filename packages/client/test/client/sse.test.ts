@@ -8,7 +8,7 @@ import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 
 import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth';
-import { UnauthorizedError } from '../../src/client/auth';
+import { TransientRefreshError, UnauthorizedError } from '../../src/client/auth';
 import { SSEClientTransport } from '../../src/client/sse';
 
 /**
@@ -1085,7 +1085,7 @@ describe('SSEClientTransport', () => {
             expect(lastServerRequest.headers.authorization).toBe('Bearer new-token');
         });
 
-        it('redirects to authorization if refresh token flow fails', async () => {
+        it('throws TransientRefreshError if the refresh token flow fails, without redirecting', async () => {
             // Mock tokens() to return expired token until saveTokens is called
             let currentTokens: OAuthTokens = {
                 access_token: 'expired-token',
@@ -1159,8 +1159,11 @@ describe('SSEClientTransport', () => {
                 authProvider: mockAuthProvider
             });
 
-            await expect(() => transport.start()).rejects.toThrow(UnauthorizedError);
-            expect(mockAuthProvider.redirectToAuthorization).toHaveBeenCalled();
+            // #3238: a transient refresh failure no longer sends the user agent to /authorize —
+            // the stored refresh token may still be valid, so the typed error lets the caller
+            // retry later instead.
+            await expect(() => transport.start()).rejects.toThrow(TransientRefreshError);
+            expect(mockAuthProvider.redirectToAuthorization).not.toHaveBeenCalled();
         });
 
         it('invalidates client+tokens (not discovery) on OAuthErrorCode.InvalidClient during token refresh', async () => {
