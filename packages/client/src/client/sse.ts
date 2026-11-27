@@ -253,6 +253,7 @@ export class SSEClientTransport implements Transport {
         const fetchImpl = this._redirects(
             (eventSourceFetch ? (this._dpop?.(eventSourceFetch as FetchLike) ?? eventSourceFetch) : (this._fetch ?? fetch)) as FetchLike
         );
+        let responseUrl: URL | undefined;
         let redirect: string | undefined;
         return new Promise((resolve, reject) => {
             this._eventSource = new EventSource(this._url.href, {
@@ -264,6 +265,13 @@ export class SSEClientTransport implements Transport {
                         ...init,
                         headers
                     });
+                    if (response.url) {
+                        try {
+                            responseUrl = new URL(response.url);
+                        } catch {
+                            // Ignore synthetic or malformed response URLs and fall back to this._url.
+                        }
+                    }
                     redirect = this._unfollowedRedirect(url, response);
 
                     if (response.status === 401) {
@@ -334,8 +342,9 @@ export class SSEClientTransport implements Transport {
                 const messageEvent = event as MessageEvent;
 
                 try {
-                    this._endpoint = new URL(messageEvent.data, this._url);
-                    if (this._endpoint.origin !== this._url.origin) {
+                    const baseUrl = responseUrl ?? this._url;
+                    this._endpoint = new URL(messageEvent.data, baseUrl);
+                    if (this._endpoint.origin !== baseUrl.origin) {
                         throw new Error(`Endpoint origin does not match connection origin: ${this._endpoint.origin}`);
                     }
                 } catch (error) {

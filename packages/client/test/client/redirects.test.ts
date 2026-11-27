@@ -512,6 +512,33 @@ describe('redirects', () => {
                 expect(otherRequests[0]).toMatchObject({ method: 'GET', url: '/sse', headers: { 'x-api-key': 'key-1' } });
             });
 
+            test('SSE endpoint event resolves relative URL and origin against final redirected URL', async () => {
+                const redirectedRequests: Recorded[] = [];
+                const redirected = record(
+                    redirectedRequests,
+                    sseEndpoint((_req, res) => {
+                        res.writeHead(202).end();
+                    })
+                );
+                const redirectedUrl = await listenOnRandomPort(redirected);
+                try {
+                    handle = redirectTo(new URL('/sse', redirectedUrl));
+
+                    const client = await sseStarted(follow);
+                    await client.send(notification);
+
+                    expect(redirectedRequests).toMatchObject([
+                        { method: 'GET', url: '/sse' },
+                        { method: 'POST', url: '/messages', body: JSON.stringify(notification), headers: { 'x-api-key': 'key-1' } }
+                    ]);
+                } finally {
+                    await transport?.close();
+                    transport = undefined;
+                    redirected.closeAllConnections();
+                    await new Promise(resolve => redirected.close(resolve));
+                }
+            });
+
             test('SSE POST to another origin is followed with its headers and body', async () => {
                 handle = sseEndpoint(toOther);
                 const client = await sseStarted(follow);
