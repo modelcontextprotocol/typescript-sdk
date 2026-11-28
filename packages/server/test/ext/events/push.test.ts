@@ -1151,6 +1151,39 @@ describe('events/stream: on stdio, whose transport cannot tell how far its clien
         expect(onUnsubscribe).toHaveBeenCalledOnce();
     });
 
+    it('ends an emit-only stream once emitBuffer.maxEvents live events have waited for a whole grant, though stdout takes each frame within it', async () => {
+        // The clock moves without running timers, so no heartbeat comes due.
+        let skew = 0;
+        const now = Date.now.bind(Date);
+        vi.spyOn(Date, 'now').mockImplementation(() => now() + skew);
+        const onUnsubscribe = vi.fn();
+        const events = new EventsExtension({ emitBuffer: { maxEvents: 10 } });
+        const handle = events.registerEvent('i', { emitOnly: true, payloadSchema: P, onUnsubscribe });
+        const stdio = await stdioStream(events);
+        stdio.block();
+        for (let n = 0; n < 10; n++) await handle.emit({ eventId: `e${n}`, data: { n } });
+
+        // Every 10 s the client reads one frame while two more are emitted, so 10 or more stay waiting.
+        let next = 10;
+        for (const at of [10_000, 20_000]) {
+            skew = at;
+            for (const n of [next++, next++]) await handle.emit({ eventId: `e${n}`, data: { n } });
+            const written = stdio.written().length;
+            stdio.release();
+            stdio.block();
+            await vi.waitFor(() => expect(stdio.written()).toHaveLength(written + 1));
+        }
+        expect(testHook(events).state().pushStreams).toBe(1);
+
+        // A grant after 10 first waited, the next live event finds them still waiting: the subscription ends.
+        skew = 30_000;
+        await handle.emit({ eventId: `e${next}`, data: { n: next } });
+        expect(testHook(events).state().pushStreams).toBe(0);
+        await vi.waitFor(() => expect(onUnsubscribe).toHaveBeenCalledOnce());
+        stdio.release();
+        await vi.waitFor(() => expect(stdio.frames.at(-1)).toEqual(finalResult(1)));
+    });
+
     it('delivers a burst of twice emitBuffer.maxEvents emits started in one turn in full, while stdout keeps writing', async () => {
         const onUnsubscribe = vi.fn();
         const events = new EventsExtension({ emitBuffer: { maxEvents: 100 } });

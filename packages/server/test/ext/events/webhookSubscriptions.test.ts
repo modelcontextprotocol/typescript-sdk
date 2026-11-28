@@ -2404,6 +2404,48 @@ describe('check-kind webhook subscriptions', () => {
         await vi.advanceTimersByTimeAsync(100_000);
         expect(await refreshCursor()).toBe('c4');
     });
+
+    describe('a refresh without a cursor on a replica that did not watch the subscription', () => {
+        // A subscription created on A and refreshed without a cursor on B, whose loop starts at the next interval.
+        async function takenOver(checkB: Check) {
+            const store = new InMemoryWebhookSubscriptionStore();
+            const a = replica({ webhookStore: store });
+            const b = replica({ webhookStore: store });
+            const quiet = (_ctx: CheckContext, _args: Record<string, unknown>, cursor: string | null) => ({ events: [], cursor });
+            a.events.registerEvent('t', { payloadSchema: P, check: quiet });
+            const check = vi.fn<Check>(checkB);
+            b.events.registerEvent('t', { payloadSchema: P, check });
+            subscribed(await client(a.events).subscribe({ name: 't' }));
+            const refresh = () => client(b.events).subscribe({ name: 't' });
+            expect(subscribed(await refresh()).cursor).toBeNull();
+            await vi.advanceTimersByTimeAsync(5000);
+            return { b, check, refresh };
+        }
+
+        it('starts from the cursor of its first check for a type with replay, dropping the events of that call', async () => {
+            const { b, check, refresh } = await takenOver((_ctx, _args, cursor) =>
+                cursor === null ? { events: [{ eventId: 'evt_1', data: { n: 1 } }], cursor: 'h1' } : { events: [], cursor: 'h1' }
+            );
+            await settle();
+            expect(check.mock.calls.map(([, , cursor]) => cursor)).toEqual([null]);
+            expect(b.post.requests).toEqual([]);
+            // The watermark moved as for a quiet batch, and the loop goes on from there.
+            expect(subscribed(await refresh()).cursor).toBe('h1');
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(check.mock.calls.map(([, , cursor]) => cursor)).toEqual([null, 'h1']);
+            expect(b.post.requests).toEqual([]);
+        });
+
+        it('delivers the events of its first check for a type without replay, as it delivers those of every later call', async () => {
+            const { b, check } = await takenOver(() => ({ events: [{ eventId: 'evt_1', data: { n: 1 } }], cursor: null }));
+            await b.post.until(1);
+            await settle();
+            expect(check.mock.calls.map(([, , cursor]) => cursor)).toEqual([null]);
+            expect(b.post.deliveries().map(request => bodyOf(request))).toEqual([
+                expect.objectContaining({ eventId: 'evt_1', data: { n: 1 }, cursor: null })
+            ]);
+        });
+    });
 });
 
 describe('termination', () => {

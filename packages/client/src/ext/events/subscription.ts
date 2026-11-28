@@ -61,7 +61,8 @@ export interface SubscribeOptions {
  *   other `unsupported`): the loop ends with it, and `kind` says why.
  * - A `ProtocolError` `-32020` (the `Mcp-Param` headers do not match the
  *   arguments): the event types are listed again and the request is retried
- *   once with fresh headers; a second `-32020` ends the loop with it.
+ *   once with fresh headers; a second `-32020` ends the loop with it. In a
+ *   browser, which sends no `Mcp-Param` headers, the first ends it.
  * - An auth failure of the transport that only the user or the configuration
  *   can fix (an `UnauthorizedError`, such as for a `401` its `authProvider`
  *   could not resolve, an `SdkError` such as a `401` after

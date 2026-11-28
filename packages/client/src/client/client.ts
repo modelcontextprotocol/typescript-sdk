@@ -2298,7 +2298,10 @@ export class Client extends Protocol<ClientContext> {
             id,
             close: async () => {
                 if (!detach()) return;
-                await this.notification({ method: 'notifications/cancelled', params: { requestId: id } }).catch(() => {});
+                // As in Protocol.request, the abort is the cancellation on a 2026-07-28 per-request stream; elsewhere the cancel is sent, not awaited.
+                if (this.getProtocolEra() !== 'modern' || transport.hasPerRequestStream !== true) {
+                    void this.notification({ method: 'notifications/cancelled', params: { requestId: id } }).catch(() => {});
+                }
                 handlers.onEnd({ cause: 'local' });
             }
         };
@@ -2361,6 +2364,8 @@ export class Client extends Protocol<ClientContext> {
             stream.onNotification(raw);
             return;
         }
+        // A frame of an `openStream` request that has ended is dropped: `stream:` ids are this Client's own.
+        if (typeof streamId === 'string' && streamId.startsWith('stream:')) return;
         // Response-cache invalidation: a `list_changed` notification means the
         // matching cached list result is stale. Evict (do NOT refetch) before
         // dispatch so a handler that reaches the cache observes the cleared

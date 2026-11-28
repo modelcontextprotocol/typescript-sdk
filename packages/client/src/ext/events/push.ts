@@ -60,7 +60,7 @@ export class PushDriver<T> implements Driver {
     readonly #loop: DriverLoop<T>;
     // A first stream that cannot work rejects start() with PushUnavailableError, for subscribe() to poll instead.
     readonly #fallback: boolean;
-    // Reconnect delays taken since the last `active`.
+    // Reconnect delays taken since the last stream that stayed open for its heartbeat grant after its `active`.
     #attempt = 0;
     // A -32020 has been re-listed for since the last `active`.
     #mismatched = false;
@@ -70,6 +70,8 @@ export class PushDriver<T> implements Driver {
     #end: ((ending: Ending) => void) | undefined;
     // The open (or last) stream's heartbeat grant, from its last `active`; `undefined` until it has had one.
     #grantMs: number | undefined;
+    // When the open (or last) stream had its first `active`.
+    #activeAt: number | undefined;
     // Until the first valid `active`, the wait for it; from then on, the countdown to declaring the stream dead.
     #dead: ReturnType<typeof setTimeout> | undefined;
     // The driver closed the stream because the queue is full; it reopens once the queue has room.
@@ -99,6 +101,8 @@ export class PushDriver<T> implements Driver {
         while (!loop.ended) {
             const { error } = await this.#open();
             if (loop.ended) return;
+            // Only a stream that stayed open for its heartbeat grant after its `active` resets the backoff, so short clean streams back off too.
+            if (this.#grantMs !== undefined && Date.now() - this.#activeAt! >= this.#grantMs) this.#attempt = 0;
             if (this.#paused) {
                 this.#paused = false;
                 // Even when the loop has already taken a few, the reopen waits for half the queue to drain.
@@ -123,8 +127,8 @@ export class PushDriver<T> implements Driver {
 
     // After a stream ended with `error`: throws when that ends the subscription, otherwise readies the reopen.
     async #recover(error: unknown): Promise<void> {
-        // An `events/stream` is not sent through `request()`, so its first -32020 since the last `active` re-lists here.
-        if (isHeaderMismatch(error) && !this.#mismatched) {
+        // An `events/stream` is not sent through `request()`, so its first -32020 since the last `active` re-lists here, while mirroring.
+        if (isHeaderMismatch(error) && !this.#mismatched && this.#context.connection.mirroring()) {
             this.#mismatched = true;
             await this.#context.connection.list(undefined, { signal: this.#loop.signal }).catch(() => {});
             return;
@@ -156,6 +160,7 @@ export class PushDriver<T> implements Driver {
         // A terminated stream whose final result has not arrived.
         void this.#handle?.close();
         this.#grantMs = undefined;
+        this.#activeAt = undefined;
         return new Promise(resolve => {
             let ended = false;
             const end = (ending: Ending): void => {
@@ -264,7 +269,7 @@ export class PushDriver<T> implements Driver {
     #active(params: EventsActiveNotificationParams): void {
         const cursor = params.cursor ?? null;
         this.#grantMs = params.heartbeatMs;
-        this.#attempt = 0;
+        this.#activeAt ??= Date.now();
         this.#mismatched = false;
         this.#loop.succeeded(cursor, params.truncated === true);
         this.#loop.setCursor(cursor);

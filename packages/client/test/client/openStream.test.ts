@@ -107,13 +107,39 @@ describe('clientInternals.openStream', () => {
 
         await frame('stream:1', { eventId: 'e1' });
         await frame('stream:7', { eventId: 'e2' });
+        await frame('listen:7', { eventId: 'e3' });
         await flush();
         expect(first.notifications).toEqual([]);
         expect(second.notifications).toMatchObject([
             { method: EVENT, params: { eventId: 'e1', _meta: { [SUBSCRIPTION_ID_META_KEY]: 'stream:1' } } }
         ]);
-        // Only the frame no live stream owns reaches the global handler.
-        expect(global).toMatchObject([{ eventId: 'e2' }]);
+        // A `stream:` id no live stream owns is dropped; any other id reaches the global handler.
+        expect(global).toMatchObject([{ eventId: 'e3' }]);
+        await client.close();
+    });
+
+    it('drops the frames of a closed stream that are still in flight, so no global handler sees them', async () => {
+        const { client, serverTx, frame } = await scriptedStreams();
+        const global: unknown[] = [];
+        client.setNotificationHandler(EVENT, { params: z.looseObject({}) }, params => void global.push(params));
+        const fallback = vi.fn(async () => {});
+        client.fallbackNotificationHandler = fallback;
+        const stream = recorder();
+        const handle = clientInternals.openStream(client, streamRequest('a'), stream.handlers);
+        await frame('stream:0', { eventId: 'e1' });
+
+        await handle.close();
+        await frame('stream:0', { eventId: 'e2' });
+        await serverTx.send({
+            jsonrpc: '2.0',
+            method: 'notifications/events/heartbeat',
+            params: { cursor: null, _meta: { [SUBSCRIPTION_ID_META_KEY]: 'stream:0' } }
+        });
+        await flush();
+
+        expect(stream.notifications).toMatchObject([{ params: { eventId: 'e1' } }]);
+        expect(global).toEqual([]);
+        expect(fallback).not.toHaveBeenCalled();
         await client.close();
     });
 
@@ -152,33 +178,58 @@ describe('clientInternals.openStream', () => {
         expect(failed.ends).toHaveLength(1);
     });
 
-    it('cancels with notifications/cancelled on close()', async () => {
-        const { client, clientTx, received, frame } = await scriptedStreams();
-        const send = vi.spyOn(clientTx, 'send');
+    it('cancels with notifications/cancelled on close(), and ends the stream without waiting for that send', async () => {
+        const { client, clientTx, frame } = await scriptedStreams();
+        const forward = clientTx.send.bind(clientTx);
+        const sent: JSONRPCMessage[] = [];
+        // The cancel's send never settles, as one to a peer that stopped reading would not.
+        const send = vi.spyOn(clientTx, 'send').mockImplementation((message, options) => {
+            sent.push(message);
+            return 'method' in message && message.method === 'notifications/cancelled'
+                ? new Promise<void>(() => {})
+                : forward(message, options);
+        });
         const ends: StreamEnd[] = [];
         let sentBeforeEnd: JSONRPCMessage[] = [];
         const handle = clientInternals.openStream(client, streamRequest('a'), {
             onNotification: () => {},
             onEnd: end => {
                 ends.push(end);
-                sentBeforeEnd = [...received];
+                sentBeforeEnd = [...sent];
             }
         });
         const signal = sendOptions(send, 'stream:0').requestSignal!;
-        received.length = 0;
+        sent.length = 0;
 
         await handle.close();
 
         expect(signal.aborted).toBe(true);
-        expect(received).toMatchObject([
+        expect(sent).toMatchObject([
             { method: 'notifications/cancelled', params: { requestId: 'stream:0', _meta: { [PROTOCOL_VERSION_META_KEY]: MODERN } } }
         ]);
         expect(ends).toEqual([{ cause: 'local' }]);
-        expect(sentBeforeEnd).toEqual(received);
+        expect(sentBeforeEnd).toEqual(sent);
         await handle.close();
         await frame('stream:0', { eventId: 'late' });
-        expect(received).toHaveLength(1);
+        expect(sent).toHaveLength(1);
         expect(ends).toHaveLength(1);
+        await client.close();
+    });
+
+    it('sends no notifications/cancelled on close() over a per-request stream at 2026-07-28, where aborting the request cancels it', async () => {
+        const { client, clientTx } = await scriptedStreams();
+        Object.defineProperty(clientTx, 'hasPerRequestStream', { value: true });
+        const send = vi.spyOn(clientTx, 'send');
+        const stream = recorder();
+        const handle = clientInternals.openStream(client, streamRequest('a'), stream.handlers);
+        const signal = sendOptions(send, 'stream:0').requestSignal!;
+
+        await handle.close();
+        await flush();
+
+        expect(signal.aborted).toBe(true);
+        expect(stream.ends).toEqual([{ cause: 'local' }]);
+        expect(send.mock.calls.map(([message]) => ('method' in message ? message.method : undefined))).toEqual(['events/stream']);
         await client.close();
     });
 

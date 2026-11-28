@@ -171,7 +171,8 @@ export class EventsClientExtension implements ClientExtension {
      * the server refuses because the event type's schema changed is dropped:
      * the event types are listed again, the subscription starts from now, and
      * `onGap` reports the fresh cursor. A `-32020` lists the event types again
-     * and retries once. Once subscribed, every mode recovers from errors as
+     * and retries once, except in a browser, which sends no `Mcp-Param`
+     * headers. Once subscribed, every mode recovers from errors as
      * {@linkcode EventSubscription} describes.
      *
      * Webhook subscriptions with the same name and arguments are one server
@@ -196,7 +197,8 @@ export class EventsClientExtension implements ClientExtension {
      *   schema or a stream that ends before its first valid `active`, or an `SdkHttpError` for an HTTP error
      *   status other than `5xx` and `429`, also a `401` after re-authentication).
      * @throws {ProtocolError} `-32020` when the server rejects the `Mcp-Param` headers again after a re-list, or
-     *   `-32601` when it does not serve the method.
+     *   without a re-list in a browser, which sends none (so a server that follows the spec rejects a subscription
+     *   that sets an `x-mcp-header` argument), or `-32601` when it does not serve the method.
      * @throws {Error} the transport's auth failure (such as `UnauthorizedError`, or an error the `authProvider` throws)
      *   when the first exchange is not authorized.
      * @throws {TypeError} when `webhook.secretProvider` returns something that is not a Standard Webhooks secret, or a

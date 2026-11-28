@@ -58,6 +58,8 @@ interface PushStream {
     waiting: number;
     // Since when the transport has held the frame being written.
     writingSince?: number;
+    // Since when `waiting` has been at least the emit buffer's `maxEvents`.
+    fullSince?: number;
     // The stream ended by the client's cancellation or an abandon, so its queued events and heartbeats are not written.
     dropping: boolean;
     // Ends the current wait for room, and the drain epoch the stream already waits on, so a wait that times out leaves nothing behind.
@@ -415,13 +417,15 @@ export class StreamSet implements SubscriptionSource {
         event = false
     ): void {
         const { flow } = stream;
+        const { maxEvents } = this.#deps.buffer;
         if (event) {
-            // An emit-only stream with more live events waiting than the emit buffer holds is abandoned as a stalled one is, once its transport is not taking its frames.
-            if (stream.entry.kind === 'emitOnly' && stream.waiting >= this.#deps.buffer.maxEvents && this.#stalled(stream)) {
+            // An emit-only stream with more live events waiting than the emit buffer holds is abandoned as a stalled one is, once its transport is not taking its frames, or on stdio has not got below that for a whole grant.
+            if (stream.entry.kind === 'emitOnly' && stream.waiting >= maxEvents && this.#stalled(stream)) {
                 this.#dropStalled(stream);
                 return;
             }
             stream.waiting += 1;
+            if (stream.waiting >= maxEvents) stream.fullSince ??= Date.now();
         }
         const queuedAfterEnd = stream.ended.signal.aborted;
         // A failed write means the client is gone.
@@ -444,17 +448,24 @@ export class StreamSet implements SubscriptionSource {
                     if ((flow?.backlog() ?? 0) > MAX_STREAM_BACKLOG_BYTES) stream.overSince ??= Date.now();
                     this.#armHeartbeat(stream);
                 } finally {
-                    if (event) stream.waiting -= 1;
+                    if (event) {
+                        stream.waiting -= 1;
+                        if (stream.waiting < maxEvents) stream.fullSince = undefined;
+                    }
                 }
             })
             .catch(() => this.#drop(stream));
     }
 
-    // Over HTTP, the client has more than the bound unread; on a transport that cannot tell how far its client has read (stdio), the frame it holds has waited longer than the grant, so a burst queued while it keeps writing does not count.
+    // Over HTTP, the client has more than the bound unread; on a transport that cannot tell how far its client has read (stdio), the frame it holds has waited longer than the grant, or the events waiting have stayed at the cap for a whole grant, so a burst queued while it keeps writing does not count.
     #stalled(stream: PushStream): boolean {
-        const { flow, writingSince } = stream;
+        const { flow, writingSince, fullSince } = stream;
         if (flow !== undefined) return flow.backlog() > MAX_STREAM_BACKLOG_BYTES;
-        return writingSince !== undefined && Date.now() - writingSince > stream.grant;
+        const now = Date.now();
+        return (
+            (writingSince !== undefined && now - writingSince > stream.grant) ||
+            (fullSince !== undefined && now - fullSince >= stream.grant)
+        );
     }
 
     // Whether a frame still goes out once the stream has ended: `terminated` does; a heartbeat does not; an event or error queued before a server-side end (terminate(), remove(), a schema change, a terminal `check`) does, unless the end was the client's cancellation or an abandon.
@@ -493,7 +504,7 @@ export class StreamSet implements SubscriptionSource {
         return true;
     }
 
-    // A client that stopped reading: the subscription ends, and over HTTP the response body errors, which drops its unread bytes; on stdio its final result follows what the transport already holds. Either way the SDK's client reconnects from its cursor.
+    // A client that stopped reading, or on stdio left `emitBuffer.maxEvents` events waiting for a whole grant: the subscription ends, and over HTTP the response body errors, which drops its unread bytes; on stdio its final result follows what the transport already holds. Either way the SDK's client reconnects from its cursor.
     #dropStalled(stream: PushStream): void {
         this.#drop(stream);
         stream.flow?.abort();

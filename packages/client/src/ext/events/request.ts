@@ -75,11 +75,16 @@ export class EventsConnection {
 
     // `Mcp-Param-{Name}` headers for a request about `name`, from its cached descriptor; none while mirroring is off.
     paramHeadersFor(name: string, args: Record<string, unknown> | undefined): Record<string, string> {
-        const declarations = this.#mirroring() ? this.#descriptors.get(name)?.declarations : undefined;
+        const declarations = this.mirroring() ? this.#descriptors.get(name)?.declarations : undefined;
         return declarations === undefined || declarations.length === 0 ? {} : buildMcpParamHeaders(declarations, args);
     }
 
-    // With `mirror`, carries its `Mcp-Param` headers and after a `-32020` re-lists once and retries. Events-coded errors become `EventsError`.
+    // Whether requests carry `Mcp-Param` headers: on 2026-07-28 outside a browser, as for `tools/call`.
+    mirroring(): boolean {
+        return this.client.getProtocolEra() === 'modern' && detectProbeEnvironment() !== 'browser';
+    }
+
+    // With `mirror`, carries its `Mcp-Param` headers and, while mirroring, after a `-32020` re-lists once and retries. Events-coded errors become `EventsError`.
     async request<S extends StandardSchemaV1>(
         method: string,
         params: Record<string, unknown>,
@@ -96,17 +101,13 @@ export class EventsConnection {
             try {
                 return await send();
             } catch (error) {
-                if (mirror === undefined || !isHeaderMismatch(error)) throw error;
+                if (mirror === undefined || !isHeaderMismatch(error) || !this.mirroring()) throw error;
                 await this.list(undefined, options);
                 return await send();
             }
         } catch (error) {
             throw asEventsError(error);
         }
-    }
-
-    #mirroring(): boolean {
-        return this.client.getProtocolEra() === 'modern' && detectProbeEnvironment() !== 'browser';
     }
 
     // As `tools/list` does: exclusion applies except on stdio, which carries no headers.

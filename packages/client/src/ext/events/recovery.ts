@@ -53,7 +53,7 @@ export function endsSubscription(error: unknown): boolean {
     );
 }
 
-// An error of the first exchange that subscribe() rejects with: any auth failure of the transport, so a misconfigured provider rejects, and a -32020 only once its re-list is spent; any other (transport, an HTTP 5xx or 429, another non-Events JSON-RPC error, a verification limit) is retried in the background.
+// An error of the first exchange that subscribe() rejects with: any auth failure of the transport, so a misconfigured provider rejects, and a -32020 once its re-list is spent, or at once in a browser, which sends no `Mcp-Param` headers; any other (transport, an HTTP 5xx or 429, another non-Events JSON-RPC error, a verification limit) is retried in the background.
 export function refusesSubscription(error: unknown): boolean {
     if (isAuthSeamEscape(error) || endsSubscription(error)) return true;
     if (error instanceof SdkHttpError) return !(error.status >= 500 || error.status === 429);
@@ -112,7 +112,7 @@ export function isModeRefusal(error: unknown): boolean {
     );
 }
 
-// Every mode's recovery once subscribed: `relist` and go on while still offered (a `notFound` only once in a row), `mismatch` (re-list and retry once, then end), `fail` (end with the error), or `retry` later (anything but an Events kind or an endsSubscription() error, such as a transport or non-final auth failure, and a verification limit).
+// Every mode's recovery once subscribed: `relist` and go on while still offered (a `notFound` only once in a row), `mismatch` (re-list and retry once, except in a browser, then end), `fail` (end with the error), or `retry` later (anything but an Events kind or an endsSubscription() error, such as a transport or non-final auth failure, and a verification limit).
 export function recoveryFor(error: unknown): 'relist' | 'mismatch' | 'fail' | 'retry' {
     if (endsSubscription(error)) return 'fail';
     if (isHeaderMismatch(error)) return 'mismatch';
@@ -355,7 +355,7 @@ export class DriverLoop<T> {
             this.#retrying(error);
             return 'retry';
         }
-        // A -32020 here is the second: the mode has already re-listed once and retried with fresh headers.
+        // A -32020 here is the second, the mode having re-listed once and retried with fresh headers, or in a browser the first.
         if (recovery !== 'relist') throw error;
         const offered = await stillOffered(connection, subscription.name, this.#mode, this.#abort.signal);
         if (offered === false) throw error;

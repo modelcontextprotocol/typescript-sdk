@@ -22,6 +22,7 @@ afterEach(async () => {
     await Promise.all(subscriptions.splice(0).map(subscription => subscription.cancel()));
     vi.useRealTimers();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
 });
 
 /** Lets every in-flight request and its response settle without moving the clock. */
@@ -506,7 +507,7 @@ describe('push delivery', () => {
         expect(last().call.params['cursor']).toBe('c1');
     });
 
-    it('doubles the reconnect delay up to 30 s until a stream is active again', async () => {
+    it('doubles the reconnect delay up to 30 s until a stream stays open for its grant after its active', async () => {
         const { last, streams, subscribe } = await pushWith();
         const sub = await subscribe({}, s => s.active({ cursor: 'c1' }));
         await last().end();
@@ -523,10 +524,40 @@ describe('push delivery', () => {
         }
         await vi.advanceTimersByTimeAsync(15_000);
         await last().active({ cursor: 'c2' });
+        await vi.advanceTimersByTimeAsync(30_000);
         await last().end();
         await vi.advanceTimersByTimeAsync(500);
         expect(last().call.params['cursor']).toBe('c2');
         expect(sub.cursor).toBe('c2');
+    });
+
+    it('grows the reconnect delay while each stream ends right after its active, and resets it after a stream that stayed open for its grant', async () => {
+        const { last, streams, subscribe } = await pushWith();
+        await subscribe({}, s => s.active({ cursor: 'c1' }));
+        await last().end();
+
+        // For a minute, the server answers every reopened stream with `active` and ends it at once.
+        let answered = 1;
+        for (let elapsed = 0; elapsed < 60_000; elapsed += 100) {
+            await vi.advanceTimersByTimeAsync(100);
+            for (const stream of streams().slice(answered)) {
+                await stream.active({ cursor: 'c1' });
+                await stream.end();
+            }
+            answered = streams().length;
+        }
+        // random() is 0.5: reopens at 0.5, 1.5, 3.5, 7.5, 15.5, 30.5 and 45.5 s, the next at 60.5 s.
+        expect(streams()).toHaveLength(8);
+
+        await vi.advanceTimersByTimeAsync(500);
+        expect(streams()).toHaveLength(9);
+        await last().active({ cursor: 'c1', heartbeatMs: 5000 });
+        await vi.advanceTimersByTimeAsync(5000);
+        await last().end();
+        await vi.advanceTimersByTimeAsync(499);
+        expect(streams()).toHaveLength(9);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(streams()).toHaveLength(10);
     });
 
     it('retries and reports a reopened stream that ends before its active, and reopens quietly after one that ends after it', async () => {
@@ -609,9 +640,10 @@ describe('push delivery', () => {
         await replay();
         await last().frame('notifications/events/event', { ...occurrence('newer'), cursor: 'h2' });
 
+        // A second stream in a row that ends within its grant waits twice as long before the reopen.
         await last().end();
-        await vi.advanceTimersByTimeAsync(500);
-        expect(last().call.params).toMatchObject({ cursor: 'h2', maxAgeMs: 301_000 });
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(last().call.params).toMatchObject({ cursor: 'h2', maxAgeMs: 301_500 });
         const iterator = sub[Symbol.asyncIterator]();
         expect([await nextEventId(iterator), await nextEventId(iterator)]).toEqual(['new', 'newer']);
     });
@@ -772,11 +804,11 @@ describe('push delivery', () => {
         expect(lists()).toHaveLength(2);
         expect(streams().map(stream => stream.call.headers['Mcp-Param-Region'])).toEqual([undefined, 'us-west1']);
 
-        // A mismatch after a stream was active again re-lists again; the next one in a row fails the loop.
+        // A mismatch after a stream was active again re-lists again; the next one in a row fails the loop. The stream that ended within its grant did not reset the backoff.
         await last().end();
-        await vi.advanceTimersByTimeAsync(500);
-        await last().fail(mismatch);
         await vi.advanceTimersByTimeAsync(1000);
+        await last().fail(mismatch);
+        await vi.advanceTimersByTimeAsync(2000);
         expect(lists()).toHaveLength(3);
         expect(streams()).toHaveLength(4);
         const pending = sub[Symbol.asyncIterator]()
@@ -830,6 +862,30 @@ describe('push delivery', () => {
         expect(error).toMatchObject({ code: -32_020 });
         expect(streams()).toHaveLength(2);
         expect(lists()).toHaveLength(2);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('rejects subscribe() with the first -32020 in a browser, which sends no Mcp-Param headers, without listing the event types again', async () => {
+        const annotated = descriptor('tick', {
+            delivery: ['push'],
+            inputSchema: { type: 'object', properties: { region: { type: 'string', 'x-mcp-header': 'Region' } } }
+        });
+        const { events, lists, last, streams } = await pushWith(listing(annotated));
+        vi.stubGlobal('window', {});
+        vi.stubGlobal('document', {});
+        const subscribing = events
+            .subscribe({ name: 'tick', arguments: { region: 'us-west1' }, delivery: 'push' })
+            .catch((error_: unknown) => error_);
+        await settle();
+        expect(last().call.headers).toEqual({});
+
+        await last().fail({ code: -32_020, message: 'Mcp-Param-Region header mismatch' });
+        await settle();
+        expect(lists()).toHaveLength(1);
+        const error = await subscribing;
+        expect(error).toBeInstanceOf(ProtocolError);
+        expect(error).toMatchObject({ code: -32_020 });
+        expect(streams()).toHaveLength(1);
         expect(vi.getTimerCount()).toBe(0);
     });
 

@@ -1098,7 +1098,7 @@ describe('event delivery', () => {
         // Ten in flight, 10 000 waiting, and five more: the five oldest waiting are abandoned, and the first is reported at once.
         for (let n = 1; n <= 10_015; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
         expect(reports()).toEqual([
-            `webhook subscription ${ID}: abandoned event evt_11 past the 10000 messages it holds waiting or parked`
+            `webhook subscription ${ID}: abandoned event evt_11 past the 10000 messages it holds waiting, retrying or parked`
         ]);
         // A minute after that report the other four are reported together.
         await vi.advanceTimersByTimeAsync(59_999);
@@ -1110,7 +1110,7 @@ describe('event delivery', () => {
         expect(reports()).toHaveLength(2);
         await vi.advanceTimersByTimeAsync(60_000);
         expect(reports()).toEqual([
-            `webhook subscription ${ID}: abandoned event evt_11 past the 10000 messages it holds waiting or parked`,
+            `webhook subscription ${ID}: abandoned event evt_11 past the 10000 messages it holds waiting, retrying or parked`,
             `webhook subscription ${ID}: abandoned 4 more events since the last report, the latest evt_15`,
             `webhook subscription ${ID}: abandoned 1 more event since the last report, the latest evt_16`
         ]);
@@ -1131,6 +1131,59 @@ describe('event delivery', () => {
         expect(engine.watermark(ID)).toBe('p16');
         expect(hold.most()).toBe(10);
     }, 30_000);
+
+    it('counts the messages waiting between retries towards the 10 000 it holds, for a receiver that fails under the suspension threshold', async () => {
+        let events = 0;
+        const waiters: Array<{ count: number; resolve(): void }> = [];
+        const gaps: Array<Record<string, unknown>> = [];
+        let gapped = (): void => {};
+        // Every tenth event, `evt_ok` and every control body are acknowledged; the other events fail, 90 % of attempts, which suspends nothing.
+        const { engine, record, onerror } = setup(request => {
+            const body = bodyOf(request);
+            if (body.type === 'gap') {
+                gaps.push(body);
+                gapped();
+            }
+            if ('type' in body) return { status: 200, body: '' };
+            events += 1;
+            for (const waiter of waiters.splice(0)) {
+                if (events >= waiter.count) waiter.resolve();
+                else waiters.push(waiter);
+            }
+            return /0$|ok$/.test(String(body.eventId)) ? { status: 200, body: '' } : { status: 503, body: '' };
+        });
+        const sent = (count: number): Promise<void> =>
+            new Promise(resolve => (events >= count ? resolve() : waiters.push({ count, resolve })));
+        const gapAt = (cursor: string): Promise<void> =>
+            new Promise(resolve => {
+                gapped = () => {
+                    if (gaps.some(gap => gap.cursor === cursor)) resolve();
+                };
+                gapped();
+            });
+        engine.track(ID, 'p0');
+        // Ten at a time, each failure waits 5 s for its retry, which the clock never reaches: 1 112 rounds leave 10 008.
+        for (let round = 0; round < 1112; round++) {
+            for (let n = 10 * round + 1; n <= 10 * round + 10; n++) engine.deliver(record, occurrence(`evt_${n}`), `p${n}`, null);
+            await sent(10 * round + 10);
+            await settle();
+        }
+        // One more acknowledged delivery sends the gap for the eight oldest, abandoned past the cap.
+        engine.deliver(record, occurrence('evt_ok'), 'p11121', null);
+        await sent(11_121);
+        await settle();
+
+        expect(onerror.mock.calls.map(([error]) => (error as Error).message)).toEqual([
+            `webhook subscription ${ID}: abandoned event evt_1 past the 10000 messages it holds waiting, retrying or parked`
+        ]);
+        // 10 000 retry timers, and the report of the other seven.
+        expect(vi.getTimerCount()).toBe(10_001);
+        expect(engine.status(ID)).toMatchObject({ active: true });
+        expect(engine.watermark(ID)).toBe('p8');
+        // A gap envelope built before the last of them was abandoned tells of the others at an earlier watermark, and a later one of all eight.
+        await gapAt('p8');
+        expect(gaps.at(-1)).toEqual({ type: 'gap', cursor: 'p8' });
+    }, 60_000);
 
     it('queues each delivery and returns without waiting for the receiver', async () => {
         const answers = new Map<string, (outcome: WebhookSendOutcome) => void>();

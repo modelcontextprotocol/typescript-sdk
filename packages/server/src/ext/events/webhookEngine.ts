@@ -15,7 +15,7 @@ const RETRY_DELAYS_MS = [5000, 30_000, 120_000, 300_000];
 // Non-2xx answers that end a message without a retry.
 const FINAL_STATUSES: ReadonlySet<number> = new Set([410, 413]);
 const MAX_BODY_BYTES = 262_144;
-// The most messages of one subscription waiting for a slot or parked, together: as many as the emit buffer holds by default.
+// The most messages of one subscription waiting for a slot, between retries or parked, together: as many as the emit buffer holds by default.
 export const MAX_HELD_MESSAGES = 10_000;
 // The most event POSTs of one subscription in flight at once.
 const MAX_IN_FLIGHT_PER_SUBSCRIPTION = 10;
@@ -106,6 +106,8 @@ interface Tracked {
     // How many messages hold a slot, and the messages waiting for one: first attempts in position order, each retry once it is due.
     running: number;
     waiting: Message[];
+    // How many messages wait out a retry delay.
+    retrying: number;
     // Messages that came due while delivery was suspended, oldest first.
     parked: Message[];
     active: boolean;
@@ -664,6 +666,7 @@ export class WebhookEngine {
             pending: [],
             running: 0,
             waiting: [],
+            retrying: 0,
             parked: [],
             active: true,
             abandoned: 0,
@@ -791,13 +794,20 @@ export class WebhookEngine {
         if (tracked.running === 0) for (const attempt of tracked.idle.splice(0)) attempt();
     }
 
-    // Past MAX_HELD_MESSAGES waiting or parked, abandons the oldest of them by position.
+    // Past MAX_HELD_MESSAGES waiting, retrying or parked, abandons the oldest of them by position.
     #cap(tracked: Tracked): void {
-        if (tracked.waiting.length + tracked.parked.length <= MAX_HELD_MESSAGES) return;
-        const oldest = tracked.pending.find(message => message.place === 'waiting' || message.place === 'parked')!;
-        const held = oldest.place === 'waiting' ? tracked.waiting : tracked.parked;
-        held.splice(held.indexOf(oldest), 1);
-        this.#abandon(tracked, oldest, `past the ${MAX_HELD_MESSAGES} messages it holds waiting or parked`);
+        if (tracked.waiting.length + tracked.retrying + tracked.parked.length <= MAX_HELD_MESSAGES) return;
+        const oldest = tracked.pending.find(
+            message => message.place === 'waiting' || message.place === 'retrying' || message.place === 'parked'
+        )!;
+        if (oldest.place === 'retrying') {
+            clearTimeout(oldest.retry);
+            tracked.retrying -= 1;
+        } else {
+            const held = oldest.place === 'waiting' ? tracked.waiting : tracked.parked;
+            held.splice(held.indexOf(oldest), 1);
+        }
+        this.#abandon(tracked, oldest, `past the ${MAX_HELD_MESSAGES} messages it holds waiting, retrying or parked`);
     }
 
     // Settles a message the engine gives up on, and reports it at once unless a report went out in the last ABANDON_REPORT_INTERVAL_MS; then it counts towards the next.
@@ -907,7 +917,7 @@ export class WebhookEngine {
         });
     }
 
-    // Waits out the retry delay out of its slot, then queues the next attempt; after the last it abandons the message.
+    // Waits out the retry delay out of its slot, held under the cap, then queues the next attempt; after the last it abandons the message.
     #retry(tracked: Tracked, message: Message): void {
         const delay = RETRY_DELAYS_MS[message.attempts - 1];
         if (delay === undefined) {
@@ -915,7 +925,14 @@ export class WebhookEngine {
             return;
         }
         this.#release(tracked, message, 'retrying');
-        message.retry = unref(setTimeout(() => this.#queue(tracked, message), delay));
+        tracked.retrying += 1;
+        message.retry = unref(
+            setTimeout(() => {
+                tracked.retrying -= 1;
+                this.#queue(tracked, message);
+            }, delay)
+        );
+        this.#cap(tracked);
     }
 
     // Holds a message until resume(), out of its slot.

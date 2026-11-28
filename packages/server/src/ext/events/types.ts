@@ -127,19 +127,20 @@ export interface CheckEventDefinition<I extends StandardSchemaWithJSON, P extend
     extends EventDefinitionBase<I, P> {
     emitOnly?: false;
     /**
-     * The events since `cursor`, and the cursor to resume from. A subscription that starts from now begins with
-     * a call with `cursor: null` whose events the SDK drops: it takes only the cursor returned. A type without
-     * replay returns `cursor: null`, so after that first call the SDK calls `check` with `null` every time and
-     * sends the events each call returns: return what happened since the previous call for the same
-     * `ctx.subscriptionId`. Poll serves such a type one subscription per lease (principal, event name and
-     * arguments), so clients that share a lease, as every caller does on a server without `getPrincipal`,
-     * split its events between them, and a client's first poll on an existing lease can return events from
-     * before it subscribed. A poll client that waits longer than `pollSubscriptionTtlMs` between polls starts
-     * a new lease each time and gets nothing. Clients that need every event use push or webhook. Every mode sets
-     * `ctx.maxEvents` (poll from the request, 100 by default, which the server caps at 1 000; push and webhook to
-     * 100): return at most that many events and set `hasMore` when more are waiting. After a page with more
-     * waiting that moved on (had events or a new cursor), push runs the next `check` at once, and webhook once
-     * every event of that page has been acknowledged or abandoned.
+     * The events since `cursor`, and the cursor to resume from. A subscription that starts from now begins with a call
+     * with `cursor: null` whose events the SDK drops: it takes only the cursor returned. A type without replay returns
+     * `cursor: null`, so after that first call the SDK calls `check` with `null` every time and sends the events each
+     * call returns: return what happened since the previous call for the same `ctx.subscriptionId`. A webhook refresh
+     * without a cursor, served by a process that did not watch the subscription, continues it there: that process's
+     * first call drops its events only for a type that returns a cursor. Poll serves a type without replay one
+     * subscription per lease (principal, event name and arguments), so clients that share a lease, as every caller does
+     * on a server without `getPrincipal`, split its events between them, and a client's first poll on an existing lease
+     * can return events from before it subscribed. A poll client that waits longer than `pollSubscriptionTtlMs` between
+     * polls starts a new lease each time and gets nothing. Clients that need every event use push or webhook. Every
+     * mode sets `ctx.maxEvents` (poll from the request, 100 by default, which the server caps at 1 000; push and
+     * webhook to 100): return at most that many events and set `hasMore` when more are waiting. After a page with more
+     * waiting that moved on (had events or a new cursor), push runs the next `check` at once, and webhook once every
+     * event of that page has been acknowledged or abandoned.
      */
     check(ctx: CheckContext, args: InferOutput<I>, cursor: string | null): EventResult<InferInput<P>> | Promise<EventResult<InferInput<P>>>;
     match?: never;
@@ -162,8 +163,8 @@ export interface EmitOnlyEventDefinition<I extends StandardSchemaWithJSON, P ext
     check?: never;
     /** Whether a broadcast event goes to a subscription with these arguments; absent means every subscription. */
     match?(ctx: EventContext, event: EventInput<InferOutput<P>>, args: InferOutput<I>): boolean;
-    /** The event as this subscription receives it. */
-    transform?(ctx: EventContext, event: EventInput<InferOutput<P>>, args: InferOutput<I>): EventInput<InferOutput<P>>;
+    /** The event as this subscription receives it; its result is parsed with `payloadSchema`, as an emitted event's data is. */
+    transform?(ctx: EventContext, event: EventInput<InferOutput<P>>, args: InferOutput<I>): EventInput<InferInput<P>>;
 }
 
 /**
@@ -206,7 +207,9 @@ export interface EventHandle {
      * abandoned: one whose client has more than 1 MiB unread, or reaches that while its last messages go out, gets
      * neither, as it is abandoned at once and its unread bytes dropped. Its response body errors, which a runtime
      * serving the web `Response` turns into an aborted HTTP response; under `toNodeHandler` the response ends once
-     * the client reads what its socket already holds, or closes when the client disconnects.
+     * the client reads what its socket already holds, or closes when the client disconnects. A poll lease answers
+     * its next poll with `error`; a later poll for the same principal, event name and arguments, such as from
+     * another client that shares the lease, starts a new lease and runs `onSubscribe` again.
      */
     terminate(error: EventsError, options?: { subscriptionId?: string }): Promise<void>;
 }

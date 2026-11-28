@@ -3,7 +3,7 @@ import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
 import type { SubscriptionSource } from '../../../src/ext/events/extension';
-import type { EventInput, ListEventsResult } from '../../../src/ext/events/index';
+import type { EmitOnlyEventDefinition, EventInput, ListEventsResult } from '../../../src/ext/events/index';
 import { EventsError, EventsExtension } from '../../../src/ext/events/index';
 import type { EventsTestHook } from '../../../src/ext/events/testHook';
 import { McpServer } from '../../../src/server/mcp';
@@ -220,6 +220,15 @@ describe('registerEvent', () => {
             .parameter(0)
             .toEqualTypeOf<EventInput<{ n: number }>>();
         expectTypeOf(checkHandle.update).toBeCallableWith({ description: 'v2' });
+    });
+
+    it('types transform to take the payload schema output and return its input, which the SDK parses as it parses an emit', () => {
+        const Coerced = z.object({ n: z.string().transform(Number) });
+        const transform: NonNullable<EmitOnlyEventDefinition<typeof P, typeof Coerced>['transform']> = (_ctx, event) => ({
+            data: { n: String(event.data.n) }
+        });
+        expectTypeOf(transform).parameter(1).toEqualTypeOf<EventInput<{ n: number }>>();
+        expectTypeOf(transform).returns.toEqualTypeOf<EventInput<{ n: string }>>();
     });
 
     it('requires an eventId on every event a check returns', () => {

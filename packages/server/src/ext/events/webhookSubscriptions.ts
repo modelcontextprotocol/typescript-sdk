@@ -81,6 +81,8 @@ interface Watched {
     floor?: number;
     // The pages being read continue a run of truncated ones the subscriber was already told of, by the subscribe answer or a gap envelope.
     skipping?: boolean;
+    // A check type's loop this process took over from no cursor: its first `check` call that returns starts from now (its events dropped) for a type with replay.
+    fromNow?: boolean;
     // The cursor of the first refresh this process answered, when that answer was a gap, until the next refresh: one that carries it again retries after a lost answer.
     gapCursor?: string | null;
 }
@@ -492,7 +494,7 @@ export class WebhookSubscriptions implements SubscriptionSource {
         };
     }
 
-    // Re-arms a refreshed subscription's timer and returns its watch, or starts watching it here (a check type's loop from `from`, kept to `floor`, and no `maxSubscriptions` place) when this process had not.
+    // Re-arms a refreshed subscription's timer and returns its watch, or starts watching it here (a check type's loop from `from`, or from now for a type with replay without one, kept to `floor`, and no `maxSubscriptions` place) when this process had not.
     #keep(record: WebhookSubscriptionRecord, { entry, args }: ValidSubscription, from: string | null, floor: number | undefined): Watched {
         let watched = this.#watched.get(record.id);
         if (watched === undefined) {
@@ -500,7 +502,10 @@ export class WebhookSubscriptions implements SubscriptionSource {
             watched.position = from;
             watched.floor = floor;
             this.#watched.set(record.id, watched);
-            if (entry.kind === 'check') this.#schedule(watched);
+            if (entry.kind === 'check') {
+                watched.fromNow = from === null;
+                this.#schedule(watched);
+            }
         }
         this.#arm(watched, record.expiresAt);
         return watched;
@@ -786,7 +791,12 @@ export class WebhookSubscriptions implements SubscriptionSource {
                 const maxAgeMs = maxAgeSince(watched.floor);
                 const ctx = makeContext({ ...watched.ctx, maxEvents: DEFAULT_MAX_EVENTS, maxAgeMs });
                 const result = await entry.definition.check!(ctx, watched.args, from);
-                const batch = await checkedBatch(entry, from, result, maxAgeMs, this.#deps.report);
+                // Taken over from no cursor, a type with replay starts from the cursor of the first call, as a subscription from now does.
+                const start = watched.fromNow === true && result.cursor !== null;
+                watched.fromNow = false;
+                const batch = start
+                    ? { cursor: result.cursor, truncated: false, events: [], position: result.cursor }
+                    : await checkedBatch(entry, from, result, maxAgeMs, this.#deps.report);
                 if (this.#watched.get(id) !== watched) return;
                 this.#send(record, batch, from);
                 // A quiet batch moves the watermark to the upstream cursor once nothing awaits an answer, so the refresh cursor advances.

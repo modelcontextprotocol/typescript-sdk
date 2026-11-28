@@ -15,6 +15,7 @@ const subscriptions: EventSubscription[] = [];
 afterEach(async () => {
     await Promise.all(subscriptions.splice(0).map(subscription => subscription.cancel()));
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
 });
 
 async function track<T>(subscription: Promise<EventSubscription<T>>): Promise<EventSubscription<T>> {
@@ -107,6 +108,30 @@ describe('EventsClientExtension requests', () => {
         expect(callsTo(calls, 'events/list')).toHaveLength(2);
         expect(callsTo(calls, 'events/poll').map(call => call.headers['Mcp-Param-Region'])).toEqual([undefined, 'us-west1']);
         expect(calls.map(call => call.method)).toEqual(['events/list', 'events/poll', 'events/list', 'events/poll']);
+    });
+
+    it('rejects with the first -32020 in a browser, which sends no Mcp-Param headers, without listing the event types again', async () => {
+        const annotated = descriptor('tick', {
+            inputSchema: { type: 'object', properties: { region: { type: 'string', 'x-mcp-header': 'Region' } } }
+        });
+        const { events, calls } = await connectEvents({
+            'events/list': listing(annotated),
+            'events/poll': (_params, call) => {
+                if (call.headers['Mcp-Param-Region'] !== 'us-west1') throw new RpcError(-32_020, 'Mcp-Param-Region header mismatch');
+                return quietPoll(_params, call);
+            }
+        });
+        vi.stubGlobal('window', {});
+        vi.stubGlobal('document', {});
+
+        const error = await events
+            .subscribe({ name: 'tick', arguments: { region: 'us-west1' }, delivery: 'poll' })
+            .catch((error_: unknown) => error_);
+
+        expect(error).toBeInstanceOf(ProtocolError);
+        expect(error).toMatchObject({ code: -32_020 });
+        expect(calls.map(call => call.method)).toEqual(['events/list', 'events/poll']);
+        expect(callsTo(calls, 'events/poll')[0]!.headers).toEqual({});
     });
 
     it('turns events error codes into EventsError', async () => {
