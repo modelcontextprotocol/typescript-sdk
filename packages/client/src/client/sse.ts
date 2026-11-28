@@ -269,7 +269,7 @@ export class SSEClientTransport implements Transport {
                         try {
                             responseUrl = new URL(response.url);
                         } catch {
-                            // Ignore synthetic or malformed response URLs and fall back to this._url.
+                            // fall back to this._url
                         }
                     }
                     redirect = this._unfollowedRedirect(url, response);
@@ -344,7 +344,7 @@ export class SSEClientTransport implements Transport {
                 try {
                     const baseUrl = responseUrl ?? this._url;
                     this._endpoint = new URL(messageEvent.data, baseUrl);
-                    if (this._endpoint.origin !== baseUrl.origin) {
+                    if (this._endpoint.origin !== this._url.origin) {
                         throw new Error(`Endpoint origin does not match connection origin: ${this._endpoint.origin}`);
                     }
                 } catch (error) {
