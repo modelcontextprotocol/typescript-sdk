@@ -65,6 +65,7 @@ import {
 import { invoke } from './invoke';
 import { createListenRouter, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
 import { McpServer } from './mcp';
+import { paramHeaderSchemaFor } from './paramHeaderSources';
 import type { PerRequestResponseMode } from './perRequestTransport';
 import { DEFAULT_MAX_REQUEST_BODY_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody';
 import { createScopeChallengeResponse, findScopeChallenge, scopeChallengeResourceMetadataUrl } from './scopeChallenge';
@@ -74,6 +75,7 @@ import type { ServerEventBus, ServerNotifier } from './serverEventBus';
 import { createServerNotifier, InMemoryServerEventBus } from './serverEventBus';
 import { DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 import { WebStandardStreamableHTTPServerTransport } from './streamableHttp';
+import { isStreamingMethod } from './streamingMethods';
 
 /* ------------------------------------------------------------------------ *
  * Factory and handler types
@@ -182,8 +184,9 @@ export interface CreateMcpHandlerOptions {
      * - `'sse'` — always stream.
      * - `'json'` — never stream. **Mid-call notifications (progress, logging,
      *   any related message emitted before the result) are dropped** — only the
-     *   terminal result is delivered. Listen-class subscription streams are
-     *   always served over SSE regardless of this setting.
+     *   terminal result is delivered. `subscriptions/listen` streams and the
+     *   Events extension's `events/stream` streams are always served over SSE
+     *   regardless of this setting.
      */
     responseMode?: PerRequestResponseMode;
     /**
@@ -204,7 +207,9 @@ export interface CreateMcpHandlerOptions {
     maxSubscriptions?: number;
     /**
      * SSE comment-frame keepalive interval for every SSE stream this handler
-     * serves. In modern `auto` mode it starts after SSE upgrade. Set to `0` to disable.
+     * serves, except the Events extension's `events/stream` streams, whose
+     * heartbeat notifications keep them alive. In modern `auto` mode it starts
+     * after SSE upgrade. Set to `0` to disable.
      * @default 15000
      */
     keepAliveMs?: number;
@@ -545,6 +550,15 @@ async function classifyEntryRequest(
     return { step: 'classified', outcome, body, parsedBody, forwardRequest };
 }
 
+// Cancels a request body nobody has read, so a long-lived exchange keeps none of its queued bytes; a failed cancel is ignored.
+function cancelUnreadBody(request: Request): void {
+    try {
+        if (request.body !== null && !request.bodyUsed) request.body.cancel().catch(() => {});
+    } catch {
+        // A body that cannot be cancelled is left as it is.
+    }
+}
+
 /** Options for {@linkcode isLegacyRequest}. */
 export interface IsLegacyRequestOptions {
     /**
@@ -721,7 +735,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     });
     if (responseMode === 'json') {
         logger.warn?.(
-            "responseMode: 'json' drops mid-call notifications. subscriptions/listen streams are always served over SSE regardless; " +
+            "responseMode: 'json' drops mid-call notifications. subscriptions/listen and events/stream are always streamed regardless; " +
                 'other notifications emitted before a result are dropped.'
         );
     }
@@ -731,7 +745,12 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     const legacyHandler: LegacyHttpHandler | undefined =
         legacy === 'reject' ? undefined : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs, maxRequestBodySize);
 
-    async function serveModern(route: InboundModernRoute, request: Request, authInfo: AuthInfo | undefined): Promise<Response> {
+    async function serveModern(
+        route: InboundModernRoute,
+        request: Request,
+        authInfo: AuthInfo | undefined,
+        forwardRequest: Request
+    ): Promise<Response> {
         const claimedRevision = route.classification.revision;
         if (claimedRevision === undefined || !SUPPORTED_MODERN_PROTOCOL_VERSIONS.includes(claimedRevision)) {
             // The claim names a revision this endpoint does not serve (an
@@ -822,8 +841,10 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         }
 
         // SEP-2243 `Mcp-Param-*` server-side validation (pre-dispatch ladder
-        // rung): for a `tools/call`, look up the named tool's JSON inputSchema
-        // on the just-produced instance and compare every `x-mcp-header`
+        // rung): look up the JSON inputSchema that `params.name` names on the
+        // just-produced instance (for a `tools/call` the named tool's; for
+        // another method the one an extension registered a lookup for, see
+        // `paramHeaderSources.ts`) and compare every `x-mcp-header`
         // declaration against the request's `Mcp-Param-{Name}` headers and the
         // body `arguments`. A mismatch (or a missing header for a present body
         // value, or an invalid Base64 sentinel) emits the same `400` /
@@ -831,13 +852,19 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // applied when the factory returns an `McpServer` (the registry is the
         // schema source); a low-level `Server` factory has no registry, so
         // there is nothing to validate against.
-        if (route.messageKind === 'request' && route.message.method === 'tools/call' && product instanceof McpServer) {
+        if (route.messageKind === 'request' && product instanceof McpServer) {
+            const { method } = route.message;
             const callParams = route.message.params as { name?: string; arguments?: Record<string, unknown> } | undefined;
-            const toolName = typeof callParams?.name === 'string' ? callParams.name : undefined;
-            const inputSchema = toolName === undefined ? undefined : product.toolInputSchemaJson(toolName);
+            const name = typeof callParams?.name === 'string' ? callParams.name : undefined;
+            const inputSchema =
+                name === undefined
+                    ? undefined
+                    : method === 'tools/call'
+                      ? product.toolInputSchemaJson(name)
+                      : paramHeaderSchemaFor(product, method, name);
             if (inputSchema !== undefined) {
                 const scan = scanXMcpHeaderDeclarations(inputSchema);
-                // A tool that is invalid only for a `number`-typed declaration is still checked.
+                // A schema that is invalid only for a `number`-typed declaration is still checked.
                 if (scan.declarations !== undefined && scan.declarations.length > 0) {
                     const rejection = validateMcpParamHeaders(scan.declarations, callParams?.arguments, request.headers);
                     if (rejection !== undefined) {
@@ -897,13 +924,23 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         };
         server.onclose = onExchangeClose;
 
+        // A method the instance marks as streaming (`events/stream`) upgrades to SSE even under 'json'.
+        const streaming = isStreamingMethod(server, route.message.method);
+        const exchangeMode = responseMode === 'json' && streaming ? 'auto' : responseMode;
+        // Its own heartbeat notifications keep a marked stream alive, so it gets no SSE comment keepalive (SEP-3415 §Push).
+        const keepAliveMs = streaming ? 0 : options.keepAliveMs;
+        // A marked stream keeps its Request while open, so the bodies nobody reads (the Request's own beside `parsedBody`, the forward clone) are cancelled.
+        if (streaming) {
+            cancelUnreadBody(request);
+            cancelUnreadBody(forwardRequest);
+        }
         try {
             const response = await invoke(product, route.message, {
                 classification: route.classification,
                 request,
                 ...(authInfo !== undefined && { authInfo }),
-                ...(responseMode !== undefined && { responseMode }),
-                ...(options.keepAliveMs !== undefined && { keepAliveMs: options.keepAliveMs })
+                ...(exchangeMode !== undefined && { responseMode: exchangeMode }),
+                ...(keepAliveMs !== undefined && { keepAliveMs })
             });
             if (route.messageKind === 'notification') {
                 // Notification exchanges have no terminal response to ride the
@@ -991,7 +1028,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                     return rejectionResponse(outcome, echoableRequestId(body));
                 }
                 case 'modern': {
-                    return await serveModern(outcome, request, authInfo);
+                    return await serveModern(outcome, request, authInfo, forwardRequest);
                 }
                 case 'legacy': {
                     return await serveLegacyRoute(outcome, forwardRequest, authInfo, parsedBody);

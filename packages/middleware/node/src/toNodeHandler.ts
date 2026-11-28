@@ -328,11 +328,23 @@ export async function toWebRequest(req: NodeIncomingMessageLike, parsedBody?: un
         }
     }
 
+    // Except an `events/stream` (by its `Mcp-Method` header), which stays open: its body goes on as a stream, which keeps none of it once read.
+    const streamBody = headers.get('mcp-method') === 'events/stream';
     return new Request(url, {
         method,
         headers,
         ...(options?.signal !== undefined && { signal: options.signal }),
-        ...(body !== undefined && { body })
+        ...(body !== undefined && (streamBody ? { body: singleChunk(new TextEncoder().encode(body)), duplex: 'half' } : { body }))
+    });
+}
+
+// A stream of one chunk, which keeps nothing once read.
+function singleChunk(bytes: Uint8Array): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+        start(controller) {
+            controller.enqueue(bytes);
+            controller.close();
+        }
     });
 }
 

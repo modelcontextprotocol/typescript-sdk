@@ -43,6 +43,7 @@ import type { Request, Response } from 'express';
 import express from 'express';
 import * as z from 'zod/v4';
 
+import { conformanceEvents, registerEventsControls } from './events';
 import { conformanceSkills } from './skills';
 
 // Server state
@@ -165,12 +166,17 @@ function createMcpServer() {
             // request that carries requestState is verified before the handler
             // runs. A rejection answers a wire-level -32602 with
             // data.reason 'invalid_request_state'.
-            requestState: { verify: requestStateCodec.verify }
+            requestState: { verify: requestStateCodec.verify },
+            // SEP-3415: events/*.
+            extensions: [conformanceEvents]
         }
     );
 
     // SEP-2640: skills/list, skills/get, resources/directory/read and the skill:// resource template.
     conformanceSkills.attach(mcpServer);
+
+    // SEP-3415: the events_conformance_* control tools.
+    registerEventsControls(mcpServer);
 
     // Helper to send log messages using the underlying server
     function sendLog(

@@ -54,6 +54,36 @@ client:
     # scenarios never match a --spec-version filter).
     # (SEP-1932 DPoP burned by the auth/dpop + auth/dpop-nonce client implementation.)
     - auth/wif-jwt-bearer
+    #
+    # --- Events (SEP-3415): local-only until released ---
+    # Run by `test:conformance:client:events` against a local build of
+    # conformance#541 (EVENTS_CONFORMANCE_DIR); no released referee has these
+    # scenarios, so the released legs never read these entries.
+    # The client never opens subscriptions/listen for list_changed (follow-up PR).
+    - events-client-poll:sep-3415-client-listen-opt-in
+    # Same: list_changed has no channel to arrive on, so the re-list is never triggered.
+    - events-client-poll:sep-3415-client-relist-on-list-changed
+    #
+    # --- Events: conformance#541 mock defects (reported upstream) ---
+    # The client stays strict; each row grades once the mock sends the field it names.
+    # The mock's descriptors omit payloadSchema (SEP l.15), so the client refuses events/list and never polls.
+    - events-client-poll:sep-3415-client-poll-drain-on-has-more
+    - events-client-poll:sep-3415-client-poll-respects-next-poll-ms
+    - events-client-poll:sep-3415-client-poll-floor
+    - events-client-poll:sep-3415-client-truncated-persists-fresh-cursor
+    - events-client-poll:sep-3415-client-null-cursor-not-replayed
+    - events-client-poll:sep-3415-client-cursor-absent-tolerated
+    - events-client-poll:sep-3415-client-mcp-name-set
+    - events-client-poll:sep-3415-client-mcp-name-base64
+    # Descriptors omit payloadSchema (SEP l.15) and active omits heartbeatMs (SEP l.382), so no stream or reconnect.
+    - events-client-push:sep-3415-client-stream-reconnect-with-cursor
+    - events-client-push:sep-3415-client-null-cursor-not-replayed
+    # The mock's descriptors omit payloadSchema (SEP l.15), so the client refuses events/list and never streams.
+    - events-client-push:sep-3415-client-mcp-name-set
+    # The mock's descriptors omit payloadSchema (SEP l.15), so the client refuses events/list and never subscribes.
+    - events-client-webhook:sep-3415-client-refresh-before-expiry
+    - events-client-webhook:sep-3415-client-null-cursor-not-replayed
+    - events-client-webhook:sep-3415-client-mcp-name-set
 
 server:
     # --- SEP-2663 (io.modelcontextprotocol/tasks) — server SDK does not implement the tasks extension ---
@@ -72,3 +102,35 @@ server:
     - tasks-dispatch-and-envelope
     - tasks-required-task-error
     - tasks-mrtr-composition
+    #
+    # --- Events (SEP-3415): local-only until released ---
+    # Run by `test:conformance:server:events` against a local build of
+    # conformance#541 (EVENTS_CONFORMANCE_DIR); no released referee has these
+    # scenarios, so the released legs never read these entries.
+    # The server grants only finite TTLs (no-expiry is a non-goal), so these have nothing to grade.
+    - events-webhook:sep-3415-ttl-no-expiry-persisted
+    - events-webhook:sep-3415-ttl-no-expiry-gc-terminated
+    #
+    # --- Events: events/list is one page ---
+    # The SDK serves events/list as one page (no page size), so the cursor round trip is reported untestable.
+    - events-discovery:sep-3415-list-pagination
+    #
+    # --- Events: untestable by the suite's own construction ---
+    # The referee reports these "Not testable" for a conformant server; each stays until it can grade them.
+    # Suspension shows only in the optional deliveryStatus, after sustained failure to a callback the suite controls.
+    - events-webhook:sep-3415-subscribe-refresh-reactivates
+    # Graded on the cursor:null bootstrap poll, which starts from now and so never has a backlog.
+    - events-poll:sep-3415-poll-next-poll-ms-ignored-when-has-more
+    # Needs truncated from the maxAgeMs probe, whose fresh cursor is never past the floor.
+    - events-poll:sep-3415-truncated-returns-fresh-cursor
+    # The harness cannot mint a stale cursor; reported untestable for every server.
+    - events-poll:sep-3415-max-age-ms-sets-truncated
+    - events-poll:sep-3415-replay-ceiling-sets-truncated
+    # The receiver cannot tell the verification POST's code path from a delivery's.
+    - events-webhook-delivery:sep-3415-verification-uses-ssrf-hardened-path
+    # Needs a second principal, a restart or a key-discovery origin the scenario does not set up.
+    - events-webhook-delivery:sep-3415-verification-cached-per-principal-url
+    - events-webhook-delivery:sep-3415-verification-persisted-for-no-expiry
+    - events-webhook-delivery:sep-3415-server-identity-key-discovery
+    # Needs a secret rotated while a delivery is in flight, which the harness cannot time.
+    - events-webhook-delivery:sep-3415-delivery-dual-sign-on-rotation

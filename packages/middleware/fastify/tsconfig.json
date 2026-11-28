@@ -15,6 +15,9 @@
             ],
             "@modelcontextprotocol/core/ext/skills": [
                 "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core/src/ext/skills/index.ts"
+            ],
+            "@modelcontextprotocol/core/ext/events": [
+                "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core/src/ext/events/index.ts"
             ]
         }
     }

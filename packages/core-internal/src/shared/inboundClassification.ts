@@ -364,13 +364,15 @@ export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor
         codes: [HEADER_MISMATCH_ERROR_CODE],
         conformance: ['http-custom-header-server-validation'],
         rationale:
-            'SEP-2243 `Mcp-Param-*` headers are validated against the named tool’s `x-mcp-header` declarations and the body ' +
-            '`arguments` after the tool registry is known and before dispatch reaches the handler; a missing/disagreeing/malformed ' +
-            'header is rejected 400 / -32020 with the same shape as the standard-header cross-checks. The documented order ' +
-            '(after method resolution and params validation) is preserved observably only when the body `arguments` would ' +
-            'otherwise validate: the check runs pre-dispatch, so a `tools/call` that fails BOTH this rung and a dispatch-time ' +
-            'rung (e.g. order-6 `request-params`, -32602) is answered by this gate first with 400 / -32020, not by the ' +
-            'earlier-ordered rung.'
+            'SEP-2243 `Mcp-Param-*` headers are validated against the `x-mcp-header` declarations of the input schema that ' +
+            '`params.name` names (the tool’s for a `tools/call`; for another method, the one an extension registered a lookup ' +
+            'for, such as the event type’s for `events/poll`, `events/stream`, `events/subscribe` and `events/unsubscribe`) and ' +
+            'the body `arguments`, after the registry is known and before dispatch reaches the handler; a ' +
+            'missing/disagreeing/malformed header is rejected 400 / -32020 with the same shape as the standard-header ' +
+            'cross-checks. The documented order (after method resolution and params validation) is preserved observably only ' +
+            'when the body `arguments` would otherwise validate: the check runs pre-dispatch, so a request that fails BOTH this ' +
+            'rung and a dispatch-time rung (e.g. order-6 `request-params`, -32602) is answered by this gate first with 400 / ' +
+            '-32020, not by the earlier-ordered rung.'
     }
 ];
 
@@ -478,9 +480,11 @@ export type McpNameSourceField = 'name' | 'uri' | 'taskId';
  * Streamable HTTP binding ("the client MUST set the `Mcp-Name` header to the
  * value of `params.taskId`" for `tasks/get` / `tasks/update` /
  * `tasks/cancel`, so intermediaries can route every request for a task to the
- * instance holding its state). Shared by the client transport (header
- * emission) and the server ladder (validation) so both sides derive from one
- * table.
+ * instance holding its state); the `events/*` rows come from SEP-3415's
+ * Streamable HTTP routing headers (`params.name`, the event name, for
+ * `events/poll` / `events/stream` / `events/subscribe` / `events/unsubscribe`).
+ * Shared by the client transport (header emission) and the server ladder
+ * (validation) so both sides derive from one table.
  */
 export const MCP_NAME_HEADER_SOURCE: Readonly<Record<string, McpNameSourceField>> = {
     'tools/call': 'name',
@@ -488,7 +492,11 @@ export const MCP_NAME_HEADER_SOURCE: Readonly<Record<string, McpNameSourceField>
     'resources/read': 'uri',
     'tasks/get': 'taskId',
     'tasks/update': 'taskId',
-    'tasks/cancel': 'taskId'
+    'tasks/cancel': 'taskId',
+    'events/poll': 'name',
+    'events/stream': 'name',
+    'events/subscribe': 'name',
+    'events/unsubscribe': 'name'
 };
 
 /**
@@ -553,10 +561,12 @@ function stripHttpOws(value: string): string {
  *   by this cell);
  * - the required `Mcp-Method` header is absent;
  * - the required `Mcp-Name` header is absent on a `tools/call`,
- *   `prompts/get`, `resources/read`, or (per SEP-2663's Streamable HTTP
- *   binding) `tasks/get` / `tasks/update` / `tasks/cancel` request whose
- *   body carries the `params.name` / `params.uri` / `params.taskId` value
- *   the header mirrors;
+ *   `prompts/get`, `resources/read`, (per SEP-2663's Streamable HTTP
+ *   binding) `tasks/get` / `tasks/update` / `tasks/cancel`, or (per
+ *   SEP-3415's routing headers) `events/poll` / `events/stream` /
+ *   `events/subscribe` / `events/unsubscribe` request whose body carries the
+ *   `params.name` / `params.uri` / `params.taskId` value the header mirrors
+ *   (every method on {@linkcode MCP_NAME_HEADER_SOURCE});
  * - the `Mcp-Name` header carries an invalid `=?base64?…?=` sentinel; or
  * - the (decoded) `Mcp-Name` value disagrees with the body's
  *   `params.name` / `params.uri` / `params.taskId`.

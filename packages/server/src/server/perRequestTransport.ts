@@ -116,6 +116,17 @@ interface SseSink {
 }
 
 let readClassification: (transport: PerRequestHTTPServerTransport) => MessageClassification;
+let readFlow: (transport: PerRequestHTTPServerTransport) => ResponseFlow;
+
+// Package-internal, not public API: how a per-request transport's response stream drains.
+export interface ResponseFlow {
+    // The bytes written to the response stream that the client has not read; 0 while it is not streaming.
+    backlog(): number;
+    // Resolves once the client asks for more with nothing left unread, or the stream ends; every call until then gets the same promise.
+    drained(): Promise<void>;
+    // Errors the response stream, which drops its unread bytes (how the HTTP response then ends is up to what serves it), and closes the exchange.
+    abort(): void;
+}
 
 /**
  * The per-request micro-transport: a real, connected `Transport` whose whole
@@ -128,6 +139,11 @@ let readClassification: (transport: PerRequestHTTPServerTransport) => MessageCla
 export class PerRequestHTTPServerTransport implements Transport {
     static {
         readClassification = transport => transport._classification;
+        readFlow = transport => ({
+            backlog: () => transport.backlog(),
+            drained: () => transport.drained(),
+            abort: () => transport.abortStream()
+        });
     }
 
     onclose?: () => void;
@@ -156,6 +172,8 @@ export class PerRequestHTTPServerTransport implements Transport {
     private _sse?: SseSink;
     private _abortCleanup?: () => void;
     private readonly _keepAliveMs: number;
+    // The drain epoch: one promise every waiter shares, resolved when the response stream's consumer asks for more with nothing queued, or the stream ends.
+    private _drained?: { readonly promise: Promise<void>; readonly resolve: () => void };
 
     constructor(options: PerRequestHTTPServerTransportOptions) {
         this._classification = options.classification;
@@ -374,6 +392,7 @@ export class PerRequestHTTPServerTransport implements Transport {
                 // The stream was already closed or cancelled by the consumer.
             }
         }
+        this.releaseDrained();
 
         if (this._deferredResponse !== undefined && !this._deferredResponse.settled) {
             this._deferredResponse.settled = true;
@@ -393,17 +412,23 @@ export class PerRequestHTTPServerTransport implements Transport {
 
     private upgradeToSse(): void {
         let controller!: ReadableStreamDefaultController<Uint8Array>;
-        const readable = new ReadableStream<Uint8Array>({
-            start: streamController => {
-                controller = streamController;
+        const readable = new ReadableStream<Uint8Array>(
+            {
+                start: streamController => {
+                    controller = streamController;
+                },
+                // With a high-water mark of 0, the consumer asks for more only once nothing is queued.
+                pull: () => this.releaseDrained(),
+                cancel: () => {
+                    // The client went away mid-stream: tear the exchange down,
+                    // which aborts the in-flight handler through the connected
+                    // server's close chain.
+                    void this.close();
+                }
             },
-            cancel: () => {
-                // The client went away mid-stream: tear the exchange down,
-                // which aborts the in-flight handler through the connected
-                // server's close chain.
-                void this.close();
-            }
-        });
+            // Sized in bytes from a high-water mark of 0, so `desiredSize` is minus the bytes the client has not read.
+            new ByteLengthQueuingStrategy({ highWaterMark: 0 })
+        );
         this._sse = { controller, encoder: new TextEncoder(), closed: false };
         this._sse.keepAliveTimer = armSseKeepAlive(this._keepAliveMs, () => this.writeCommentFrame('keepalive'));
 
@@ -434,7 +459,46 @@ export class PerRequestHTTPServerTransport implements Transport {
                 // The stream was already cancelled by the consumer.
             }
         }
+        this.releaseDrained();
         queueMicrotask(() => void this.close());
+    }
+
+    private backlog(): number {
+        const sse = this._sse;
+        const desiredSize = sse === undefined || sse.closed ? null : sse.controller.desiredSize;
+        return desiredSize === null ? 0 : Math.max(0, -desiredSize);
+    }
+
+    private drained(): Promise<void> {
+        if (this.backlog() === 0) return Promise.resolve();
+        if (this._drained === undefined) {
+            let resolve!: () => void;
+            const promise = new Promise<void>(settle => (resolve = settle));
+            this._drained = { promise, resolve };
+        }
+        return this._drained.promise;
+    }
+
+    // Ends the drain epoch; the next wait starts a new one.
+    private releaseDrained(): void {
+        const drained = this._drained;
+        this._drained = undefined;
+        drained?.resolve();
+    }
+
+    // Errors the stream, so the unread bytes are dropped, then closes the exchange.
+    private abortStream(): void {
+        const sse = this._sse;
+        if (sse !== undefined && !sse.closed) {
+            sse.closed = true;
+            if (sse.keepAliveTimer !== undefined) clearInterval(sse.keepAliveTimer);
+            try {
+                sse.controller.error(new Error('The client stopped reading the response stream'));
+            } catch {
+                // The stream was already closed or cancelled by the consumer.
+            }
+        }
+        void this.close();
     }
 
     private writeMessageFrame(message: JSONRPCMessage): void {
@@ -456,4 +520,9 @@ export class PerRequestHTTPServerTransport implements Transport {
 /** Package-internal: the classification a per-request transport serves; `undefined` for any other transport. Not public API. */
 export function perRequestClassificationOf(transport: Transport): MessageClassification | undefined {
     return transport instanceof PerRequestHTTPServerTransport ? readClassification(transport) : undefined;
+}
+
+// Package-internal, not public API: how a per-request transport's response stream drains; `undefined` for any other transport.
+export function perRequestFlowOf(transport: Transport | undefined): ResponseFlow | undefined {
+    return transport instanceof PerRequestHTTPServerTransport ? readFlow(transport) : undefined;
 }

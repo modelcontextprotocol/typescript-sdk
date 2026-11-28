@@ -1900,7 +1900,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     knownMethod,
                     ...(extra?.request !== undefined && { httpRequest: extra.request })
                 }),
-            error => this._onerror(error)
+            // Not a closure here: the scope keeps `report` while the handler runs, and must not keep the message with it.
+            this._onerror.bind(this)
         );
     }
 

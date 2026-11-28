@@ -70,6 +70,7 @@ import {
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
 import { coerceEmbeddedInputRequest, LegacyInputRequiredShim, resolveLegacyShimOptions } from './legacyInputRequiredShim';
+import { legacyAdvertisedCapabilities } from './modernOnlyExtensions';
 import { defaultInstrumentation } from './openTelemetry';
 import { perRequestClassificationOf } from './perRequestTransport';
 
@@ -960,7 +961,7 @@ export class Server extends Protocol<ServerContext> {
 
         return {
             protocolVersion,
-            capabilities: this.getCapabilities(),
+            capabilities: legacyAdvertisedCapabilities(this, this.getCapabilities()),
             serverInfo: this._serverInfo,
             ...(this._instructions && { instructions: this._instructions })
         };
