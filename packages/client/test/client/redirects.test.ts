@@ -512,6 +512,32 @@ describe('redirects', () => {
                 expect(otherRequests[0]).toMatchObject({ method: 'GET', url: '/sse', headers: { 'x-api-key': 'key-1' } });
             });
 
+            test('SSE endpoint event still rejects foreign-origin endpoints after a cross-origin redirect', async () => {
+                const redirectedRequests: Recorded[] = [];
+                const redirected = record(
+                    redirectedRequests,
+                    sseEndpoint((_req, res) => {
+                        res.writeHead(202).end();
+                    })
+                );
+                const redirectedUrl = await listenOnRandomPort(redirected);
+                try {
+                    handle = redirectTo(new URL('/sse', redirectedUrl));
+
+                    await expect(sseWith(follow).start()).rejects.toThrow(
+                        `Endpoint origin does not match connection origin: ${redirectedUrl.origin}`
+                    );
+                    expect(redirectedRequests).toEqual([
+                        { method: 'GET', url: '/sse', body: '', headers: expect.objectContaining({ 'x-api-key': 'key-1' }) }
+                    ]);
+                } finally {
+                    await transport?.close();
+                    transport = undefined;
+                    redirected.closeAllConnections();
+                    await new Promise(resolve => redirected.close(resolve));
+                }
+            });
+
             test('SSE POST to another origin is followed with its headers and body', async () => {
                 handle = sseEndpoint(toOther);
                 const client = await sseStarted(follow);
@@ -545,6 +571,40 @@ describe('redirects', () => {
         });
 
         describe("'same-origin' is the default", () => {
+            test.each<[string, string, string]>([
+                ['/new/sse', 'messages?sessionId=test', '/new/messages?sessionId=test'],
+                ['/new/sse/', 'messages?sessionId=test', '/new/sse/messages?sessionId=test'],
+                ['/new/sse', '/new/messages?sessionId=test', '/new/messages?sessionId=test']
+            ])(
+                'SSE endpoint %s with data %s resolves POST to %s after same-origin redirect',
+                async (redirectedPath, endpointData, expectedPostUrl) => {
+                    handle = (req, res, recorded) => {
+                        if (req.method === 'GET' && req.url === '/old/sse') {
+                            redirectTo(redirectedPath)(req, res, recorded);
+                            return;
+                        }
+                        if (req.method === 'GET' && req.url === redirectedPath) {
+                            res.writeHead(200, { 'content-type': 'text/event-stream' });
+                            res.write(`event: endpoint\ndata: ${endpointData}\n\n`);
+                            return;
+                        }
+                        res.writeHead(202).end();
+                    };
+                    const client = new SSEClientTransport(new URL('/old/sse', endpointUrl), { requestInit });
+                    client.onerror = () => {};
+                    transport = client;
+                    await client.start();
+
+                    await client.send(notification);
+
+                    expect(endpointRequests.at(-1)).toMatchObject({
+                        method: 'POST',
+                        url: expectedPostUrl,
+                        body: JSON.stringify(notification)
+                    });
+                }
+            );
+
             describe.each(started)('%s', (_name, create) => {
                 test.each([undefined, 'same-origin', 'other'] as const)(
                     'set to %s, a redirect to another origin is not followed',
